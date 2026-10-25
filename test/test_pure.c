@@ -5,6 +5,7 @@
 #include "ctl.h"
 #include "fmt.h"
 #include "cfg.h"
+#include "theme.h"
 #include "input.h"
 #include "dbgscr.h"
 #include "buzz.h"
@@ -275,9 +276,27 @@ static void t_dbg(void)
     CHECK(!strncmp(dbg_text(1, 0), "1/6 ", 4) && !strncmp(dbg_text(6, 0), "6/6 ", 4));
 }
 
+/* a theme changes colours only: text must be readable on every background it is drawn on, the meaning colours must stay distinct */
+static void t_theme(void)
+{
+    uint8_t t, k;
+    for (t = 0; t < TH_COUNT; t++) {
+        th_set(t);
+        CHECK(th_get() == t);
+        CHECK(th(R_TEXT) != th(R_BG) && th(R_TEXT) != th(R_BOX) && th(R_VOLT) != th(R_BOX) && th(R_DIM) != th(R_BOX));
+        CHECK(th(R_RUN) != th(R_BOX) && th(R_BOX) != th(R_BG));
+        CHECK(th(R_GOOD) != th(R_BAD) && th(R_WARN) != th(R_BAD) && th(R_GOOD) != th(R_WARN) && th(R_INFO) != th(R_BAD));
+        for (k = 0; k < 6; k++) CHECK(th(R_BADGE0 + k) != th(R_BG));       /* the badge digit is drawn in the background colour */
+        CHECK(th(R_DOT0) == th(R_BOX));                                    /* an idle port's dot disappears into the cell */
+        CHECK(th_name(t)[0] != 0);
+    }
+    th_set(99); CHECK(th_get() == TH_CLASSIC);
+    CHECK(cfg_valid_theme(TH_COUNT - 1) == TH_COUNT - 1 && cfg_valid_theme(TH_COUNT) == TH_CLASSIC && cfg_valid_theme(0xFF) == TH_CLASSIC);
+}
+
 int main(void)
 {
-    t_cal(); t_clamp(); t_port(); t_rail(); t_fmt(); t_input(); t_cfg(); t_buzz(); t_dbg();
+    t_cal(); t_clamp(); t_port(); t_rail(); t_fmt(); t_input(); t_cfg(); t_buzz(); t_dbg(); t_theme();
     printf("%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

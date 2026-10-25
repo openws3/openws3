@@ -6,6 +6,7 @@
 #include "adc.h"
 #include "lcd.h"
 #include "ui.h"
+#include "theme.h"
 #include "cfg.h"
 #include "cal.h"
 #include "ctl.h"
@@ -169,7 +170,7 @@ void app_boot(void)
     uint8_t n, ev, sel;
 
     cfg_load();                                      /* flash reads are safe before anything is powered */
-    mode = cfg_mode(); iset_user = cfg_current();
+    mode = cfg_mode(); iset_user = cfg_current(); th_set(cfg_theme());
     lim_cfg.ilim = cfg_ilim(); lim_cfg.vmin = cfg_vmin(); lim_cfg.vcut = cfg_vcut(); lim_cfg.mode = cfg_lmode();
     input_reset(); buzz_reset(); buzz_enable(cfg_buzzer());
 
@@ -289,7 +290,7 @@ static void usb_service(void)
 /* ---- menu session: the menu and the diagnostics screens it leads to ---- */
 static void menu_enter(void)
 {
-    menu_v.mode = mode; menu_v.cur = iset_user; menu_v.sound = cfg_buzzer();
+    menu_v.mode = mode; menu_v.cur = iset_user; menu_v.sound = cfg_buzzer(); menu_v.theme = th_get();
     menu_v.ilim = lim_cfg.ilim; menu_v.vmin = lim_cfg.vmin; menu_v.vcut = lim_cfg.vcut; menu_v.lmode = lim_cfg.mode;
     menu_open(run, CUR_MAX);
     menu_session = 1; menu_on = 1; dbg_page = 0; menu_next_row = 0;
@@ -299,7 +300,7 @@ static void menu_enter(void)
 /* close: the values were applied live, now they are saved (only what changed is written) */
 static void menu_leave(void)
 {
-    cfg_set_mode(mode); cfg_set_current(iset_user); cfg_set_buzzer(menu_v.sound);
+    cfg_set_mode(mode); cfg_set_current(iset_user); cfg_set_buzzer(menu_v.sound); cfg_set_theme(th_get());
     cfg_set_limits(lim_cfg.ilim, lim_cfg.vmin, lim_cfg.vcut, lim_cfg.mode);
     menu_session = 0; menu_on = 0; dbg_page = 0;
     ui_main_init();
@@ -376,6 +377,7 @@ void app_pass(void)
     if (menu_session) {                              /* menu values apply while they are edited; they are saved when the menu closes */
         if (!run) { mode = menu_v.mode; iset_user = menu_v.cur; }
         buzz_enable(menu_v.sound);
+        if (menu_v.theme != th_get()) { th_set(menu_v.theme); ui_text_enter(); menu_next_row = 0; }   /* repaint the menu in the new colours */
         lim_cfg.ilim = menu_v.ilim; lim_cfg.vmin = menu_v.vmin; lim_cfg.vcut = menu_v.vcut; lim_cfg.mode = menu_v.lmode;
         menu_context(run, CUR_MAX);
     }
@@ -477,12 +479,12 @@ void app_pass(void)
         dbg_view.est_ma = lim_out.est_ma; dbg_view.budget = lim_out.budget;
         dbg_view.trip = (uint8_t)(stop_reason == STOP_VLIM);
         for (n = 0; n < NPORTS; n++) dbg_view.cap[n] = cin.cap[n];
-        ui_text_row(dbg_next_row, dbg_text(dbg_page, dbg_next_row), dbg_next_row == 0 ? UI_C_INFO : UI_C_TEXT);       /* one row per pass */
+        ui_text_row(dbg_next_row, dbg_text(dbg_page, dbg_next_row), dbg_next_row == 0 ? th(R_INFO) : th(R_TEXT));       /* one row per pass */
         if (++dbg_next_row == DBG_ROWS) dbg_next_row = 0;
     } else if (menu_on) {
         static const char * XD t;
         t = menu_text(menu_next_row);
-        ui_text_row(menu_next_row, t, t[0] == '>' ? UI_C_GOOD : t[0] == '*' ? UI_C_WARN : menu_next_row == 0 ? UI_C_INFO : menu_next_row == MENU_ROWS - 1 ? UI_C_DIM : UI_C_TEXT);
+        ui_text_row(menu_next_row, t, t[0] == '>' ? th(R_GOOD) : t[0] == '*' ? th(R_WARN) : menu_next_row == 0 ? th(R_INFO) : menu_next_row == MENU_ROWS - 1 ? th(R_DIM) : th(R_TEXT));
         if (++menu_next_row == MENU_ROWS) menu_next_row = 0;
     } else {
         ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */

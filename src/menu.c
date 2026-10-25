@@ -3,8 +3,9 @@
 #include "cal.h"
 #include "fmt.h"
 #include "limits.h"
+#include "theme.h"
 
-enum { IT_MODE, IT_CURRENT, IT_SOUND, IT_ILIM, IT_VMIN, IT_VCUT, IT_LMODE, IT_DIAG, IT_EXIT, NITEMS };
+enum { IT_MODE, IT_CURRENT, IT_SOUND, IT_THEME, IT_ILIM, IT_VMIN, IT_VCUT, IT_LMODE, IT_DIAG, IT_EXIT, NITEMS };
 #define VISIBLE 8
 
 menu_vals_t XD menu_v;
@@ -12,7 +13,7 @@ static uint8_t XD cursor, editing, backup, running, cur_max;
 static char XD rowtxt[ROW_COLS + 1];
 static char XD tmp[12];
 
-static const char *const LABEL[NITEMS] = { "MODE", "CURRENT", "SOUND", "MAX IN AMPS", "MIN IN VOLTS", "BELOW MIN", "REGULATION", "DIAGNOSTICS", "EXIT & SAVE" };
+static const char *const LABEL[NITEMS] = { "MODE", "CURRENT", "SOUND", "THEME", "MAX IN AMPS", "MIN IN VOLTS", "BELOW MIN", "REGULATION", "DIAGNOSTICS", "EXIT & SAVE" };
 static const char *const MODE_NAME[4] = { "4.20V", "4.35V", "3.80V STOR", "3.85V STOR" };
 static const char *const LMODE_NAME[LM_NMODES] = { "EQUAL", "CH1 FIRST", "LOW V FIRST", "HIGH V FIRST" };
 
@@ -22,6 +23,7 @@ static uint8_t XD *slot(uint8_t it)
     case IT_MODE: return &menu_v.mode;
     case IT_CURRENT: return &menu_v.cur;
     case IT_SOUND: return &menu_v.sound;
+    case IT_THEME: return &menu_v.theme;
     case IT_ILIM: return &menu_v.ilim;
     case IT_VMIN: return &menu_v.vmin;
     case IT_VCUT: return &menu_v.vcut;
@@ -49,6 +51,7 @@ static void step(uint8_t it, uint8_t up)
     case IT_ILIM: *v = up ? lim_ilim_next(*v) : lim_ilim_prev(*v); break;
     case IT_VMIN: *v = up ? lim_vmin_next(*v) : lim_vmin_prev(*v); break;
     case IT_LMODE: if (up) { if (*v < LM_NMODES - 1) (*v)++; } else if (*v) (*v)--; break;
+    case IT_THEME: if (up) { if (*v < TH_COUNT - 1) (*v)++; } else if (*v) (*v)--; break;
     }
 }
 
@@ -84,6 +87,7 @@ static void value(uint8_t it)
     case IT_MODE: rb_right(MODE_NAME[v & 3], ROW_COLS - 1); break;
     case IT_CURRENT: fmt_a1(tmp, cal_set_to_ma(v)); rb_right(tmp, ROW_COLS - 1); break;
     case IT_SOUND: rb_right(v ? "ON" : "OFF", ROW_COLS - 1); break;
+    case IT_THEME: rb_right(th_name(v), ROW_COLS - 1); break;
     case IT_ILIM:
         if (v >= ILIM_MAX) rb_right("10.0A", ROW_COLS - 1);                      /* fmt_a1 stops at 9.9A */
         else if (v) { fmt_a1(tmp, (uint16_t)(v * 100u)); rb_right(tmp, ROW_COLS - 1); }
@@ -100,7 +104,7 @@ const char *menu_text(uint8_t row)
     rb_begin(rowtxt);
     if (row == 0) {
         rb_str("MENU");
-        rb_pad(ROW_COLS - 4); rb_num((uint32_t)cursor + 1, 0); rb_ch('/'); rb_num(NITEMS, 0);
+        rb_pad(ROW_COLS - (cursor >= 9 ? 5 : 4)); rb_num((uint32_t)cursor + 1, 0); rb_ch('/'); rb_num(NITEMS, 0);
     } else if (row <= VISIBLE) {
         uint8_t first = cursor >= VISIBLE ? (uint8_t)(cursor - (VISIBLE - 1)) : 0, it = (uint8_t)(first + row - 1);
         if (it < NITEMS) {

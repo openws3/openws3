@@ -43,6 +43,7 @@ Press **B1 and B2 together** (within about 0.3 s of each other) and hold for 1.5
 | MODE | 4.20 V / 4.35 V / 3.80 V storage / 3.85 V storage (not while charging) |
 | CURRENT | per-port current, 0.3 A and up, within what the present input allows (not while charging) |
 | SOUND | on / off |
+| THEME | colours only, no behaviour change: `CLASSIC` (the original look), `CALM` (colour only where it means something), `AMBER` (one hue on black, red for trouble), `HIGH CONTRAST`. Applies at once |
 | MAX IN AMPS | limit on the estimated input current: off, 0.5 to 3.0 A in 0.1 A steps, then 0.5 A steps up to 10 A. The ports are limited smoothly |
 | MIN IN VOLTS | minimum input voltage: off, 4.8 to 6.0 V in 0.1 V steps, then 0.5 V steps up to 25.0 V |
 | BELOW MIN | what happens when the input is below that minimum: `LIMIT` reduces the charge current smoothly until the input recovers; `STOP RUN` stops charging after a second and shows `V LIMIT` |
@@ -51,7 +52,7 @@ Press **B1 and B2 together** (within about 0.3 s of each other) and hold for 1.5
 | EXIT & SAVE | close the menu and save |
 
 Keys: the two buttons sit under the screen, **left = B1, right = B2**. Right is forward, left is back. In the list the **right** button moves
-down and the **left** one up (no wrap-around, the position is shown as n/9); a **long press of the right button** edits the item or runs the action.
+down and the **left** one up (no wrap-around, the position is shown as n/10); a **long press of the right button** edits the item or runs the action.
 While editing, **right** raises the value and **left** lowers it, a **long right press** confirms and a **long left press** cancels (the old value comes back).
 The bottom row of the screen shows these cues in its corners. Values apply at once and are saved when the menu closes; only changed settings are written.
 

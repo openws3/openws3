@@ -4,14 +4,14 @@
 #   make clean
 # CHARGE=0 builds an image that does everything except energise a port (bench / display work).
 SDCC   ?= sdcc
-SRCS    = src/main.c src/hal.c src/adc.c src/cal.c src/ctl.c src/fmt.c src/font.c src/lcd.c src/ui.c src/cfg.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c src/app.c src/ports.c src/usb.c src/dbgscr.c src/rowbuf.c src/limits.c src/menu.c
+SRCS    = src/main.c src/hal.c src/adc.c src/cal.c src/ctl.c src/fmt.c src/font.c src/lcd.c src/ui.c src/cfg.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c src/app.c src/ports.c src/usb.c src/dbgscr.c src/rowbuf.c src/limits.c src/menu.c src/theme.c
 # large model on purpose: locals live in XRAM, IRAM is left for the stack.  NOT medium: MOVX @Ri would use P2
 # (a power-path port on this board) as the high address byte.
 CHARGE ?= 1
 BUILD  ?= build
 CFLAGS  = -DCHARGE_ENABLED=$(CHARGE) -mmcs51 --model-large --code-loc 0x0000 --xram-loc 0x0000 --xram-size 8192 --iram-size 256 --Werror
 HOSTCC ?= gcc
-PURE    = src/rowbuf.c src/limits.c src/dbgscr.c src/cal.c src/ctl.c src/fmt.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c
+PURE    = src/theme.c src/rowbuf.c src/limits.c src/dbgscr.c src/cal.c src/ctl.c src/fmt.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c
 
 all: $(BUILD)/fw.bin
 
@@ -46,9 +46,9 @@ build/test_limits: test/test_limits.c src/limits.c src/cal.c src/chg.c src/ctl.c
 	@mkdir -p build
 	$(HOSTCC) -std=c99 -Wall -Wextra -Werror -Isrc -o $@ test/test_limits.c src/limits.c src/cal.c src/chg.c src/ctl.c src/sup.c
 
-build/test_menu: test/test_menu.c src/menu.c src/rowbuf.c src/limits.c src/cal.c src/fmt.c $(wildcard src/*.h)
+build/test_menu: test/test_menu.c src/menu.c src/rowbuf.c src/limits.c src/cal.c src/fmt.c src/theme.c $(wildcard src/*.h)
 	@mkdir -p build
-	$(HOSTCC) -std=c99 -Wall -Wextra -Werror -Isrc -o $@ test/test_menu.c src/menu.c src/rowbuf.c src/limits.c src/cal.c src/fmt.c
+	$(HOSTCC) -std=c99 -Wall -Wextra -Werror -Isrc -o $@ test/test_menu.c src/menu.c src/rowbuf.c src/limits.c src/cal.c src/fmt.c src/theme.c
 
 test: build/test_pure build/test_chg build/test_limits build/test_menu
 	./build/test_pure

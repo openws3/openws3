@@ -50,7 +50,7 @@ a bleed (discharge) current; the displayed bleed value is an estimate from the v
 
 ## Settings storage
 
-Settings use the chip's IAP (EEPROM area of the flash) at offsets 0x0200 (current), 0x0400 (mode), 0x0600 (buzzer) and 0x0800
+Settings use the chip's IAP (EEPROM area of the flash) at offsets 0x0200 (current), 0x0400 (mode), 0x0600 (buzzer), 0x0A00 (colour theme) and 0x0800
 (limits, magic 0xA6), one 512-byte sector each.
 
 ## Flashing

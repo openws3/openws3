@@ -16,7 +16,7 @@
 #define MENU_ROWS   10                /* row 0 title, rows 1..8 items (scrolls), row 9 hint */
 
 typedef struct {
-    uint8_t mode, cur, sound;
+    uint8_t mode, cur, sound, theme;
     uint8_t ilim, vmin, vcut, lmode;
 } menu_vals_t;
 

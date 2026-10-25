@@ -2,13 +2,14 @@
 #include "hal.h"
 #include "limits.h"
 
-static uint8_t __xdata cur, mode, buz, ilim, vmin, vcut, lmode;
+static uint8_t __xdata cur, mode, buz, ilim, vmin, vcut, lmode, theme;
 
 void cfg_load(void)
 {
     cur  = cfg_valid_current(hal_ee_read(CFG_ADDR_CURRENT));
     mode = cfg_valid_mode(hal_ee_read(CFG_ADDR_MODE));
     buz  = cfg_valid_buzzer(hal_ee_read(CFG_ADDR_BUZZER));
+    theme = cfg_valid_theme(hal_ee_read(CFG_ADDR_THEME));
     if (hal_ee_read(CFG_ADDR_LIMITS) == CFG_LIMITS_MAGIC) {
         ilim  = cfg_valid_ilim(hal_ee_read(CFG_ADDR_LIMITS + 1));
         lmode = cfg_valid_lmode(hal_ee_read(CFG_ADDR_LIMITS + 2));
@@ -24,6 +25,7 @@ uint8_t cfg_ilim(void)    { return ilim; }
 uint8_t cfg_vmin(void)    { return vmin; }
 uint8_t cfg_vcut(void)    { return vcut; }
 uint8_t cfg_lmode(void)   { return lmode; }
+uint8_t cfg_theme(void)   { return theme; }
 
 static void store(uint16_t addr, uint8_t v)
 {
@@ -36,6 +38,7 @@ static void store(uint16_t addr, uint8_t v)
 void cfg_set_current(uint8_t u) { cur = cfg_valid_current(u); store(CFG_ADDR_CURRENT, cur); }
 void cfg_set_mode(uint8_t m)    { mode = cfg_valid_mode(m);   store(CFG_ADDR_MODE, mode); }
 void cfg_set_buzzer(uint8_t on) { buz = on ? 1 : 0;           store(CFG_ADDR_BUZZER, buz); }
+void cfg_set_theme(uint8_t t)   { theme = cfg_valid_theme(t); store(CFG_ADDR_THEME, theme); }
 
 void cfg_set_limits(uint8_t i, uint8_t v, uint8_t c, uint8_t m)
 {
