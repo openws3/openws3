@@ -28,9 +28,26 @@ V_PER_COUNT = 4.5 / 4096
 A_PER_COUNT = 1 / 68.25
 
 
+LMODE = ['EQUAL', 'CH1 FIRST', 'LOW V FIRST', 'HIGH V FIRST']
+P_NONE = 10000                       # budget value meaning "no limit"
+_lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
+
+
+def parse_limits(r):
+    u16 = lambda i: (r[i] << 8) | r[i + 1]
+    return dict(lim=dict(
+        ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(12), p_cur=u16(14), p_vol=u16(16), est_ma=u16(18), bcnt=u16(20),
+        trip=r[22], active=r[23], cap=list(r[24:30]), want=list(r[30:36]), thr=list(r[36:42]), vin=u16(42), rail=u16(44),
+        setpoint=u16(46), target=u16(48), iset_eff=r[50], any_active=r[51], sup_stop=r[52], poweroff=r[53], rail_cut=r[54],
+        rail_alarm=r[55], alarm_steady=r[56], cells=r[57], lim_stop=u16(58), lim_off=u16(60)))
+
+
 def parse(r):
-    """decode one 64-byte telemetry report; None if it is not a complete one"""
+    """decode one 64-byte telemetry report; None if it is not a complete one.  Page 2 (byte 3 = 2) only updates `_lim` and returns None."""
     if len(r) != REPORT or r[0] != 0x57 or r[1] != 0x33 or r[2] == 0 or r[2] != r[63]:
+        return None
+    if r[3] == 2:
+        _lim.update(parse_limits(r))
         return None
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     f = r[8]
@@ -41,7 +58,7 @@ def parse(r):
         iset=r[9], iset_user=r[10], stop=r[11], alarm=r[12] & 15, debug_page=r[12] >> 4, ev_seq=r[13], ev_code=r[14], ev_port=r[15],
         cmd_seq=r[16], cmd_res=r[17], state=list(r[18:24]), sw=[(r[24] >> k) & 1 for k in range(6)], phase=r[25],
         duty=[u16(26 + 2 * k) for k in range(6)], v=[u16(38 + 2 * k) for k in range(6)], i=list(r[50:56]),
-        rail=u16(56), vin=u16(58), bandgap=u16(60), rail_duty=r[62] * 4)
+        rail=u16(56), vin=u16(58), bandgap=u16(60), rail_duty=r[62] * 4, **_lim)
 
 
 def find(flags=os.O_RDWR):
@@ -76,6 +93,7 @@ def snapshot():
     fd = find()
     try:
         t = read_report(fd, 2.0)
+        if t and 'lim' not in t: t = read_report(fd, 2.0) or t       # the first report can precede the first page 2
     finally:
         os.close(fd)
     if not t: sys.exit('no telemetry')
@@ -108,7 +126,29 @@ def fmt_status(t):
     if t['stop']: extra += '  stop=%s' % STOP.get(t['stop'], t['stop'])
     if t['alarm']: extra += '  alarm=%d' % t['alarm']
     if t['debug_page']: extra += '  screen=%s' % ('menu' if t['debug_page'] == 15 else 'diag%d' % t['debug_page'])
-    return head + extra + ('\n         ' + cells if cells else '')
+    return head + extra + ('\n         ' + cells if cells else '') + fmt_limits(t)
+
+
+def fmt_limits(t):
+    """the limiter / supervisor lines (page 2), empty if the firmware does not send it"""
+    L = t.get('lim')
+    if not L or not t['run']: return ''
+    amps = lambda c: '%.2fA' % (c * A_PER_COUNT)
+    cap = lambda c: '-' if c == 0 else 'PARK' if c == 1 else amps(c)
+    watts = lambda p: 'none' if p >= P_NONE else '%.1fW' % (p / 10)
+    out = '\n         limits  in %s  min %s  below-min %s  regulation %s  | %s' % (
+        '%.1fA' % (L['ilim'] / 10) if L['ilim'] else 'off', '%.1fV' % (L['vmin'] / 10) if L['vmin'] else 'off',
+        'STOP RUN' if L['vcut'] else 'LIMIT', LMODE[L['lmode']] if L['lmode'] < 4 else L['lmode'], 'evaluated' if L['active'] else 'idle')
+    out += '\n         budget  %s (current %s, voltage %s) = %s over the ports (%d counts)  est input %.2fA  trip %d' % (
+        watts(L['budget']), watts(L['p_cur']), watts(L['p_vol']), amps(L['bcnt']) if L['bcnt'] else 'no cap', L['bcnt'], L['est_ma'] / 1000, L['trip'])
+    ports = [k for k in range(6) if t['state'][k] == 2]
+    if ports:
+        out += '\n         ports   ' + '  '.join('%d: want %s cap %s%s' % (k + 1, amps(L['want'][k]), cap(L['cap'][k]), ' THR' if L['thr'][k] else '') for k in ports)
+        if L['lmode'] == 0:
+            out += '\n         share   %s per port over %d charging' % (amps(L['bcnt'] // len(ports)) if L['bcnt'] else '-', len(ports))
+    out += '\n         supply  input %d counts rail %d (set %d, target %d)  eff.current %s  cells %d  stop-below %d off-below %d  sup stop=%s' % (
+        L['vin'], L['rail'], L['setpoint'], L['target'], amps(L['iset_eff']), L['cells'], L['lim_stop'], L['lim_off'], STOP.get(L['sup_stop'], L['sup_stop']))
+    return out
 
 
 def watch(n, raw):

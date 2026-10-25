@@ -20,9 +20,10 @@
 
 /* ---- timers, in control passes (4.5 ms) ------------------------------------------------------------------------- */
 #define T_PROBE         4       /* settle with the output off before classifying  */
-#define T_TAIL          8000    /* mode<2: V>=T-20 and I<=5 for this long -> rest test (136 s) */
+#define T_TAIL          8000    /* mode<2: V>=T-20 and I<=5 for this long -> rest test (36 s) */
+#define T_OPEN          450     /* CHARGE, past the soft ramp, no current at all for this long -> rest test (2 s) */
 #define T_REST          230     /* output off while resting */
-#define T_PAUSE         4000    /* pause before restarting after a rest below the target (68 s) */
+#define T_PAUSE         4000    /* pause before restarting after a rest below the target (18 s) */
 #define T_RAMP_STEP     100     /* soft start: +1 duty per this many passes */
 #define T_OC            200     /* over-current persistence */
 #define T_OVER_FAULT    100     /* V>4.40 V above the rail */
@@ -36,6 +37,7 @@
 #define T_BLEED_LOW     3000    /* bleed: stays this long below T-40 -> hold */
 #define T_BLEED_HOLD    200     /* bleed: output off while holding */
 #define T_REMOVED       6       /* V < 1.00 V this long = cell removed */
+#define I_OPEN          2       /* "no current": 29 mA, the offset of the sense input */
 #define I_STEP          7       /* storage current step-down */
 #define I_FLOOR         15      /* ... until the setting is below this */
 #define I_LOW_V_CAP     63      /* current cap at low cell voltage (0.92 A) */
@@ -51,7 +53,7 @@ typedef struct {
     uint16_t v, i;
     uint8_t  iset;               /* working current setting */
     uint8_t  ramp, ramp_div;
-    uint16_t t_tail, t_stor, t_rest, t_pause, t_full, t_bleed_lo, t_bleed_hold, t_probe, t_gone;
+    uint16_t t_tail, t_open, t_stor, t_rest, t_pause, t_full, t_bleed_lo, t_bleed_hold, t_probe, t_gone;
     uint8_t  t_over, oc;
     uint8_t  full_kind;          /* 0: from probe/rest, 1: from the bleed window */
     uint8_t  bleed_hold;
@@ -68,7 +70,7 @@ static void p_reset(port_t XD *p, uint8_t iset)
     p->st = PS_IDLE; p->duty = 0; p->sw = 0;
     p->want = p->thr = p->ieff = 0; p->pduty = 0;
     p->iset = iset; p->ramp = 0; p->ramp_div = 0;
-    p->t_tail = p->t_stor = p->t_rest = p->t_pause = p->t_full = p->t_bleed_lo = p->t_bleed_hold = p->t_probe = 0;
+    p->t_tail = p->t_open = p->t_stor = p->t_rest = p->t_pause = p->t_full = p->t_bleed_lo = p->t_bleed_hold = p->t_probe = 0;
     p->t_over = p->oc = 0;
     p->full_kind = 0; p->bleed_hold = 0; p->bleed_checked = 0; p->announced = 0;
 }
@@ -191,6 +193,12 @@ static void one_port(port_t XD *p, const chg_in_t XD *in, uint8_t k, uint8_t XD 
         if (p->i >= (uint16_t)(2u * g + 7u)) {
             if (++p->oc >= T_OC) { p->oc = 0; go_fault(p, ev); break; }
         } else if (p->oc) p->oc--;
+
+        /* a cell pulled while charging: the loop winds the duty up, the pin follows the rail and nothing flows, which looks like the end
+           of a taper.  A real cell past its soft ramp always draws something; look at the pin with the output off (the rest test) */
+        if (!p->thr && !p->ramp && p->i <= I_OPEN) {
+            if (++p->t_open >= T_OPEN) { p->t_open = 0; p->st = PS_REST; p->t_rest = 0; p->duty = 0; break; }
+        } else p->t_open = 0;
 
         if (!over_rail) {
             if (p->thr) {

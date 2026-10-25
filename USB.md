@@ -3,8 +3,9 @@
 The firmware is a USB **HID** device (VID `34bf`, PID `1004`, product "OpenWS3") alongside its normal job. No driver is
 needed. The report descriptor uses a vendor-defined usage page, so the host does not turn the telemetry into keyboard or other input events. On Linux it shows up as `/dev/hidrawN`. Use `tools/fwmon.py`.
 
-* Telemetry: one 64-byte **IN** report, polled every 10 ms. It is available from power-up, including during boot and on fatal
-  errors, so a failing boot can be watched.
+* Telemetry: 64-byte **IN** reports, polled every 10 ms, in two pages sent alternately (byte 3 = page): page 1 is the charger, page 2 the
+  limiter and supervisor, so each page is refreshed every 20 ms. It is available from power-up, including during boot and on fatal
+  errors, so a failing boot can be watched. `fwmon.py` merges the two pages into one snapshot.
 * Commands: one 64-byte **OUT** report. The interrupt only stores it. `app_pass` executes it in the main loop with the same rules as
   the buttons, so the power path is never touched from interrupt context. **There is no raw PWM or GPIO access.**
 * ISP is unaffected: hold the button while plugging USB-C to flash as before, or send command 6 (`fwmon.py isp`).
@@ -16,7 +17,7 @@ needed. The report descriptor uses a vendor-defined usage page, so the host does
 |---|---|
 | 0, 1 | magic `57 33` |
 | 2 | sequence (1..255), **head**; a report is valid only if byte 63 equals it |
-| 3 | layout version (1) |
+| 3 | page (1) |
 | 4–7 | uptime, ms |
 | 8 | flags: b0 running, b1–2 mode, b3 outputs enabled (P5.2), b4 charging compiled in, b5 rail alarm pause, b6 strap (variable input), b7 DC input chosen |
 | 9 | effective current setting (counts: 21 = 0.3 A … 91 = 1.3 A, ×7 per 0.1 A) |
@@ -35,9 +36,31 @@ needed. The report descriptor uses a vendor-defined usage page, so the host does
 | 62 | rail PWM duty ÷ 4 |
 | 63 | sequence, **tail** (written last; 0 while the report is being rebuilt) |
 
+### Page 2: limiter and supervisor
+
+Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Everything below is zero before the run phase.
+
+| Byte | Content |
+|---|---|
+| 8–11 | settings: MAX IN AMPS (0.1 A, 0 = off), MIN IN VOLTS (0.1 V, 0 = off), BELOW MIN (1 = stop the run), REGULATION (0 equal, 1 ch1 first, 2 low V first, 3 high V first) |
+| 12, 13 | power budget, 0.1 W (10000 = no limit) |
+| 14, 15 / 16, 17 | its two parts: from the current limit / from the voltage floor (10000 = not active) |
+| 18, 19 | estimated input current, mA |
+| 20, 21 | the budget as a total port current, counts (1/68.25 A); 0 = no limit active |
+| 22 | trip: 1 = the minimum input voltage stops the run |
+| 23 | the limiter ran this pass (running and no rail hold) |
+| 24–29 | cap per port: 0 none, 1 parked (output off), else a current in counts |
+| 30–35 | the current each port wants before the limits, counts (charging ports only) |
+| 36–41 | 1 = the port's cap is below the current it wants |
+| 42–45 | input voltage and rail as the limiter sees them, ADC counts, 16 bit each |
+| 46–49 | rail setpoint and port-voltage target of the mode, counts |
+| 50 | effective current setting, counts; 51: some port is charging or bleeding (global enable) |
+| 52–56 | supervisor: stop reason, power-off, rail cut, rail alarm, steady alarm |
+| 57 | input cell count read at boot; 58–59: stop-charging threshold, 60–61: power-down threshold, ADC counts |
+
 Voltages, currents and the rail are zero before phase 7 except the three ADC words, which are live from phase 1.
 
-The screen open on the LCD (menu or a diagnostics page, B1+B2 chord) is in byte 12's high nibble. Stop reasons in byte 11 now include 5 (minimum input voltage, user setting).
+The screen open on the LCD (menu or a diagnostics page) is in byte 12's high nibble. Stop reasons in byte 11 now include 5 (minimum input voltage, user setting).
 
 ## Commands (OUT, byte 0 = command, 1 = argument, 2 = sequence echoed in telemetry byte 16)
 

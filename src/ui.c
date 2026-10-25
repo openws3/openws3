@@ -9,7 +9,7 @@
 
 #define NELEM (3 + NPORTS * 3)           /* 3 header boxes, then per port: voltage, status text, dot */
 
-static char    XD shown[NELEM][8];
+static char    XD shown[NELEM][9];
 static uint8_t XD shown_dot[NPORTS];
 static uint8_t XD next_el;
 
@@ -53,7 +53,7 @@ void ui_choose(uint8_t dc)
     lcd_text(18, 37, "1:DC INPUT", 1, 1, th(R_TEXT), dc ? th(R_RUN) : th(R_BG));
     lcd_fill(14, 50, 132, 14, dc ? th(R_BG) : th(R_RUN));
     lcd_text(18, 53, "2:LIPO INPUT", 1, 1, th(R_TEXT), dc ? th(R_BG) : th(R_RUN));
-    centered(70, "B1 SHORT SWITCH  LONG OK", 1, 1, th(R_DIM), th(R_BG));
+    centered(70, "B1/B2 SWITCH  BOTH OK", 1, 1, th(R_DIM), th(R_BG));
 }
 
 static void put(uint8_t e, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
@@ -117,7 +117,7 @@ static void element(const ui_state_t *s, uint8_t e)
             else { fmt_v1(t, cal_vin_mv(s->vin)); col = th(R_VIN); }
         } else fmt_v2(t, cal_port_mv(s->tgt));
         /* the box colour changes with run state: repaint the box when it does */
-        if (shown[e][7] != (char)(s->run + 1)) { lcd_fill(box_x(e), UI_HDR_Y, UI_BOX_W, UI_HDR_H, bg); shown[e][0] = 0; shown[e][7] = (char)(s->run + 1); }
+        if (shown[e][8] != (char)(s->run + 1)) { lcd_fill(box_x(e), UI_HDR_Y, UI_BOX_W, UI_HDR_H, bg); shown[e][0] = 0; shown[e][8] = (char)(s->run + 1); }
         put(e, box_x(e) + UI_HDR_TX, UI_HDR_Y + UI_HDR_TY, 2, col, bg, t);
     } else {
         uint8_t k = e - 3, p = k / 3, part = k % 3;
@@ -147,9 +147,9 @@ static uint16_t XD dbg_col[DBG_ROWS];
 
 void ui_text_enter(void)
 {
-    uint8_t r;
+    uint8_t r, i;
     lcd_fill(0, 0, LCD_PX_W, LCD_PX_H, th(R_BG));
-    for (r = 0; r < DBG_ROWS; r++) dbg_shown[r][0] = 0;
+    for (r = 0; r < DBG_ROWS; r++) for (i = 0; i <= DBG_COLS; i++) dbg_shown[r][i] = 0;   /* the whole row: a stale tail would count as drawn */
 }
 
 /* draws only the span of characters that changed: a whole row would take ~13 ms on this bus.  A different colour

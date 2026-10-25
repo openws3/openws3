@@ -4,11 +4,12 @@
  * One number rules both: the power budget P (0.1 W units, at the input): the most the charging ports may draw together.
  *   current limit  P_i = limit x input voltage: worked out from scratch every update, no stored state
  *   voltage floor  P_v is stored: it shrinks while the input voltage is below the floor (a weak source recovers when it is loaded
- *                  less) and grows back slowly once the input is 0.3 V above the floor.  With vcut set the floor does not
+ *                  less) and grows back slowly once the input is 0.1 V above the floor.  With vcut set the floor does not
  *                  regulate: the run is stopped instead (the caller shows why) after a second below it.
  *   P = the smaller of the two; the port current budget follows from it: P x 90 % / rail voltage
  * One setting, the regulation, decides how the budget is shared out over the charging ports:
- *   LM_EQUAL     every port gets the same share (a port that wants less frees the rest)
+ *   LM_EQUAL     every port gets the same share (a port that wants less frees the rest); if the share would be too small to
+ *                drive, the highest-numbered ports are parked so that the others get a usable one
  *   LM_BY_CH     one by one: port 1 keeps its current longest, the highest port number is cut first
  *   LM_BY_VLOW   one by one: the cell with the lowest voltage keeps its current longest (the fullest cell is cut first)
  *   LM_BY_VHIGH  one by one: the cell with the highest voltage keeps its current longest
@@ -56,6 +57,8 @@ typedef struct {
     uint8_t  trip;                          /* LT_VOLTAGE: the input was below the floor for a second and vcut is set: stop the run */
     uint16_t est_ma;                        /* estimated input current */
     uint16_t budget;                        /* the power budget, 0.1 W (diagnostics); LIM_P_BIG = no limit */
+    uint16_t p_cur, p_vol;                  /* the two parts of it: from the current limit / from the voltage floor (LIM_P_BIG = not active) */
+    uint16_t bcnt;                          /* the budget as a total port current, counts; 0 = no limit active */
 } lim_out_t;
 
 /* The data goes through these globals, not parameters: direct RAM is full on this chip and function parameters live there. */

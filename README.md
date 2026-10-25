@@ -36,36 +36,37 @@ voltages, currents, events and faults live; `start`/`stop`/`current`/`mode` driv
 
 ## Menu
 
-Press **B1 and B2 together** (within about 0.3 s of each other) and hold for 1.5 s. The same chord closes the menu and saves it.
+Press **B1 and B2 together** (within about 0.2 s of each other) and release. Holding both for 0.8 s (a beep) closes the menu and saves it.
 
-| Item | Setting |
-|---|---|
-| MODE | 4.20 V / 4.35 V / 3.80 V storage / 3.85 V storage (not while charging) |
-| CURRENT | per-port current, 0.3 A and up, within what the present input allows (not while charging) |
-| SOUND | on / off |
-| THEME | colours only, no behaviour change: `CLASSIC` (the original look), `CALM` (colour only where it means something), `AMBER` (one hue on black, red for trouble), `HIGH CONTRAST`. Applies at once |
-| MAX IN AMPS | limit on the estimated input current: off, 0.5 to 3.0 A in 0.1 A steps, then 0.5 A steps up to 10 A. The ports are limited smoothly |
-| MIN IN VOLTS | minimum input voltage: off, 4.8 to 6.0 V in 0.1 V steps, then 0.5 V steps up to 25.0 V |
-| BELOW MIN | what happens when the input is below that minimum: `LIMIT` reduces the charge current smoothly until the input recovers; `STOP RUN` stops charging after a second and shows `V LIMIT` |
-| REGULATION | how the limits share the budget over the ports: `EQUAL`, `CH1 FIRST`, `LOW V FIRST`, `HIGH V FIRST` (below) |
-| DIAGNOSTICS | the debug pages (below) |
-| EXIT & SAVE | close the menu and save |
+The menu has four categories; **OK** opens one and **BACK** returns to the list of categories (from there, **BACK** closes the menu and saves).
 
-Keys: the two buttons sit under the screen, **left = B1, right = B2**. Right is forward, left is back. In the list the **right** button moves
-down and the **left** one up (no wrap-around, the position is shown as n/10); a **long press of the right button** edits the item or runs the action.
-While editing, **right** raises the value and **left** lowers it, a **long right press** confirms and a **long left press** cancels (the old value comes back).
+| Category | Item | Setting |
+|---|---|---|
+| CHARGING | MODE | 4.20 V / 4.35 V / 3.80 V storage / 3.85 V storage (not while charging) |
+| | CURRENT | per-port current, 0.3 A and up, within what the present input allows (not while charging) |
+| LIMITS | MAX IN AMPS | limit on the estimated input current: off, 0.5 to 3.0 A in 0.1 A steps, then 0.5 A steps up to 10 A. The ports are limited smoothly |
+| | MIN IN VOLTS | minimum input voltage: off, 4.8 to 6.0 V in 0.1 V steps, then 0.5 V steps up to 25.0 V |
+| | BELOW MIN | what happens when the input is below that minimum: `LIMIT` reduces the charge current smoothly until the input recovers; `STOP RUN` stops charging after a second and shows `V LIMIT` |
+| | REGULATION | how the limits share the budget over the ports: `EQUAL`, `CH1 FIRST`, `LOW V FIRST`, `HIGH V FIRST` (below) |
+| PREFERENCES | SOUND | on / off |
+| | THEME | colours only, no behaviour change: `CLASSIC` (the original look), `CALM` (colour only where it means something), `AMBER` (one hue on black, red for trouble), `HIGH CONTRAST`. Applies at once |
+| DIAGNOSTICS | | the debug pages (below) |
+
+Keys: the two buttons sit under the screen, **left = B1, right = B2**. A tap steps once; holding a button repeats, faster the longer it is held.
+Both buttons together are **OK**, both held for 0.8 s are **BACK**. In a list **B2** moves down and **B1** up (it wraps around, the position is shown as n/m);
+**OK** opens a category or edits the item and **BACK** goes one level up. While editing, **B2** raises the value and **B1** lowers it, **OK** confirms and **BACK** cancels (the old value comes back).
 The bottom row of the screen shows these cues in its corners. Values apply at once and are saved when the menu closes; only changed settings are written.
 
 **The limits.** Both limits work on one power budget, the most the charging ports may draw together (shown on diagnostics page 6). The input
 current is estimated as rail voltage x the sum of the measured port currents / (90 % x input voltage).
 The current limit sets the budget directly (limit x input voltage). With BELOW MIN on `LIMIT`, the voltage floor keeps a stored budget that shrinks
-while the input is below the floor (a weak source recovers when it is loaded less) and grows slowly once it is back 0.3 V above it; the smaller of the
+while the input is below the floor (a weak source recovers when it is loaded less) and grows slowly once it is back 0.1 V above it; the smaller of the
 two budgets rules. With `STOP RUN` the floor does not regulate: charging stops when the input stays below it for a second. REGULATION decides how
 the budget is shared:
 
 | REGULATION | What it does |
 |---|---|
-| EQUAL | every charging port gets the same share (a port that wants less frees the rest) |
+| EQUAL | every charging port gets the same share (a port that wants less frees the rest); if the share would be under 0.1 A, the highest-numbered ports wait so the others get a usable current |
 | CH1 FIRST | one by one: port 1 keeps its current longest, the highest port number is reduced first, down to switched off |
 | LOW V FIRST | one by one: the cell with the lowest voltage keeps its current longest |
 | HIGH V FIRST | one by one: the cell with the highest voltage keeps its current longest |
@@ -75,7 +76,7 @@ a limit shows `LIMIT` and restarts at the duty it had. The input rules of the su
 
 ### Diagnostics pages
 
-Opened from the menu. The right button is the next page, the left one the previous page, a long left press goes back to the menu, the chord closes everything.
+Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held) goes back to the menu.
 
 | Page | Shows |
 |---|---|
@@ -90,10 +91,11 @@ Opened from the menu. The right button is the next page, the left one the previo
 
 | Input | Action |
 |---|---|
-| Button 1, short | current setting +0.1 A (0.3 … 1.3 A, wraps); ignored while charging |
-| Button 1, long (1.3 s) | start / stop charging |
-| Button 2, short | mode: 4.20 V → 4.35 V → 3.80 V storage → 3.85 V storage |
-| Button 2, long (1.8 s) | sound on / off |
+| Button 1, tap | current setting +0.1 A (0.3 … 1.3 A, wraps); ignored while charging |
+| Button 1, hold (0.35 s) | start / stop charging |
+| Button 2, tap | mode: 4.20 V → 4.35 V → 3.80 V storage → 3.85 V storage; ignored while charging |
+| Button 2, hold (0.5 s) | sound on / off |
+| Both buttons, tap | open the menu |
 
 Header: set current, input voltage, target voltage (red while charging). Cells: port voltage, and below it the measured
 current while charging (`LIMIT` when a user limit holds the port off), or `TEST` / `REST` / `WAIT` / `FULL` / `BLEED` / `ERR`; the dot shows the state.

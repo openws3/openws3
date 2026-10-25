@@ -83,6 +83,33 @@ static void t_equal(void)
     CHECK(out.cap[2] == 0 && out.cap[0] > 60 && out.cap[0] == out.cap[1]);
 }
 
+/* a budget too small for an equal share per port: the highest-numbered ports wait, the others still charge */
+static void t_equal_few(void)
+{
+    uint8_t k;
+    int sum;
+    setup(5, 35);
+    in.vin = vin_raw(5040);
+    cfg.ilim = 4; cfg.mode = LM_EQUAL;         /* 0.4 A at 5 V: 29 counts, 5.8 each for five ports: below the minimum of 7 */
+    run(300);
+    CHECK(out.bcnt >= 28 && out.bcnt <= 30);
+    for (k = 0; k < 4; k++) CHECK(out.cap[k] >= LIM_CAP_MIN && out.cap[k] != LIM_PARK);
+    CHECK(out.cap[4] == LIM_PARK);
+    for (sum = 0, k = 0; k < NPORTS; k++) sum += in.i[k];
+    CHECK(sum > 0 && sum <= out.bcnt);
+    cfg.ilim = 5;                              /* 36 counts: 7.2 each would do for a running port, but not to restart the parked one */
+    run(300);
+    CHECK(out.cap[4] == LIM_PARK && out.cap[3] != LIM_PARK);
+    cfg.ilim = 10;                             /* 72 counts: 14.4 each: everybody runs, the parked port restarts */
+    run(300);
+    for (k = 0; k < 5; k++) CHECK(out.cap[k] != LIM_PARK);
+    setup(3, 35);                              /* wants below the share do not count against it: 20 counts for port 1 only */
+    in.vin = vin_raw(5040); in.want[0] = 6; in.want[1] = 6; in.want[2] = 35;
+    cfg.ilim = 4; cfg.mode = LM_EQUAL;
+    run(300);
+    CHECK(out.cap[0] == 0 && out.cap[1] == 0 && out.cap[2] != LIM_PARK);    /* the two small ports fit, the big one gets the rest */
+}
+
 static void t_follows_input(void)
 {
     setup(4, 91);
@@ -120,6 +147,21 @@ static void t_by_voltage(void)
     run(800);
     CHECK(rank(out.cap[3]) >= rank(out.cap[1]) && rank(out.cap[1]) >= rank(out.cap[0]) && rank(out.cap[0]) >= rank(out.cap[2]));
     CHECK(out.cap[3] == 0 && out.cap[2] != 0);
+}
+
+static void t_reorder_dwell(void)
+{
+    uint8_t c0, c2;
+    setup(4, 91);
+    in.v[0] = 3500; in.v[1] = 3700; in.v[2] = 3300; in.v[3] = 3900;
+    cfg.ilim = 12; cfg.mode = LM_BY_VLOW;
+    run(800);
+    c0 = out.cap[0]; c2 = out.cap[2];
+    in.v[0] = 3300; in.v[2] = 3500;                      /* the two swap places in voltage */
+    run(5000);                                           /* 110 periods: too early */
+    CHECK(out.cap[0] == c0 && out.cap[2] == c2);
+    run(3000);                                           /* past ~30 s: the new order is taken up */
+    CHECK(rank(out.cap[0]) >= rank(out.cap[2]) && out.cap[0] == c2 && out.cap[2] == c0);
 }
 
 static void t_cut(void)
@@ -194,6 +236,20 @@ static void t_vmin(void)
     CHECK(out.cap[0] == 0 && out.cap[1] == 0 && out.cap[2] == 0);
 }
 
+/* the failure seen on the unit: a 5 V supply sagged below a 4.9 V floor under load, the voltage budget shrank, and it never came back
+ * because the input at no load (5.04 V) was below floor + the regrow margin */
+static void t_vmin_recover(void)
+{
+    int n;
+    setup(3, 91);
+    cfg.vmin = 49; cfg.mode = LM_EQUAL;
+    for (n = 0; n < 1500; n++) { sag(5040, 1000); plant(); lim_pass(); }
+    CHECK(out.budget < LIM_P_BIG);                                          /* it shrank under load */
+    in.vin = vin_raw(5040);                                                 /* the ports are parked: no load, the input is back at 5.04 V */
+    run(2000);
+    CHECK(out.budget > 200 && out.cap[0] == 0 && out.cap[1] == 0 && out.cap[2] == 0);     /* the budget grew back until nothing is capped */
+}
+
 static void t_both_and_steps(void)
 {
     setup(2, 91);
@@ -212,7 +268,7 @@ static void t_both_and_steps(void)
 
 int main(void)
 {
-    t_est(); t_equal(); t_follows_input(); t_by_channel(); t_by_voltage(); t_cut(); t_taper(); t_vmin(); t_both_and_steps();
+    t_est(); t_equal(); t_equal_few(); t_follows_input(); t_by_channel(); t_by_voltage(); t_reorder_dwell(); t_cut(); t_taper(); t_vmin(); t_vmin_recover(); t_both_and_steps();
     printf("%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

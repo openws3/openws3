@@ -2,8 +2,10 @@
 #include "cal.h"
 
 #define LIM_PERIOD     22       /* the caps are recomputed every 22 passes (~100 ms) */
+#define LIM_REORDER    300      /* LOW V FIRST: the priority order changes at most every 300 periods (~30 s) */
 #define TRIP_UPDATES   10       /* cut mode: below the floor for this many updates (~1 s) before the run is stopped */
-#define VIN_HYST_MV    300      /* the voltage budget grows again above the floor plus this */
+#define VIN_HYST_MV    100      /* the voltage budget grows again above the floor plus this: small enough for a 5 V supply that is
+                                   only a little above a 4.9 V floor when unloaded */
 #define EFF_PCT        90       /* assumed converter efficiency */
 #define P_MARGIN       10       /* 1 W: where the voltage budget starts shrinking from, above what is really drawn */
 #define RESERVE_MARGIN 3        /* a port drawing less than it wants (taper, ramp) is assumed to need what it draws plus this */
@@ -17,21 +19,26 @@ lim_out_t XD lim_out;
 static uint16_t XD P_v;                              /* the voltage floor's power budget: the one stored number besides the caps */
 static uint8_t  XD tick, n_v;
 
+static uint8_t  XD s_hord[NPORTS], s_hmask, s_mask;
+static uint16_t XD s_age;
+
 void lim_reset(void)
 {
     uint8_t k;
-    P_v = LIM_P_BIG; tick = 0; n_v = 0;
+    P_v = LIM_P_BIG; tick = 0; n_v = 0; s_age = 0; s_hmask = 0;
     for (k = 0; k < NPORTS; k++) lim_out.cap[k] = 0;
+    lim_out.p_cur = lim_out.p_vol = LIM_P_BIG; lim_out.bcnt = 0;
 }
 
 /* Share a budget B (counts: the most the charging ports may draw together) over the charging ports.  The caps are written to
  * lim_out.cap; their previous values give the park hysteresis.
  *   ordered modes  in priority order: a port that fits keeps its current, the first that does not gets what is left, the rest
  *                  are parked.  Higher-priority ports reserve what they really draw, not what they want.
- *   equal          every port gets the same share; a port that wants less than the share frees the rest for the others. */
+ *   equal          every port gets the same share; a port that wants less than the share frees the rest for the others.  When the
+ *                  share is too small to drive, the highest-numbered ports are parked, as few as it takes for the rest to get a usable one. */
 static uint16_t XD s_B, s_rem, s_share, s_W;
 static uint8_t  XD s_order[NPORTS], s_was[NPORTS], s_open[NPORTS];
-static uint8_t  XD s_n, s_k, s_a, s_b, s_t, s_w, s_r, s_changed, s_nopen;
+static uint8_t  XD s_n, s_k, s_a, s_b, s_t, s_w, s_r, s_changed, s_nopen, s_m, s_fit;
 
 static uint8_t give(uint16_t c, uint8_t was_parked)
 {
@@ -52,21 +59,30 @@ static void share(void)
     }
 
     if (lim_cfg.mode == LM_EQUAL) {
-        s_rem = s_B; s_nopen = s_n;
-        for (s_a = 0; s_a < s_n; s_a++) s_open[s_order[s_a]] = 1;
-        do {                                             /* settle the ports that want less than the share */
-            s_changed = 0; s_share = s_rem / s_nopen;
-            for (s_a = 0; s_a < s_n; s_a++) {
-                s_k = s_order[s_a];
-                if (s_open[s_k] && lim_in.want[s_k] <= s_share) {
-                    s_open[s_k] = 0; lim_out.cap[s_k] = 0; s_rem -= lim_in.want[s_k]; s_nopen--; s_changed = 1;
+        for (s_m = s_n; s_m; s_m--) {                    /* serve the first s_m ports (the order is by port number) */
+            s_rem = s_B; s_nopen = s_m;
+            for (s_a = 0; s_a < s_m; s_a++) s_open[s_order[s_a]] = 1;
+            do {                                         /* settle the ports that want less than the share */
+                s_changed = 0; s_share = s_rem / s_nopen;
+                for (s_a = 0; s_a < s_m; s_a++) {
+                    s_k = s_order[s_a];
+                    if (s_open[s_k] && lim_in.want[s_k] <= s_share) {
+                        s_open[s_k] = 0; lim_out.cap[s_k] = 0; s_rem -= lim_in.want[s_k]; s_nopen--; s_changed = 1;
+                    }
                 }
+            } while (s_changed && s_nopen);
+            s_share = s_nopen ? s_rem / s_nopen : 0;
+            s_fit = 1;                                   /* every capped port must get a share it can be driven with */
+            for (s_a = 0; s_a < s_m; s_a++) {
+                s_k = s_order[s_a];
+                if (s_open[s_k] && give(s_share, s_was[s_k]) == LIM_PARK) s_fit = 0;
             }
-        } while (s_changed && s_nopen);
-        s_share = s_nopen ? s_rem / s_nopen : 0;
+            if (s_fit) break;
+        }
         for (s_a = 0; s_a < s_n; s_a++) {
             s_k = s_order[s_a];
-            if (s_open[s_k]) lim_out.cap[s_k] = give(s_share, s_was[s_k]);
+            if (s_a >= s_m) lim_out.cap[s_k] = LIM_PARK;
+            else if (s_open[s_k]) lim_out.cap[s_k] = give(s_share, s_was[s_k]);
         }
         return;
     }
@@ -80,6 +96,16 @@ static void share(void)
                 s_order[s_b] = s_order[s_b - 1];
             }
             s_order[s_b] = s_t;
+        }
+        /* The sorted order is only taken up when the set of ports changed or the last change is old enough: cells close in
+         * voltage would otherwise swap places (and the current) on every update. */
+        if (lim_cfg.mode == LM_BY_VLOW) {            /* HIGH V FIRST is stable by itself: a charging cell reads higher and keeps its place */
+            s_mask = 0; s_b = 0;
+            for (s_a = 0; s_a < s_n; s_a++) { s_mask |= (uint8_t)(1u << s_order[s_a]); s_b |= s_order[s_a] != s_hord[s_a]; }
+            if (s_mask != s_hmask || (s_b && s_age >= LIM_REORDER)) {
+                for (s_a = 0; s_a < s_n; s_a++) s_hord[s_a] = s_order[s_a];
+                s_hmask = s_mask; s_age = 0;
+            } else for (s_a = 0; s_a < s_n; s_a++) s_order[s_a] = s_hord[s_a];
         }
     }
     s_rem = s_B;
@@ -114,12 +140,14 @@ void lim_pass(void)
 
     if (++tick < LIM_PERIOD) return;
     tick = 0;
+    if (s_age < LIM_REORDER) s_age++;
 
-    p_P = LIM_P_BIG;
+    p_P = LIM_P_BIG; lim_out.p_cur = lim_out.p_vol = LIM_P_BIG;
     if (lim_cfg.ilim) {
         /* input current limit: input power = limit x input voltage (0.1 W); worked out from scratch, no stored state */
         p_t = (uint32_t)lim_cfg.ilim * p_vin_mv / 1000u;
         if (p_t < p_P) p_P = (uint16_t)p_t;
+        lim_out.p_cur = (uint16_t)p_t;
     }
 
     if (lim_cfg.vmin) {
@@ -135,12 +163,14 @@ void lim_pass(void)
             n_v = 0;                                     /* ... and grows back slowly above floor + margin */
             if (p_vin_mv > (uint32_t)lim_cfg.vmin * 100u + VIN_HYST_MV && P_v < LIM_P_BIG) P_v = (uint16_t)(P_v + 4);
         }
+        if (!lim_cfg.vcut) lim_out.p_vol = P_v;
         if (!lim_cfg.vcut && P_v < p_P) p_P = P_v;
         if (lim_cfg.vcut && n_v >= TRIP_UPDATES) lim_out.trip = LT_VOLTAGE;         /* cut: below the floor for a second */
     } else { P_v = LIM_P_BIG; n_v = 0; }
 
     lim_out.budget = p_P;
     if (p_P >= LIM_P_BIG || !p_rail_mv) {                /* no limit active */
+        lim_out.bcnt = 0;
         for (p_k = 0; p_k < NPORTS; p_k++) lim_out.cap[p_k] = 0;
         return;
     }
@@ -148,6 +178,7 @@ void lim_pass(void)
     p_t = (uint32_t)p_P * (EFF_PCT * 1000UL) / p_rail_mv;                              /* mA */
     p_t = p_t * 273u / 4000u;
     s_B = p_t > 1000u ? 1000u : (uint16_t)p_t;
+    lim_out.bcnt = s_B;
     share();
 }
 

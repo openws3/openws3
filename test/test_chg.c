@@ -277,9 +277,38 @@ static void t_caps(void)
     CHECK(b.out.state[0] != PS_CHARGE);
 }
 
+/* a cell pulled while charging: the loop winds the duty up and the pin follows it to the rail with no current; with the output off the
+ * pin collapses.  It must be released within a couple of seconds, not after the 36 s tail timer */
+static void t_pulled(void)
+{
+    bench_t b; int n;
+    bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
+    run(&b, 4000);
+    CHECK(b.out.state[0] == PS_CHARGE && abs((int)b.out.i[0] - 21) <= 2);
+    b.present[0] = 0;
+    for (n = 0; n < 2000 && b.out.state[0] != PS_IDLE; n++) { b.ovr_v[0] = b.out.duty[0] > 0 ? 3830 : 0; step(&b); }
+    CHECK(b.out.state[0] == PS_IDLE && n > 400 && n < 800);                         /* about 2 s + the rest */
+    CHECK(b.out.duty[0] == 0);
+
+    /* a cell is not mistaken for a pulled one while the soft ramp has not produced a current yet, nor when the limits park it */
+    bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
+    run(&b, 1000);
+    CHECK(b.out.state[0] == PS_CHARGE);
+    bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
+    run(&b, 4000);
+    b.in.cap[0] = CAP_PARK;
+    run(&b, 2000);
+    CHECK(b.out.state[0] == PS_CHARGE && b.out.duty[0] == 0);
+
+    /* a real cell is unaffected: it keeps drawing its current for a long time */
+    bench_init(&b, 0, 21); attach(&b, 0, 3.7, 4000, 0.1);
+    run(&b, 20000);
+    CHECK(b.out.state[0] == PS_CHARGE && abs((int)b.out.i[0] - 21) <= 2);
+}
+
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_caps();
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_caps(); t_pulled();
     printf("chg: %d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

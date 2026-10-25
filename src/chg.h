@@ -7,9 +7,9 @@
  * Per port the state is:
  *   IDLE    no cell (V < 1.00 V) or not running                         duty 0, switch low
  *   PROBE   output off, settle, classify the cell                        duty 0, switch low
- *   CHARGE  constant current with soft ramp; tail timer / current step-down near the target
- *   REST    output off for ~4 s, read the rest voltage, decide
- *   PAUSE   output off for ~68 s, then restart (cell well below the target after a rest)
+ *   CHARGE  constant current with soft ramp; tail timer / current step-down near the target; no current at all for 2 s (a pulled cell): rest test
+ *   REST    output off for ~1 s, read the rest voltage, decide (an empty port reads below 1 V and is released)
+ *   PAUSE   output off for ~18 s, then restart (cell well below the target after a rest)
  *   FULL    cell inside the target window; watched, restarts on droop or rise
  *   BLEED   cell above the target: switch HIGH (discharge path) until it falls into the window
  *   FAULT   over-voltage / over-current latched; cleared only by removing the cell or stopping

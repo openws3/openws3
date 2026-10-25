@@ -131,56 +131,83 @@ static void press(uint8_t btn, int ms)
     input_tick(0, 0);
 }
 
-static void t_input(void)
+static void hold(uint8_t b1, uint8_t b2, int ticks)
 {
     int k;
+    for (k = 0; k < ticks; k++) input_tick(b1, b2);
+}
+
+static void t_input(void)
+{
+    int k, n, t[80], ok;
     input_reset();
-    press(1, 4);   CHECK(input_get() == EV_NONE);              /* bounce (< 5 ticks) */
-    press(1, 100); CHECK(input_get() == EV_B1_SHORT); CHECK(input_get() == EV_NONE);
-    press(1, 699); CHECK(input_get() == EV_B1_SHORT);          /* just under the long threshold */
-    press(1, 700); CHECK(input_get() == EV_B1_LONG); CHECK(input_get() == EV_NONE);   /* long fires once, no short on release */
-    press(1, 5000);CHECK(input_get() == EV_B1_LONG); CHECK(input_get() == EV_NONE);   /* holding longer does not repeat */
-    press(2, 100); CHECK(input_get() == EV_B2_SHORT);
-    press(2, 999); CHECK(input_get() == EV_B2_SHORT);
-    press(2, 1000);CHECK(input_get() == EV_B2_LONG);
+    press(1, 9);   CHECK(input_get() == EV_NONE);              /* bounce (< 10 ticks) */
+    press(1, 100); CHECK(input_get() == EV_B1); CHECK(input_get() == EV_NONE);
+    press(2, 100); CHECK(input_get() == EV_B2);
+    press(1, REP_DELAY - 1); CHECK(input_get() == EV_B1);      /* just under the repeat delay: still a tap */
     /* two buttons one after the other are independent */
     press(1, 50); press(2, 50);
-    CHECK(input_get() == EV_B1_SHORT); CHECK(input_get() == EV_B2_SHORT);
+    CHECK(input_get() == EV_B1); CHECK(input_get() == EV_B2);
     /* the queue drops events instead of overflowing */
     for (k = 0; k < 10; k++) press(1, 50);
     k = 0; while (input_get() != EV_NONE) k++;
     CHECK(k == 3);
 
-    /* chord: B1 first, B2 50 ms later, both held 1.6 s: one EV_CHORD, no short/long events from either button */
+    /* holding: the first repeat after REP_DELAY (no tap on release), then every REP_SLOW x4, REP_MID x8, REP_FAST */
     input_reset();
-    for (k = 0; k < 100; k++) input_tick(1, 0);
-    for (k = 0; k < 3100; k++) input_tick(1, 1);
-    CHECK(input_get() == EV_CHORD); CHECK(input_get() == EV_NONE);
-    for (k = 0; k < 4000; k++) input_tick(1, 1);                    /* holding on does not repeat it */
-    CHECK(input_get() == EV_NONE);
-    input_tick(1, 0);                                                /* one button released: still the chord's */
-    for (k = 0; k < 2000; k++) input_tick(1, 0);
+    n = 0;
+    for (k = 1; k <= 5000; k++) { input_tick(0, 1); if (input_get() == EV_B2_REP && n < 80) t[n++] = k; }
     input_tick(0, 0);
     CHECK(input_get() == EV_NONE);
-    press(1, 100); CHECK(input_get() == EV_B1_SHORT);                /* normal operation resumes */
-    /* B2 first, B1 within 200 ms */
+    ok = n > 20 && t[0] == REP_DELAY;
+    for (k = 1; ok && k < n; k++) ok = t[k] - t[k - 1] == (k < 5 ? REP_SLOW : k < 13 ? REP_MID : REP_FAST);
+    CHECK(ok);
+    press(1, REP_DELAY); CHECK(input_get() == EV_B1_REP); CHECK(input_get() == EV_NONE);
+    press(1, 100); CHECK(input_get() == EV_B1);                      /* repeat state does not leak into the next press */
+
+    /* chord: B1 first, B2 50 ms later, both released together: one EV_OK, no taps */
     input_reset();
-    for (k = 0; k < 300; k++) input_tick(0, 1);
-    for (k = 0; k < 3000; k++) input_tick(1, 1);
-    CHECK(input_get() == EV_CHORD); CHECK(input_get() == EV_NONE);
-    input_tick(0, 0);
-    /* a quick press of both is nothing (no short events either) */
-    input_reset();
-    for (k = 0; k < 100; k++) input_tick(1, 1);
-    input_tick(0, 0);
+    hold(1, 0, 100); hold(1, 1, 100); input_tick(0, 0);
+    CHECK(input_get() == EV_OK); CHECK(input_get() == EV_NONE);
+    press(1, 100); CHECK(input_get() == EV_B1);                      /* normal operation resumes */
+    /* B2 first, B1 150 ms later; B1 let go first, OK when the last one is up */
+    hold(0, 1, 300); hold(1, 1, 100); hold(0, 1, 100); input_tick(0, 0);
+    CHECK(input_get() == EV_OK); CHECK(input_get() == EV_NONE);
+    /* both held 0.8 s: one EV_BACK, at the threshold, and nothing more on release or while holding on */
+    hold(1, 0, 100); hold(1, 1, CHORD_LONG - 1);
     CHECK(input_get() == EV_NONE);
-    /* B1 long already fired before B2 arrives: not a chord, B1 long stands, B2 acts alone */
+    hold(1, 1, 1);
+    CHECK(input_get() == EV_BACK);
+    hold(1, 1, 5000); CHECK(input_get() == EV_NONE);
+    input_tick(1, 0); hold(1, 0, 2000); input_tick(0, 0);
+    CHECK(input_get() == EV_NONE);
+    /* a quick press of both is nothing */
+    hold(1, 1, 5); input_tick(0, 0);
+    CHECK(input_get() == EV_NONE);
+    /* the second button too late (> CHORD_WIN) is no chord: two taps */
+    hold(1, 0, CHORD_WIN + 100); hold(1, 1, 100); input_tick(0, 0);
+    CHECK(input_get() == EV_B1); CHECK(input_get() == EV_B2); CHECK(input_get() == EV_NONE);
+    /* B1 already repeating when B2 arrives: not a chord, B2 acts alone */
     input_reset();
-    for (k = 0; k < 720; k++) input_tick(1, 0);
-    CHECK(input_get() == EV_B1_LONG);
-    for (k = 0; k < 3500; k++) input_tick(1, 1);
-    CHECK(input_get() == EV_B2_LONG); CHECK(input_get() == EV_NONE);   /* B2 long on its own; no chord event */
-    input_tick(0, 0);
+    hold(1, 0, REP_DELAY + 20);
+    CHECK(input_get() == EV_B1_REP);
+    hold(1, 1, 100); input_tick(1, 0); input_tick(0, 0);
+    CHECK(input_get() == EV_B2); CHECK(input_get() == EV_NONE);
+
+    /* main screen style: tap, or one long event (B1 350 ms, B2 500 ms) and no tap on release, no repeat */
+    input_reset(); input_style(IS_MAIN);
+    press(1, 100); CHECK(input_get() == EV_B1); CHECK(input_get() == EV_NONE);
+    press(1, B1_LONG - 1); CHECK(input_get() == EV_B1);
+    press(1, B1_LONG); CHECK(input_get() == EV_B1_LONG); CHECK(input_get() == EV_NONE);
+    press(1, 5000); CHECK(input_get() == EV_B1_LONG); CHECK(input_get() == EV_NONE);
+    press(2, B2_LONG - 1); CHECK(input_get() == EV_B2);
+    press(2, B2_LONG); CHECK(input_get() == EV_B2_LONG); CHECK(input_get() == EV_NONE);
+    hold(1, 0, 100); hold(1, 1, 100); input_tick(0, 0);               /* the chord is the same in both styles */
+    CHECK(input_get() == EV_OK); CHECK(input_get() == EV_NONE);
+    hold(1, 1, CHORD_LONG + 10); input_tick(0, 0);
+    CHECK(input_get() == EV_BACK); CHECK(input_get() == EV_NONE);     /* and no long events from a chord */
+    input_reset();
+    press(2, REP_DELAY + 10); CHECK(input_get() == EV_B2_REP);        /* input_reset goes back to the menu style */
 }
 
 static void t_cfg(void)

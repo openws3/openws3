@@ -70,6 +70,31 @@ static uint8_t XD phase, tele_seq, ev_seq, ev_code, ev_port, cmd_seq, cmd_res;
 static void note_event(uint8_t code, uint8_t port) { ev_code = code; ev_port = port; ev_seq++; }
 
 static void put16(uint8_t at, uint16_t v) { usb_tx[at] = (uint8_t)(v >> 8); usb_tx[at + 1] = (uint8_t)v; }
+static void put16b(uint8_t at, uint16_t v) { usb_tx2[at] = (uint8_t)(v >> 8); usb_tx2[at + 1] = (uint8_t)v; }
+
+/* page 2: what the limiter and the supervisor are doing (zero before the run phase) */
+static void tele_limits(uint8_t ph, uint32_t ms)
+{
+    uint8_t k;
+    usb_tx2[63] = 0;
+    for (k = 3; k < 63; k++) usb_tx2[k] = 0;
+    usb_tx2[0] = 0x57; usb_tx2[1] = 0x33; usb_tx2[2] = tele_seq; usb_tx2[3] = 2;
+    usb_tx2[4] = (uint8_t)(ms >> 24); usb_tx2[5] = (uint8_t)(ms >> 16); usb_tx2[6] = (uint8_t)(ms >> 8); usb_tx2[7] = (uint8_t)ms;
+    if (ph >= PH_RUN && ph < PH_FATAL) {
+        usb_tx2[8] = lim_cfg.ilim; usb_tx2[9] = lim_cfg.vmin; usb_tx2[10] = lim_cfg.vcut; usb_tx2[11] = lim_cfg.mode;
+        put16b(12, lim_out.budget); put16b(14, lim_out.p_cur); put16b(16, lim_out.p_vol); put16b(18, lim_out.est_ma); put16b(20, lim_out.bcnt);
+        usb_tx2[22] = lim_out.trip; usb_tx2[23] = (uint8_t)(run && !rail_hold);        /* the limiter ran this pass */
+        for (k = 0; k < NPORTS; k++) {
+            usb_tx2[24 + k] = lim_out.cap[k]; usb_tx2[30 + k] = cout.want[k]; usb_tx2[36 + k] = cout.thr[k];
+        }
+        put16b(42, lim_in.vin); put16b(44, lim_in.rail); put16b(46, cin.setpoint); put16b(48, cin.tgt);
+        usb_tx2[50] = cin.iset; usb_tx2[51] = cout.any_active;
+        usb_tx2[52] = sout.stop; usb_tx2[53] = sout.poweroff; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.rail_alarm; usb_tx2[56] = sout.alarm_steady;
+        usb_tx2[57] = sup_input_cells(); put16b(58, sup_lim_stop(sup_input_cells()));
+        put16b(60, sup_lim_off(sup_input_cells()));
+    }
+    usb_tx2[63] = tele_seq;
+}
 
 static void tele(uint8_t ph)
 {
@@ -99,6 +124,7 @@ static void tele(uint8_t ph)
         put16(56, adc_get(ADC_RAIL)); put16(58, adc_get(ADC_VIN)); put16(60, adc_get(ADC_BANDGAP));
     }
     usb_tx[63] = tele_seq;
+    tele_limits(ph, ms);
 }
 
 static void outputs_off(void)
@@ -239,8 +265,8 @@ void app_boot(void)
                 tele(PH_CHOOSE);
                 hal_delay_ms(10);
                 ev = input_get();
-                if (ev == EV_B1_SHORT) { sel ^= 1; buzz_play(PAT_KEY); ui_choose(sel); }
-                else if (ev == EV_B1_LONG) { dc = sel; buzz_play(PAT_KEY); break; }
+                if (ev == EV_B1 || ev == EV_B2) { sel ^= 1; buzz_play(PAT_KEY); ui_choose(sel); }
+                else if (ev == EV_OK) { dc = sel; buzz_play(PAT_KEY); break; }
             }
         }
     }
@@ -319,21 +345,17 @@ static void menu_key(uint8_t ev)
 static void handle_buttons(void)
 {
     uint8_t ev;
+    input_style(menu_on || dbg_page ? IS_NAV : IS_MAIN);
     while ((ev = input_get()) != EV_NONE) {
-        if (ev == EV_CHORD) {                            /* B1+B2 held together: menu on / off (off also saves) */
-            if (menu_session) menu_leave(); else menu_enter();
-            buzz_play(PAT_KEY);
-            continue;
-        }
         if (menu_on) { menu_key(ev); continue; }
-        if (dbg_page) {                                  /* diagnostics: right = next page, left = previous, left long = back to the menu */
-            if (ev == EV_B2_SHORT) { dbg_page = (uint8_t)(dbg_page % DBG_PAGES + 1); dbg_next_row = 0; ui_text_enter(); }
-            else if (ev == EV_B1_SHORT) { dbg_page = (uint8_t)(dbg_page == 1 ? DBG_PAGES : dbg_page - 1); dbg_next_row = 0; ui_text_enter(); }
-            else if (ev == EV_B1_LONG) { dbg_page = 0; menu_on = 1; menu_next_row = 0; ui_text_enter(); buzz_play(PAT_KEY); }
+        if (dbg_page) {                                  /* diagnostics: right = next page, left = previous, BACK = the menu */
+            if (ev == EV_B2) { dbg_page = (uint8_t)(dbg_page % DBG_PAGES + 1); dbg_next_row = 0; ui_text_enter(); }
+            else if (ev == EV_B1) { dbg_page = (uint8_t)(dbg_page == 1 ? DBG_PAGES : dbg_page - 1); dbg_next_row = 0; ui_text_enter(); }
+            else if (ev == EV_BACK) { dbg_page = 0; menu_on = 1; menu_next_row = 0; ui_text_enter(); buzz_play(PAT_KEY); }
             continue;
         }
         switch (ev) {
-        case EV_B1_SHORT:
+        case EV_B1:
             if (!run) {
                 iset_user = (uint8_t)(iset_user + CUR_UNITS_PER_100MA);
                 if (iset_user > CUR_MAX) iset_user = CUR_MIN;
@@ -345,7 +367,8 @@ static void handle_buttons(void)
             if (run) stop_run(STOP_USER); else start_run();
             buzz_play(PAT_KEY);
             break;
-        case EV_B2_SHORT:
+        case EV_OK: menu_enter(); buzz_play(PAT_KEY); break;
+        case EV_B2:
             if (!run) {                                  /* no mode change while charging */
                 mode = (uint8_t)((mode + 1) & 3);
                 buzz_play(PAT_KEY);

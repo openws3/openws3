@@ -1,9 +1,11 @@
 /*
- * Settings menu: pure logic (no hardware).  Opened with the B1+B2 chord, navigated with the two buttons:
+ * Settings menu: pure logic (no hardware).  Opened with a short B1+B2 press, navigated with the two buttons:
  *
- * B1 is the left button and B2 the right one: right is forward (down, more, confirm), left is back (up, less, cancel).
- *   list    left short: up   right short: down   (no wrap-around)   right long: edit the item / run the action
- *   edit    right short: value up   left short: value down   right long: confirm   left long: cancel (restores the old value)
+ * B1 is the left button and B2 the right one.  A tap steps once, holding repeats (faster the longer it is held);
+ * both buttons together are OK, both held for 0.8 s are BACK (input.h).
+ *   categories  B1: up   B2: down   (wraps around)   OK: open the category (DIAGNOSTICS opens the debug pages)   BACK: close the menu (saves)
+ *   items       B1: up   B2: down   (wraps around)   OK: edit the item   BACK: back to the categories
+ *   edit        B2: value up   B1: value down   OK: confirm   BACK: cancel (restores the old value)
  *
  * Values change live in menu_v; the app persists them when the menu is closed.  Mode and current cannot be changed while
  * charging (as on the main screen).  Rows are 26 characters, the same shape as the debug screens (rowbuf.h).
@@ -13,7 +15,7 @@
 #include "compat.h"
 #include "rowbuf.h"
 
-#define MENU_ROWS   10                /* row 0 title, rows 1..8 items (scrolls), row 9 hint */
+#define MENU_ROWS   10                /* row 0 title, rows 1..8 categories or items (at most 4 are used), row 9 hint */
 
 typedef struct {
     uint8_t mode, cur, sound, theme;

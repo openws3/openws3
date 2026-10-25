@@ -80,6 +80,8 @@ static const __code uint8_t STR_MANUF[8] = { 0x08, 0x03, 'S', 0, 'T', 0, 'C', 0 
 static const __code uint8_t STR_PROD[16] = { 0x10, 0x03, 'O', 0, 'p', 0, 'e', 0, 'n', 0, 'W', 0, 'S', 0, '3', 0 };
 
 uint8_t XD usb_tx[USB_REPORT];
+uint8_t XD usb_tx2[USB_REPORT];
+static uint8_t XD page;                 /* which buffer the next IN packet carries */
 
 static setup_t XD setup;
 static uint8_t XD ep0_stage;
@@ -108,9 +110,12 @@ static void fifo_put_code(uint8_t fifo, const __code uint8_t *p, uint8_t n) { wh
 static void arm_in(void)
 {
     uint8_t i;
+    uint8_t XD *p;
     sie_write(INDEX, 1);
     sie_write(INCSR2, INMODEIN);
-    for (i = 0; i < USB_REPORT; i++) sie_write(FIFO1, usb_tx[i]);
+    p = page ? usb_tx2 : usb_tx;
+    page ^= 1;
+    for (i = 0; i < USB_REPORT; i++) sie_write(FIFO1, p[i]);
     sie_write(INCSR1, INIPRDY);
 }
 
