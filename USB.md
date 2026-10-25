@@ -1,7 +1,7 @@
 # USB monitor interface
 
 The firmware is a USB **HID** device (VID `34bf`, PID `1004`, product "OpenWS3") alongside its normal job. No driver is
-needed. On Linux it shows up as `/dev/hidrawN`. Use `tools/fwmon.py`.
+needed. The report descriptor uses a vendor-defined usage page, so the host does not turn the telemetry into keyboard or other input events. On Linux it shows up as `/dev/hidrawN`. Use `tools/fwmon.py`.
 
 * Telemetry: one 64-byte **IN** report, polled every 10 ms. It is available from power-up, including during boot and on fatal
   errors, so a failing boot can be watched.
