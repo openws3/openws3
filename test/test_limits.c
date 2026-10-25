@@ -10,7 +10,7 @@
 static int fails, checks;
 #define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #c); } } while (0)
 
-#define RAIL 3836                          /* 4.2 V mode-0 rail */
+#define RAIL 3836                          /* rail at the 4.20 V target */
 
 static uint16_t vin_raw(uint32_t mv)       /* inverse of cal_vin_mv */
 {

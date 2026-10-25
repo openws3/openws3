@@ -23,7 +23,7 @@ typedef struct {
     uint8_t  state[NPORTS], sw[NPORTS];
     uint16_t rail, rail_duty, vin, bandgap;
     uint16_t tgt, setpoint;
-    uint8_t  mode, iset, iset_user, run, stop, alarm, strap, dc, rail_hold, fan, usb;
+    uint8_t  volt, iset, iset_user, run, stop, alarm, strap, dc, rail_hold, fan, usb;
     uint8_t  ilim, vmin, vcut, lmode, trip, cap[NPORTS];      /* user limits (limits.h) */
     uint16_t est_ma, budget;
 } dbg_view_t;

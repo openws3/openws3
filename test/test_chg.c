@@ -9,8 +9,8 @@
 static int fails, checks;
 #define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #c); } } while (0)
 
-#define T0   3822       /* mode 0 target 4.20 V */
-#define S0   3836       /* mode 0 rail setpoint */
+#define T0   3822       /* 4.20 V target */
+#define S0   3836       /* rail setpoint of the 4.20 V target */
 static const double VPC = 4.5 / 4096, IPC = 1.0 / 68.25;
 
 typedef struct { double q, cap_c, r; } cell_t;     /* coulombs, capacity, series ohms */
@@ -34,13 +34,14 @@ typedef struct {
     int ovr_v[NPORTS], ovr_i[NPORTS];      /* >0: force the sense reading (fault injection) */
 } bench_t;
 
-static void bench_init(bench_t *b, int mode, int iset)
+static void bench_init(bench_t *b, int volt, int iset)
 {
     static const uint16_t T[4] = {3822, 3958, 3458, 3504}, S[4] = {3836, 3972, 3803, 3940};
     memset(b, 0, sizeof *b);
-    b->k_amp_per_duty = 0.01; b->r_pass = 0.20; b->rail_v = S[mode] * VPC;
-    b->in.mode = mode; b->in.tgt = T[mode]; b->in.setpoint = S[mode]; b->in.iset = iset;
-    b->in.vin = 3000; b->in.rail = S[mode]; b->in.run = 1;
+    b->k_amp_per_duty = 0.01; b->r_pass = 0.20; b->rail_v = S[volt] * VPC;
+    b->in.volt = volt; b->in.tgt = T[volt]; b->in.setpoint = S[volt];
+    b->in.vin = 3000; b->in.rail = S[volt]; b->in.run = 1;
+    { int k; for (k = 0; k < NPORTS; k++) { b->in.iset[k] = (uint8_t)iset; b->in.en[k] = 1; } }
     chg_init();
 }
 
@@ -123,7 +124,7 @@ static void t_classify(void)
     bench_init(&b, 0, 21); attach(&b, 0, 4.28, 40, 0.1); run(&b, 20);
     CHECK(b.out.state[0] == PS_BLEED && b.out.sw[0] == 1 && b.out.duty[0] == 0);   /* above target: bleed path */
     bench_init(&b, 2, 21); attach(&b, 0, 4.0, 40, 0.1); run(&b, 20);
-    CHECK(b.out.state[0] == PS_BLEED);                                             /* storage mode: 4.0 V is above 3.80 V */
+    CHECK(b.out.state[0] == PS_BLEED);                                             /* storage voltage: 4.0 V is above 3.80 V */
     bench_init(&b, 0, 21); b.ovr_v[0] = (int)(0.5 / VPC); run(&b, 20);
     CHECK(b.out.state[0] == PS_IDLE);                                              /* below 1 V: no cell */
 }
@@ -241,11 +242,11 @@ static void t_sup(void)
     in.rail = 3700; for (k = 0; k < 200; k++) sup_pass(&in, &o);
     CHECK(!o.rail_alarm);
 
-    /* alarms: storage modes follow ADC0; other modes follow the number of heavily loaded ports */
-    sup_reset(); in = si(); in.mode = 2; in.adc0 = 1200; sup_pass(&in, &o); CHECK(o.alarm_steady);
+    /* alarms: the storage voltages follow ADC0; the others follow the number of heavily loaded ports */
+    sup_reset(); in = si(); in.volt = 2; in.adc0 = 1200; sup_pass(&in, &o); CHECK(o.alarm_steady);
     in.adc0 = 1400; sup_pass(&in, &o); CHECK(o.alarm_steady);            /* hysteresis */
     in.adc0 = 1500; sup_pass(&in, &o); CHECK(!o.alarm_steady);
-    sup_reset(); in = si(); in.mode = 0; in.i_port_hi = 3; sup_pass(&in, &o); CHECK(o.alarm_steady);
+    sup_reset(); in = si(); in.volt = 0; in.i_port_hi = 3; sup_pass(&in, &o); CHECK(o.alarm_steady);
     in.i_port_hi = 0; in.i_port_mid = 6; sup_pass(&in, &o); CHECK(!o.alarm_steady);
 }
 
@@ -300,15 +301,43 @@ static void t_pulled(void)
     run(&b, 2000);
     CHECK(b.out.state[0] == PS_CHARGE && b.out.duty[0] == 0);
 
+    /* a pulled cell is found also while a cap holds the current down */
+    bench_init(&b, 0, 63); attach(&b, 0, 3.7, 4000, 0.1);
+    b.in.cap[0] = 28;
+    run(&b, 6000);
+    CHECK(b.out.state[0] == PS_CHARGE && b.out.thr[0] == 1 && abs((int)b.out.i[0] - 28) <= 3);
+    b.present[0] = 0;
+    for (n = 0; n < 2000 && b.out.state[0] != PS_IDLE; n++) { b.ovr_v[0] = b.out.duty[0] > 0 ? 3830 : 0; step(&b); }
+    CHECK(b.out.state[0] == PS_IDLE && n < 800);
+
     /* a real cell is unaffected: it keeps drawing its current for a long time */
     bench_init(&b, 0, 21); attach(&b, 0, 3.7, 4000, 0.1);
     run(&b, 20000);
     CHECK(b.out.state[0] == PS_CHARGE && abs((int)b.out.i[0] - 21) <= 2);
 }
 
+/* each port has its own current setting and can sit the run out */
+static void t_per_port(void)
+{
+    bench_t b;
+    bench_init(&b, 0, 21);
+    attach(&b, 0, 3.7, 4000, 0.1); attach(&b, 1, 3.7, 4000, 0.1); attach(&b, 2, 3.7, 4000, 0.1);
+    b.in.iset[1] = 42; b.in.en[2] = 0;
+    run(&b, 16000);
+    CHECK(b.out.state[0] == PS_CHARGE && abs((int)b.out.i[0] - 21) <= 2);
+    CHECK(b.out.state[1] == PS_CHARGE && abs((int)b.out.i[1] - 42) <= 3);
+    CHECK(b.out.state[2] == PS_IDLE && b.out.duty[2] == 0 && b.out.i[2] == 0);                 /* disabled: not even probed */
+    b.in.en[2] = 1;
+    run(&b, 16000);
+    CHECK(b.out.state[2] == PS_CHARGE && abs((int)b.out.i[2] - 21) <= 2);
+    b.in.en[0] = 0;                                                                              /* switched off mid-charge */
+    run(&b, 50);
+    CHECK(b.out.state[0] == PS_IDLE && b.out.duty[0] == 0 && b.out.state[1] == PS_CHARGE);
+}
+
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_caps(); t_pulled();
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_caps(); t_pulled(); t_per_port();
     printf("chg: %d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

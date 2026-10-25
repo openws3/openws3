@@ -19,7 +19,7 @@ needed. The report descriptor uses a vendor-defined usage page, so the host does
 | 2 | sequence (1..255), **head**; a report is valid only if byte 63 equals it |
 | 3 | page (1) |
 | 4–7 | uptime, ms |
-| 8 | flags: b0 running, b1–2 mode, b3 outputs enabled (P5.2), b4 charging compiled in, b5 rail alarm pause, b6 strap (variable input), b7 DC input chosen |
+| 8 | flags: b0 running, b1–2 target voltage (0..3: 4.20 / 4.35 / 3.80 / 3.85 V), b3 outputs enabled (P5.2), b4 charging compiled in, b5 rail alarm pause, b6 strap (variable input), b7 DC input chosen |
 | 9 | effective current setting (counts: 21 = 0.3 A … 91 = 1.3 A, ×7 per 0.1 A) |
 | 10 | user current setting (before the input caps) |
 | 11 | stop reason: 0 none, 1 input low, 2 VCC low, 3 rail, 4 user, 5 minimum input voltage (user setting) |
@@ -53,7 +53,7 @@ Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Eve
 | 30–35 | the current each port wants before the limits, counts (charging ports only) |
 | 36–41 | 1 = the port's cap is below the current it wants |
 | 42–45 | input voltage and rail as the limiter sees them, ADC counts, 16 bit each |
-| 46–49 | rail setpoint and port-voltage target of the mode, counts |
+| 46–49 | rail setpoint and port-voltage target of the selected voltage, counts |
 | 50 | effective current setting, counts; 51: some port is charging or bleeding (global enable) |
 | 52–56 | supervisor: stop reason, power-off, rail cut, rail alarm, steady alarm |
 | 57 | input cell count read at boot; 58–59: stop-charging threshold, 60–61: power-down threshold, ADC counts |
@@ -69,6 +69,6 @@ The screen open on the LCD (menu or a diagnostics page) is in byte 12's high nib
 | 1 | – | stop charging (staggered, like the button). Always allowed |
 | 2 | – | start charging. Refused if already running, if a supervisor stop is active, or in a `CHARGE=0` image |
 | 3 | current in counts (21, 28 … 91) | set the charge current, stored in EEPROM. Refused while running or if not a valid step |
-| 4 | mode 0..3 | set the mode, stored in EEPROM. Refused while running |
+| 4 | voltage 0..3 | set the target voltage (0 = 4.20 V, 1 = 4.35 V, 2 = 3.80 V storage, 3 = 3.85 V storage), stored in EEPROM. Refused while running |
 | 5 | – | ping |
 | 6 | – | reboot into the USB ISP loader, so the next flash needs no button. Refused while running. `fwmon.py flash FILE` does this and then writes the image |

@@ -17,10 +17,10 @@ static int fails, checks;
 
 static void t_cal(void)
 {
-    NEAR(cal_port_mv(3822), 4199, 2);        /* the mode-0 target 3822 is 4.20 V */
-    NEAR(cal_port_mv(3958), 4349, 2);        /* mode 1: 4.35 V */
-    NEAR(cal_port_mv(3458), 3799, 2);        /* mode 2: 3.80 V */
-    NEAR(cal_port_mv(3504), 3850, 2);        /* mode 3: 3.85 V */
+    NEAR(cal_port_mv(3822), 4199, 2);        /* the 4.20 V target 3822 is 4.20 V */
+    NEAR(cal_port_mv(3958), 4349, 2);        /* 4.35 V */
+    NEAR(cal_port_mv(3458), 3799, 2);        /* 3.80 V */
+    NEAR(cal_port_mv(3504), 3850, 2);        /* 3.85 V */
     NEAR(cal_port_mv(3532), 3880, 2);        /* raw 3532 -> 3.88 V */
     CHECK(cal_port_mv(0) == 0);
     NEAR(cal_port_mv(4095), 4499, 2);
@@ -216,11 +216,13 @@ static void t_cfg(void)
     CHECK(cfg_valid_ilim(0xFF) == 0 && cfg_valid_ilim(4) == 0 && cfg_valid_ilim(5) == 5 && cfg_valid_ilim(100) == 100 && cfg_valid_ilim(101) == 0);
     CHECK(cfg_valid_vmin(0xFF) == 0 && cfg_valid_vmin(47) == 0 && cfg_valid_vmin(48) == 48 && cfg_valid_vmin(250) == 250 && cfg_valid_vmin(251) == 0);
     CHECK(cfg_valid_lmode(0xFF) == 0 && cfg_valid_lmode(3) == 3 && cfg_valid_lmode(4) == 0);   /* unknown -> equal sharing */
+    CHECK(cfg_valid_ch_cur(0xFF) == 0 && cfg_valid_ch_cur(0) == 0 && cfg_valid_ch_cur(20) == 0 && cfg_valid_ch_cur(21) == 21 && cfg_valid_ch_cur(91) == 91 && cfg_valid_ch_cur(92) == 0);
+    CHECK(cfg_valid_ch_off(0xFF) == 0 && cfg_valid_ch_off(0x40) == 0 && cfg_valid_ch_off(0) == 0 && cfg_valid_ch_off(5) == 5 && cfg_valid_ch_off(0x3F) == 0x3F);   /* erased flash: no port sits out */
     CHECK(cfg_valid_current(20) == 21);
     CHECK(cfg_valid_current(21) == 21);
     CHECK(cfg_valid_current(91) == 91);
     CHECK(cfg_valid_current(92) == 21);
-    CHECK(cfg_valid_mode(0xFF) == 0); CHECK(cfg_valid_mode(3) == 3); CHECK(cfg_valid_mode(4) == 0);
+    CHECK(cfg_valid_volt(0xFF) == 0); CHECK(cfg_valid_volt(3) == 3); CHECK(cfg_valid_volt(4) == 0);
     CHECK(cfg_valid_buzzer(0xFF) == 1);            /* erased = buzzer on */
     CHECK(cfg_valid_buzzer(0) == 0); CHECK(cfg_valid_buzzer(1) == 1);
 }
@@ -275,7 +277,7 @@ static void t_dbg(void)
     memset(&dbg_view, 0, sizeof dbg_view);
     dbg_view.bandgap = 1073; dbg_view.vin = 768; dbg_view.rail = 3971; dbg_view.rail_duty = 187; dbg_view.adc[0] = 2345;
     dbg_view.v[3] = 3966; dbg_view.i[3] = 21; dbg_view.duty[3] = 345; dbg_view.state[3] = 2;
-    dbg_view.mode = 1; dbg_view.iset = 21; dbg_view.iset_user = 28; dbg_view.tgt = 3958; dbg_view.setpoint = 3972;
+    dbg_view.volt = 1; dbg_view.iset = 21; dbg_view.iset_user = 28; dbg_view.tgt = 3958; dbg_view.setpoint = 3972;
     dbg_view.ms = 123456; dbg_view.fan = 1;
     CHECK(dbg_vcc_mv(1073) == 4543); CHECK(dbg_vcc_mv(976) == 4994); CHECK(dbg_vcc_mv(1219) == 3999); CHECK(dbg_vcc_mv(0) == 0);
     CHECK(!strncmp(dbg_text(1, 1), "BANDGAP 1073 counts", 19));
@@ -287,7 +289,7 @@ static void t_dbg(void)
     CHECK(!strncmp(dbg_text(1, 9), "UPTIME 123 s", 12));
     CHECK(!strncmp(dbg_text(2, 4), "P4 3966 4.357 4.399", 19));          /* A = 4.5V/4096, B = VCC/4096 */
     CHECK(!strncmp(dbg_text(3, 4), "P4  21  308 D345 CHARGE", 23));
-    CHECK(!strncmp(dbg_text(4, 1), "RUN 0  MODE 1 4.35V", 19));
+    CHECK(!strncmp(dbg_text(4, 1), "RUN 0  VOLT 1 4.35V", 19));
     CHECK(!strncmp(dbg_text(4, 2), "SET 21 USER 28  300mA", 21));
     CHECK(!strncmp(dbg_text(4, 6), "PORT STATE 000200", 17));
     dbg_view.adc[10] = 1234; dbg_view.adc[15] = 1073;

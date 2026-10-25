@@ -8,7 +8,7 @@
 #define CAL_H
 #include "compat.h"
 
-/* Port voltage sense (ADC1..6) in mV: 1 count = 4.5 V / 4096.  [VERIFIED: the mode targets 3822/3958/3458/3504 are exactly
+/* Port voltage sense (ADC1..6) in mV: 1 count = 4.5 V / 4096.  [VERIFIED: the target voltages 3822/3958/3458/3504 are exactly
  * 4.20/4.35/3.80/3.85 V.]  The hardware divider is still to be confirmed with a DMM. */
 uint16_t cal_port_mv(uint16_t raw);
 uint16_t cal_mv_to_port(uint16_t mv);              /* inverse, for thresholds given in volts */

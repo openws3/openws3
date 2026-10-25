@@ -2,7 +2,7 @@
 #ifndef LAYOUT_H
 #define LAYOUT_H
 
-/* three header boxes: set current | input voltage | mode target */
+/* three header boxes: set current | input voltage | target voltage */
 #define UI_BOX_X0       1
 #define UI_BOX_PITCH    53
 #define UI_BOX_W        52

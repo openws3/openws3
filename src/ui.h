@@ -5,9 +5,9 @@
 #include "board.h"
 
 typedef struct {
-    uint8_t  run, mode, iset;
+    uint8_t  run, volt, iset;
     uint16_t vin;                         /* filtered ADC7 */
-    uint16_t tgt;                         /* mode target, port-voltage counts */
+    uint16_t tgt;                         /* target voltage, port-voltage counts */
     uint8_t  state[NPORTS];               /* PS_* */
     uint16_t v[NPORTS], i[NPORTS];        /* filtered counts */
     uint8_t  alarm;                       /* UA_* banner in the input-voltage box */

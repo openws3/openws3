@@ -19,7 +19,7 @@ static int fails, checks;
 
 static void fresh(uint8_t run)
 {
-    menu_v.mode = 0; menu_v.cur = 21; menu_v.sound = 1; menu_v.theme = TH_CLASSIC; menu_v.ilim = 0; menu_v.vmin = 0; menu_v.vcut = 0; menu_v.lmode = LM_EQUAL;
+    menu_v.volt = 0; menu_v.cur = 21; menu_v.sound = 1; menu_v.theme = TH_CLASSIC; menu_v.ilim = 0; menu_v.vmin = 0; menu_v.vcut = 0; menu_v.lmode = LM_EQUAL;
     menu_open(run, CUR_MAX);
 }
 static void down(int n) { while (n--) menu_event(RIGHT_SHORT); }
@@ -48,7 +48,7 @@ static void t_nav(void)
     fresh(0);
     CHECK(menu_event(OK) == MA_CHANGED);                      /* open CHARGING */
     CHECK(has(menu_text(0), "CHARGING") && has(menu_text(0), "1/2") && has(menu_text(0), "HOLD:BACK"));
-    CHECK(has(menu_text(1), "MODE") && has(menu_text(2), "CURRENT") && menu_text(3)[0] == 0x20 && !has(menu_text(3), "M"));
+    CHECK(has(menu_text(1), "VOLTAGE") && has(menu_text(2), "CURRENT") && menu_text(3)[0] == 0x20 && !has(menu_text(3), "M"));
     menu_event(LEFT_SHORT); CHECK(has(menu_text(0), "2/2"));  /* wraps inside the category too */
     CHECK(menu_event(BACK) == MA_CHANGED);                    /* back to the categories, the cursor on CHARGING */
     CHECK(has(menu_text(0), "MENU") && has(menu_text(0), "1/4") && menu_text(1)[0] == '>');
@@ -69,16 +69,16 @@ static void t_nav(void)
 static void t_edit(void)
 {
     fresh(0); go(C_CHARGE, 0);
-    CHECK(menu_event(OK) == MA_CHANGED && menu_editing());                         /* edit MODE */
+    CHECK(menu_event(OK) == MA_CHANGED && menu_editing());                         /* edit the target voltage */
     more(2);
-    CHECK(menu_v.mode == 2 && has(menu_text(1), "3.80V"));                         /* live */
-    less(1); CHECK(menu_v.mode == 1);
+    CHECK(menu_v.volt == 2 && has(menu_text(1), "3.80V"));                         /* live */
+    less(1); CHECK(menu_v.volt == 1);
     cancel();                                                                      /* cancel: back to what it was, still in the category */
-    CHECK(menu_v.mode == 0 && !menu_editing() && has(menu_text(0), "CHARGING"));
+    CHECK(menu_v.volt == 0 && !menu_editing() && has(menu_text(0), "CHARGING"));
     edit(); more(1); confirm();                                                    /* confirm */
-    CHECK(menu_v.mode == 1 && !menu_editing());
+    CHECK(menu_v.volt == 1 && !menu_editing());
     edit(); less(3);
-    CHECK(menu_v.mode == 0);                                                       /* values stop at the ends */
+    CHECK(menu_v.volt == 0);                                                       /* values stop at the ends */
     cancel();
 
     /* current: steps of 0.1 A within [0.3 A, the cap] */
@@ -93,7 +93,7 @@ static void t_edit(void)
 static void t_locked(void)
 {
     fresh(1); go(C_CHARGE, 0);
-    CHECK(menu_event(OK) == MA_LOCKED && !menu_editing());                         /* mode */
+    CHECK(menu_event(OK) == MA_LOCKED && !menu_editing());                         /* voltage */
     CHECK(has(menu_text(9), "LOCKED"));
     down(1); CHECK(menu_event(OK) == MA_LOCKED);                                   /* current */
     menu_event(BACK);

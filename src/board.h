@@ -14,9 +14,9 @@
 
 /* ADC channels (internal mux).  Per-port channels are in the tables below.
  * ADC1..6 sense port VOLTAGE and ADC 12,14,13,9,10,11 sense port CURRENT. */
-#define ADC_IIN      0              /* P1.0  (name is historical) most likely a board thermistor (the debug screen shows it): the fan is switched on below 1300 in the storage modes and off above 1451 */
+#define ADC_IIN      0              /* P1.0  (name is historical) most likely a board thermistor (the debug screen shows it): the fan is switched on below 1300 at the storage voltages and off above 1451 */
 #define ADC_VIN      7              /* P1.7  input voltage (divider ratio unverified) */
-#define ADC_RAIL     8              /* P0.0  common rail, regulated to the mode setpoint by PWM7 */
+#define ADC_RAIL     8              /* P0.0  common rail, regulated to the setpoint of the target voltage by PWM7 */
 #define ADC_BANDGAP  15             /* internal 1.19 V reference -> VCC */
 #define NADC         16
 
@@ -27,7 +27,7 @@
 #define PORT_CCR_INIT     { 0xFEFB, 0xFED7, 0xFED9, 0xFEDB, 0xFEF5, 0xFEF7 }
 /* per-port switch pin as { port 0..5, bit }: P4.5 P2.7 P2.5 P4.2 P4.3 P4.4.
  * Polarity (inferred from closed-loop behaviour, not measured directly): LOW = charge path conducting, current set by
- * the PWM duty; HIGH = the discharge path used by the storage modes.  So "enable" is a misnomer. */
+ * the PWM duty; HIGH = the discharge path used at the storage voltages.  So "enable" is a misnomer. */
 #define PORT_EN_INIT      { {4,5}, {2,7}, {2,5}, {4,2}, {4,3}, {4,4} }
 #define RAIL_CCR          0xFEF9    /* PWMB_CCR3 -> P3.3 rail actuator (higher duty = lower rail) */
 

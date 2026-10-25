@@ -15,7 +15,7 @@ uint16_t dbg_vcc_mv(uint16_t bandgap)
     return bandgap ? (uint16_t)((1190UL * 4096UL + bandgap / 2) / bandgap) : 0;
 }
 
-static const char *mode_name(uint8_t m)
+static const char *volt_name(uint8_t m)
 {
     switch (m & 3) { case 0: return "4.20V"; case 1: return "4.35V"; case 2: return "3.80V"; default: return "3.85V"; }
 }
@@ -74,7 +74,7 @@ const char *dbg_text(uint8_t page, uint8_t row)
     case 4:
         switch (row) {
         case 0: rb_str("STATUS"); break;
-        case 1: rb_str("RUN "); rb_num(dbg_view.run, 0); rb_str("  MODE "); rb_num(dbg_view.mode, 0); rb_ch(' '); rb_str(mode_name(dbg_view.mode)); break;
+        case 1: rb_str("RUN "); rb_num(dbg_view.run, 0); rb_str("  VOLT "); rb_num(dbg_view.volt, 0); rb_ch(' '); rb_str(volt_name(dbg_view.volt)); break;
         case 2: rb_str("SET "); rb_num(dbg_view.iset, 0); rb_str(" USER "); rb_num(dbg_view.iset_user, 0); rb_str("  "); rb_num(cal_set_to_ma(dbg_view.iset), 0); rb_str("mA"); break;
         case 3: rb_str("TGT "); rb_num(dbg_view.tgt, 0); rb_str("  RAIL SET "); rb_num(dbg_view.setpoint, 0); break;
         case 4: rb_str("STOP "); rb_num(dbg_view.stop, 0); rb_str(" ALARM "); rb_num(dbg_view.alarm, 0); rb_str(" HOLD "); rb_num(dbg_view.rail_hold, 0); break;

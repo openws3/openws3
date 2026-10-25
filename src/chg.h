@@ -18,6 +18,7 @@
 #define CHG_H
 #include "compat.h"
 #include "board.h"
+#include "sup.h"
 
 enum { PS_IDLE = 0, PS_PROBE, PS_CHARGE, PS_REST, PS_PAUSE, PS_FULL, PS_BLEED, PS_FAULT };
 
@@ -31,11 +32,12 @@ typedef struct {
     uint16_t adc_i[NPORTS];      /* raw port current ADC (12,14,13,9,10,11) */
     uint16_t rail;               /* filtered rail ADC8 */
     uint16_t vin;                /* filtered input voltage ADC7 */
-    uint16_t tgt;                /* mode target T (port-voltage counts) */
-    uint16_t setpoint;           /* mode rail setpoint S */
-    uint8_t  mode;               /* 0..3 */
-    uint8_t  iset;               /* user current setting (counts), already capped by the input supervisor */
+    uint16_t tgt;                /* target voltage T (port-voltage counts) */
+    uint16_t setpoint;           /* rail setpoint S of that voltage */
+    uint8_t  volt;               /* the target voltage: 0..3, sup.h VOLT_* */
+    uint8_t  iset[NPORTS];       /* per-port current setting (counts) */
     uint8_t  run;                /* charging requested */
+    uint8_t  en[NPORTS];         /* the port takes part in the run (0: it stays idle, its output off) */
     uint8_t  cap[NPORTS];        /* per-port current cap from the user limits (limits.h): 0 = none, CAP_PARK = output off, else counts */
 } chg_in_t;
 
@@ -59,7 +61,7 @@ void chg_cut(void);              /* rail trip: duties to zero and the soft ramp 
 /* thresholds, in counts, exposed for tests and documentation */
 #define V_DEAD            910    /* 1.00 V: below this there is no cell */
 #define V_FAULT           4004   /* 4.40 V: over-voltage latch */
-#define V_MODE0_LATCH     3868   /* 4.25 V: mode-0 latch after 200 passes above the rail */
+#define V_LATCH_420     3868   /* 4.25 V: latch of the 4.20 V target after 200 passes above the rail */
 #define I_TAIL            5      /* tail-current threshold (73 mA) */
 #define PASS_TICKS        9      /* control pass: 9 x 0.5 ms = 4.5 ms */
 

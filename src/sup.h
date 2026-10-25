@@ -10,10 +10,13 @@
  * setting and the input limits (MAX IN AMPS, MIN IN VOLTS). */
 #define VIN_MIN       700
 
-/* mode table: rail setpoint S and port-voltage target T (counts) */
-#define NMODES 4
-uint16_t sup_target(uint8_t mode);      /* 3822 / 3958 / 3458 / 3504  = 4.20 / 4.35 / 3.80 / 3.85 V */
-uint16_t sup_setpoint(uint8_t mode);    /* 3836 / 3972 / 3803 / 3940 */
+/* the four target voltages the user chooses between: rail setpoint S and port-voltage target T (counts).  The first two are full
+ * charges, the last two storage charges (they end differently, see chg.c) */
+enum { VOLT_4_20 = 0, VOLT_4_35, VOLT_3_80, VOLT_3_85 };
+#define VOLT_STORAGE VOLT_3_80      /* from here on: storage voltages */
+#define NVOLTS 4
+uint16_t sup_target(uint8_t volt);      /* 3822 / 3958 / 3458 / 3504  = 4.20 / 4.35 / 3.80 / 3.85 V */
+uint16_t sup_setpoint(uint8_t volt);    /* 3836 / 3972 / 3803 / 3940 */
 
 /* Lipo-input cell count from VIN (VIN/663 + 1, clamped 2..6) and its limits */
 uint8_t  sup_cells(uint16_t vin);
@@ -26,7 +29,7 @@ typedef struct {
     uint8_t  strap;                     /* P3.4 */
     uint8_t  dc;                        /* user chose "DC input" (only meaningful when strap=1) */
     uint8_t  run;
-    uint8_t  mode;
+    uint8_t  volt;
     uint8_t  i_port_hi;                 /* ports drawing >= 63 counts */
     uint8_t  i_port_mid;                /* ports drawing >= 56 counts */
 } sup_in_t;
@@ -38,7 +41,7 @@ typedef struct {
     uint8_t  poweroff;      /* input collapsed: shut down */
     uint8_t  rail_cut;      /* rail over-voltage: momentarily cut the ports and back the current off */
     uint8_t  rail_alarm;    /* rail out of regulation for long: alarm pattern */
-    uint8_t  alarm_steady;  /* P0.7 level: overload / storage-mode low ADC0 */
+    uint8_t  alarm_steady;  /* P0.7 level: overload / low ADC0 at a storage voltage */
 } sup_out_t;
 
 void sup_reset(void);

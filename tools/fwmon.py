@@ -8,7 +8,7 @@ Layout and commands: fw/USB.md.
   fwmon.py log FILE [--secs S]     JSON lines, one per telemetry report (about every 10 ms), for later analysis
   fwmon.py start | stop | ping
   fwmon.py current 0.5             set the charge current (0.3 ... 1.3 A in 0.1 A steps; refused while charging)
-  fwmon.py mode 0..3               4.20 / 4.35 / 3.80 / 3.85 V; refused while charging
+  fwmon.py voltage 4.20            target voltage: 4.20, 4.35, 3.80 or 3.85 (V; the last two are storage); refused while charging
 
 Needs read/write access to /dev/hidraw* (udev rule or sudo).  Commands open the device afresh each time (a long-lived
 fd wedges after an OUT report on this chip - see tools/bench/RESULTS.md).
@@ -22,7 +22,7 @@ PHASE = {1: 'rail-wait', 2: 'splash', 3: 'vcc-gate', 4: 'self-test', 5: 'input',
 STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'PAUSE', 'FULL', 'BLEED', 'FAULT']
 STOP = {0: '-', 1: 'input-low', 2: 'vcc-low', 3: 'rail', 4: 'user', 5: 'min-input-voltage'}
 EVENT = {0: '-', 1: 'port-full', 2: 'port-fault', 3: 'stopped'}
-MODE_V = ['4.20 V', '4.35 V', '3.80 V', '3.85 V']
+VOLTS = ['4.20', '4.35', '3.80', '3.85']
 RESULT = {0: 'ok', 1: 'refused', 2: 'unknown command'}
 V_PER_COUNT = 4.5 / 4096
 A_PER_COUNT = 1 / 68.25
@@ -53,7 +53,7 @@ def parse(r):
     f = r[8]
     return dict(
         version=r[3], ms=struct.unpack_from('>I', r, 4)[0],
-        run=f & 1, mode=(f >> 1) & 3, outputs=(f >> 3) & 1, charge_enabled=(f >> 4) & 1, rail_hold=(f >> 5) & 1,
+        run=f & 1, volt=(f >> 1) & 3, outputs=(f >> 3) & 1, charge_enabled=(f >> 4) & 1, rail_hold=(f >> 5) & 1,
         strap=(f >> 6) & 1, dc=(f >> 7) & 1,
         iset=r[9], iset_user=r[10], stop=r[11], alarm=r[12] & 15, debug_page=r[12] >> 4, ev_seq=r[13], ev_code=r[14], ev_port=r[15],
         cmd_seq=r[16], cmd_res=r[17], state=list(r[18:24]), sw=[(r[24] >> k) & 1 for k in range(6)], phase=r[25],
@@ -118,7 +118,7 @@ def command(cmd, arg=0, ack=True):
 
 def fmt_status(t):
     head = '%8.1fs %-9s %s %s  set %.1fA  %s  rail %d  vin %d  vcc %d' % (
-        t['ms'] / 1000, PHASE.get(t['phase'], t['phase']), 'RUN' if t['run'] else 'idle', MODE_V[t['mode']],
+        t['ms'] / 1000, PHASE.get(t['phase'], t['phase']), 'RUN' if t['run'] else 'idle', VOLTS[t['volt']] + ' V',
         0.1 * t['iset'] / 7.0, 'hold' if t['rail_hold'] else '', t['rail'], t['vin'], t['bandgap'])
     cells = '  '.join('%d:%-6s %.3fV %3dmA%s' % (k + 1, STATE[t['state'][k]], t['v'][k] * V_PER_COUNT, round(t['i'][k] * A_PER_COUNT * 1000),
                                                   ' sw' if t['sw'][k] else '') for k in range(6) if t['state'][k] or t['v'][k] > 900)
@@ -212,7 +212,7 @@ def main():
     for name in ('start', 'stop', 'ping', 'isp'): sub.add_parser(name)
     f = sub.add_parser('flash'); f.add_argument('file')
     c = sub.add_parser('current'); c.add_argument('amps', type=float)
-    m = sub.add_parser('mode'); m.add_argument('mode', type=int, choices=range(4))
+    m = sub.add_parser('voltage'); m.add_argument('volts', choices=VOLTS)
     a = ap.parse_args()
 
     if a.cmd == 'status': print(fmt_status(snapshot()))
@@ -222,7 +222,7 @@ def main():
     else:
         code, arg = {'stop': (1, 0), 'start': (2, 0), 'ping': (5, 0), 'isp': (6, 0)}.get(a.cmd, (None, 0))
         if a.cmd == 'current': code, arg = 3, 7 * round(a.amps * 10)
-        if a.cmd == 'mode': code, arg = 4, a.mode
+        if a.cmd == 'voltage': code, arg = 4, VOLTS.index(a.volts)
         res = command(code, arg, ack=a.cmd != 'isp')
         print(RESULT.get(res, res))
         sys.exit(0 if res == 0 else 1)

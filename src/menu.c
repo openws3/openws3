@@ -6,9 +6,9 @@
 #include "theme.h"
 
 /* items are numbered category by category; CAT_FIRST[c] .. CAT_FIRST[c + 1] - 1 belong to category c (diagnostics is an action, no items) */
-enum { IT_MODE, IT_CURRENT, IT_ILIM, IT_VMIN, IT_VCUT, IT_LMODE, IT_SOUND, IT_THEME, NITEMS };
+enum { IT_VOLT, IT_CURRENT, IT_ILIM, IT_VMIN, IT_VCUT, IT_LMODE, IT_SOUND, IT_THEME, NITEMS };
 enum { CAT_CHARGE, CAT_LIMITS, CAT_PREFS, CAT_DIAG, NCATS };
-static const uint8_t CAT_FIRST[NCATS + 1] = { IT_MODE, IT_ILIM, IT_SOUND, NITEMS, NITEMS };
+static const uint8_t CAT_FIRST[NCATS + 1] = { IT_VOLT, IT_ILIM, IT_SOUND, NITEMS, NITEMS };
 
 menu_vals_t XD menu_v;
 static uint8_t XD level, cat, cursor, editing, backup, running, cur_max;      /* level 0: the categories (cursor = category), 1: one category's items */
@@ -16,14 +16,14 @@ static char XD rowtxt[ROW_COLS + 1];
 static char XD tmp[12];
 
 static const char *const CAT_LABEL[NCATS] = { "CHARGING", "LIMITS", "PREFERENCES", "DIAGNOSTICS" };
-static const char *const LABEL[NITEMS] = { "MODE", "CURRENT", "MAX IN AMPS", "MIN IN VOLTS", "BELOW MIN", "REGULATION", "SOUND", "THEME" };
-static const char *const MODE_NAME[4] = { "4.20V", "4.35V", "3.80V STOR", "3.85V STOR" };
+static const char *const LABEL[NITEMS] = { "VOLTAGE", "CURRENT", "MAX IN AMPS", "MIN IN VOLTS", "BELOW MIN", "REGULATION", "SOUND", "THEME" };
+static const char *const VOLT_NAME[4] = { "4.20V", "4.35V", "3.80V STOR", "3.85V STOR" };
 static const char *const LMODE_NAME[LM_NMODES] = { "EQUAL", "CH1 FIRST", "LOW V FIRST", "HIGH V FIRST" };
 
 static uint8_t XD *slot(uint8_t it)
 {
     switch (it) {
-    case IT_MODE: return &menu_v.mode;
+    case IT_VOLT: return &menu_v.volt;
     case IT_CURRENT: return &menu_v.cur;
     case IT_SOUND: return &menu_v.sound;
     case IT_THEME: return &menu_v.theme;
@@ -35,7 +35,7 @@ static uint8_t XD *slot(uint8_t it)
     }
 }
 
-static uint8_t is_locked(uint8_t it) { return running && (it == IT_MODE || it == IT_CURRENT); }
+static uint8_t is_locked(uint8_t it) { return running && (it == IT_VOLT || it == IT_CURRENT); }
 
 void menu_open(uint8_t run, uint8_t cmax) { level = cat = cursor = 0; editing = 0; running = run; cur_max = cmax; }
 void menu_context(uint8_t run, uint8_t cmax) { running = run; cur_max = cmax; }
@@ -48,7 +48,7 @@ static void step(uint8_t it, uint8_t up)
 {
     uint8_t XD *v = slot(it);
     switch (it) {
-    case IT_MODE: if (up) { if (*v < 3) (*v)++; } else if (*v) (*v)--; break;
+    case IT_VOLT: if (up) { if (*v < 3) (*v)++; } else if (*v) (*v)--; break;
     case IT_CURRENT:
         if (up) { if (*v + CUR_UNITS_PER_100MA <= cur_max) *v = (uint8_t)(*v + CUR_UNITS_PER_100MA); }
         else if (*v >= CUR_MIN + CUR_UNITS_PER_100MA) *v = (uint8_t)(*v - CUR_UNITS_PER_100MA);
@@ -95,7 +95,7 @@ static void value(uint8_t it)
 {
     uint8_t v = *slot(it);
     switch (it) {
-    case IT_MODE: rb_right(MODE_NAME[v & 3], ROW_COLS - 1); break;
+    case IT_VOLT: rb_right(VOLT_NAME[v & 3], ROW_COLS - 1); break;
     case IT_CURRENT: fmt_a1(tmp, cal_set_to_ma(v)); rb_right(tmp, ROW_COLS - 1); break;
     case IT_SOUND: rb_right(v ? "ON" : "OFF", ROW_COLS - 1); break;
     case IT_THEME: rb_right(th_name(v), ROW_COLS - 1); break;

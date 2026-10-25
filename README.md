@@ -1,8 +1,8 @@
 # OpenWS3 — open firmware for the WhoopStor V3
 
 Open firmware for the WhoopStor V3, a six-port LiPo charger / storage unit built around the STC8H8K64U (8051 core, 64 KB flash).
-Six independent charge ports, four modes (4.20 V, 4.35 V, 3.80 V storage, 3.85 V storage), CC/CV charging with termination,
-storage-mode bleed, input / rail / VCC supervision, a colour LCD UI with a settings menu, **input current and input voltage limits**
+Six independent charge ports, four target voltages (4.20 V, 4.35 V, 3.80 V storage, 3.85 V storage), CC/CV charging with termination,
+storage-voltage bleed, input / rail / VCC supervision, a colour LCD UI with a settings menu, **input current and input voltage limits**
 (so it can run from a PC USB port or a weak supply), a USB monitor and button-less flashing.
 
 > **Status: early.** It runs on a real unit (display, buttons, menu, USB monitor, limits, charging at low current from a 5 V supply).
@@ -31,7 +31,7 @@ python3 tools/fwmon.py flash build/fw.bin
 ## Monitoring over USB
 
 The firmware is also a USB HID device (`34bf:1004`, product "OpenWS3"): `python3 tools/fwmon.py watch` shows boot phases, port states,
-voltages, currents, events and faults live; `start`/`stop`/`current`/`mode` drive it. Details and report layout: `USB.md`.
+voltages, currents, events and faults live; `start`/`stop`/`current`/`voltage` drive it. Details and report layout: `USB.md`.
 
 
 ## Menu
@@ -42,7 +42,7 @@ The menu has four categories; **OK** opens one and **BACK** returns to the list 
 
 | Category | Item | Setting |
 |---|---|---|
-| CHARGING | MODE | 4.20 V / 4.35 V / 3.80 V storage / 3.85 V storage (not while charging) |
+| CHARGING | VOLTAGE | 4.20 V / 4.35 V / 3.80 V storage / 3.85 V storage (not while charging) |
 | | CURRENT | per-port current, 0.3 A and up, within what the present input allows (not while charging) |
 | LIMITS | MAX IN AMPS | limit on the estimated input current: off, 0.5 to 3.0 A in 0.1 A steps, then 0.5 A steps up to 10 A. The ports are limited smoothly |
 | | MIN IN VOLTS | minimum input voltage: off, 4.8 to 6.0 V in 0.1 V steps, then 0.5 V steps up to 25.0 V |
@@ -83,7 +83,7 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 | 1 power | bandgap count and the VCC it implies, VIN, rail and its PWM, ADC0 (probably a thermistor), fan, strap, uptime |
 | 2 port V | raw count per port, and the voltage under two scales: 4.5 V / 4096 (what the firmware uses) and VCC / 4096 |
 | 3 port I | raw count, mA, PWM duty, state, bleed switch |
-| 4 status | run, mode, current settings, targets, stop/alarm, strap, USB, build flags |
+| 4 status | run, target voltage, current settings, targets, stop/alarm, strap, USB, build flags |
 | 5 ADC raw | all 16 channels |
 | 6 limits | estimated input current, the two limits and their modes, the budget, the cap on each port |
 
@@ -93,7 +93,7 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 |---|---|
 | Button 1, tap | current setting +0.1 A (0.3 … 1.3 A, wraps); ignored while charging |
 | Button 1, hold (0.35 s) | start / stop charging |
-| Button 2, tap | mode: 4.20 V → 4.35 V → 3.80 V storage → 3.85 V storage; ignored while charging |
+| Button 2, tap | target voltage: 4.20 V → 4.35 V → 3.80 V storage → 3.85 V storage; ignored while charging |
 | Button 2, hold (0.5 s) | sound on / off |
 | Both buttons, tap | open the menu |
 

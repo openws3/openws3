@@ -1,8 +1,8 @@
 #include "sup.h"
 #include "cal.h"
 
-static const CODE uint16_t TGT[NMODES] = { 3822, 3958, 3458, 3504 };
-static const CODE uint16_t SET[NMODES] = { 3836, 3972, 3803, 3940 };
+static const CODE uint16_t TGT[NVOLTS] = { 3822, 3958, 3458, 3504 };
+static const CODE uint16_t SET[NVOLTS] = { 3836, 3972, 3803, 3940 };
 /* index = cells-2 */
 static const CODE uint16_t E1[5] = { 971, 1456, 1942, 2427, 2912 };
 static const CODE uint16_t B3[5] = { 910, 1365, 1820, 2123, 2730 };
@@ -15,11 +15,11 @@ static const CODE uint16_t B3[5] = { 910, 1365, 1820, 2123, 2730 };
 #define RAIL_ALARM_PASSES 250
 #define RAIL_OK_BAND     30
 #define VIN_CONFIRM      3       /* passes below the Lipo limit before stopping (several samples, so one bad one does not stop the run) */
-#define ADC0_LOW         1300    /* storage modes: below this the steady alarm */
+#define ADC0_LOW         1300    /* storage voltages: below this the steady alarm */
 #define ADC0_OK          1451
 
-uint16_t sup_target(uint8_t mode)   { return TGT[mode & 3]; }
-uint16_t sup_setpoint(uint8_t mode) { return SET[mode & 3]; }
+uint16_t sup_target(uint8_t volt)   { return TGT[volt & 3]; }
+uint16_t sup_setpoint(uint8_t volt) { return SET[volt & 3]; }
 
 uint8_t sup_cells(uint16_t vin)
 {
@@ -66,7 +66,7 @@ void sup_pass(const sup_in_t XD *in, sup_out_t XD *o)
     if (rail_alarm) { o->rail_alarm = 1; o->stop = STOP_RAIL; }
 
     /* ---- steady alarm level (P0.7) ---- */
-    if (in->mode >= 2) {
+    if (in->volt >= VOLT_STORAGE) {
         if (in->adc0 < ADC0_LOW) alarm_on = 1;
         else if (in->adc0 >= ADC0_OK) alarm_on = 0;
     } else {

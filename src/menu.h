@@ -7,7 +7,7 @@
  *   items       B1: up   B2: down   (wraps around)   OK: edit the item   BACK: back to the categories
  *   edit        B2: value up   B1: value down   OK: confirm   BACK: cancel (restores the old value)
  *
- * Values change live in menu_v; the app persists them when the menu is closed.  Mode and current cannot be changed while
+ * Values change live in menu_v; the app persists them when the menu is closed.  Target voltage and current cannot be changed while
  * charging (as on the main screen).  Rows are 26 characters, the same shape as the debug screens (rowbuf.h).
  */
 #ifndef MENU_H
@@ -18,7 +18,7 @@
 #define MENU_ROWS   10                /* row 0 title, rows 1..8 categories or items (at most 4 are used), row 9 hint */
 
 typedef struct {
-    uint8_t mode, cur, sound, theme;
+    uint8_t volt, cur, sound, theme;
     uint8_t ilim, vmin, vcut, lmode;
 } menu_vals_t;
 
