@@ -161,11 +161,13 @@ void lcd_init(void)
     CS = 0; cmd(0x29); CS = 1;                       /* display on */
 }
 
-/* Re-send the settings.  A supply glitch can scramble the panel's registers (rotation, colour order, ...) and the picture is
- * only drawn where it changes, so the app calls this about once a second.  Costs ~0.3 ms and leaves the picture alone. */
+/* Re-send the settings.  A supply glitch can scramble the panel's registers (rotation, colour order, ...) or drop it back into
+ * sleep (black, backlight still on), and the picture is only drawn where it changes, so the app calls this about once a second.
+ * Sleep-out does nothing on a panel that is already awake.  Leaves the picture alone. */
 void lcd_reconfig(void)
 {
     CS = 1; DC = 1;
+    CS = 0; cmd(0x11); CS = 1; hal_delay_ms(5);       /* sleep out; the panel wants 5 ms before the next command */
     config();
     CS = 0; cmd(0x29); CS = 1;
 }

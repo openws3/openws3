@@ -204,11 +204,7 @@ void app_boot(void)
         if (hal_ms() - t0 > RAIL_UP_TIMEOUT) { lcd_init(); fatal("NO RAIL", "RAIL DID NOT COME UP", 1, adc_get(ADC_RAIL)); }
         hal_delay_ms(2);
     }
-    lcd_init();
-    tele(PH_SPLASH);
-    ui_splash();
-    buzz_play(PAT_BOOT);
-    hal_delay_ms(1000);
+    lcd_init();                                      /* for the start-up messages below; may be lost, see the logo */
 
     /* VCC gate: do not start unless VCC <= 5.0 V (bandgap >= 976) */
     t0 = hal_ms();
@@ -241,6 +237,14 @@ void app_boot(void)
         hal_delay_ms(500);
         adc_scan_slow_now(); adc_scan_slow_now(); vin = adc_get(ADC_VIN);
     }
+    /* the logo waits until the start-up load is over: an init made while the fan line is on and the rail is being brought up
+       can leave the panel black (cold starts), one made after the self-test always works */
+    tele(PH_SPLASH);
+    lcd_init();
+    ui_splash();
+    buzz_play(PAT_BOOT);
+    hal_delay_ms(1000);
+
     sup_reset();
     dc = 0;
     if (strap) {
