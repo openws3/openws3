@@ -49,7 +49,7 @@ typedef struct {
     uint16_t i[NPORTS];          /* filtered current (counts) */
     uint8_t  any_active;         /* some port is charging or bleeding (global enable P5.2 must be on) */
     uint8_t  want[NPORTS];       /* CHARGE: the working current before the caps (counts), else 0 */
-    uint8_t  thr[NPORTS];        /* CHARGE: the cap is below the wanted current */
+    uint8_t  set[NPORTS];        /* CHARGE: the current regulated to, after the caps (counts, 0 = parked), else 0 */
 } chg_out_t;
 
 void chg_init(void);

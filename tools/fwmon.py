@@ -39,7 +39,7 @@ def parse_limits(r):
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     return dict(lim=dict(
         ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(12), p_cur=u16(14), p_vol=u16(16), est_ma=u16(18), bcnt=u16(20),
-        trip=r[22], active=r[23], cap=list(r[24:30]), want=list(r[30:36]), thr=list(r[36:42]), any_active=r[51], sup_stop=r[52], poweroff=r[53], rail_cut=r[54],
+        trip=r[22], active=r[23], cap=list(r[24:30]), want=list(r[30:36]), set=list(r[36:42]), any_active=r[51], sup_stop=r[52], poweroff=r[53], rail_cut=r[54],
         rail_alarm=r[55], fan=r[56], cells=r[57], lim_stop=u16(58), lim_off=u16(60)))
 
 
@@ -131,7 +131,7 @@ def fmt_limits(t):
         watts(L['budget']), watts(L['p_cur']), watts(L['p_vol']), amps(L['bcnt']) if L['bcnt'] else 'no cap', L['bcnt'], L['est_ma'] / 1000, L['trip'])
     ports = [k for k in range(6) if t['state'][k] == 2]
     if ports:
-        out += '\n         ports   ' + '  '.join('%d: want %s cap %s%s' % (k + 1, amps(L['want'][k]), cap(L['cap'][k]), ' THR' if L['thr'][k] else '') for k in ports)
+        out += '\n         ports   ' + '  '.join('%d: want %s cap %s set %s' % (k + 1, amps(L['want'][k]), cap(L['cap'][k]), amps(L['set'][k])) for k in ports)
         if L['lmode'] == 0:
             out += '\n         share   %s per port over %d charging' % (amps(L['bcnt'] // len(ports)) if L['bcnt'] else '-', len(ports))
     out += '\n         supply  cells %d  stop-below %d off-below %d  sup stop=%s' % (

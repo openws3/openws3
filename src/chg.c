@@ -251,7 +251,7 @@ void chg_pass(const chg_in_t XD *in, chg_out_t XD *out)
         out->sw[k] = W.sw;
         out->state[k] = W.st;
         out->want[k] = W.want;
-        out->thr[k] = W.thr;
+        out->set[k] = W.st == PS_CHARGE ? W.ieff : 0;
         out->v[k] = W.v;
         out->i[k] = W.i;
         if (W.st == PS_CHARGE || W.st == PS_BLEED) out->any_active = 1;

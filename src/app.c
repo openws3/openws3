@@ -79,7 +79,7 @@ static void tele_limits(uint8_t ph, uint32_t ms)
         put16(usb_tx2, 18, lim_out.est_ma); put16(usb_tx2, 20, lim_out.bcnt);
         usb_tx2[22] = lim_out.trip; usb_tx2[23] = (uint8_t)(run && !rail_hold);        /* the limiter ran this pass */
         for (k = 0; k < NPORTS; k++) {
-            usb_tx2[24 + k] = lim_out.cap[k]; usb_tx2[30 + k] = cout.want[k]; usb_tx2[36 + k] = cout.thr[k];
+            usb_tx2[24 + k] = lim_out.cap[k]; usb_tx2[30 + k] = cout.want[k]; usb_tx2[36 + k] = cout.set[k];
         }
         usb_tx2[51] = cout.any_active;
         usb_tx2[52] = sout.stop; usb_tx2[53] = sout.poweroff; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.rail_alarm; usb_tx2[56] = sout.fan;
@@ -460,7 +460,7 @@ void app_pass(void)
     /* ---- display ---- */
     ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui;
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
-    for (k = 0; k < NPORTS; k++) { ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.thr[k] && cin.cap[k] == CAP_PARK); }
+    for (k = 0; k < NPORTS; k++) { ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.state[k] == PS_CHARGE && !cout.set[k]); }
     if (dbg_page) {
         uint8_t n;
         dbg_view.ms = hal_ms();

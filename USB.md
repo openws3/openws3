@@ -51,7 +51,7 @@ Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Eve
 | 23 | the limiter ran this pass (running and no rail hold) |
 | 24–29 | cap per port: 0 none, 1 parked (output off), else a current in counts |
 | 30–35 | the current each port wants before the limits, counts (charging ports only) |
-| 36–41 | 1 = the port's cap is below the current it wants |
+| 36–41 | the current each port is regulated to after the limits, counts (0: parked or not charging) |
 | 42–50 | reserved (0): input, rail and the current setting are on page 1, setpoint and target follow from the target voltage |
 | 51 | some port is charging or bleeding (global enable) |
 | 52–56 | supervisor: stop reason, power-off, rail cut (fatal), rail alarm, fan |

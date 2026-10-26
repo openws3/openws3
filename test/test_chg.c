@@ -255,13 +255,13 @@ static void t_caps(void)
     b.in.cap[0] = 28;
     run(&b, 12000);
     CHECK(b.out.state[0] == PS_CHARGE && abs((int)b.out.i[0] - 28) <= 3);                    /* regulated to the cap, not to 63 */
-    CHECK(b.out.want[0] == 63 && b.out.thr[0] == 1);
+    CHECK(b.out.want[0] == 63 && b.out.set[0] == 28);
     b.in.cap[0] = CAP_PARK;
     run(&b, 400);
     CHECK(b.out.state[0] == PS_CHARGE && b.out.duty[0] == 0 && b.out.i[0] <= 1);             /* parked: output off, still CHARGE */
     b.in.cap[0] = 0;
     run(&b, 300);
-    CHECK(abs((int)b.out.i[0] - 63) <= 4 && b.out.thr[0] == 0);                               /* released: back at the setting within a second, no minutes-long ramp */
+    CHECK(abs((int)b.out.i[0] - 63) <= 4 && b.out.set[0] == 63);                               /* released: back at the setting within a second, no minutes-long ramp */
 
     /* with the cap in force the tail timer stands still: a near-full reading and no current would otherwise end the charge */
     bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
@@ -302,7 +302,7 @@ static void t_pulled(void)
     bench_init(&b, 0, 63); attach(&b, 0, 3.7, 4000, 0.1);
     b.in.cap[0] = 28;
     run(&b, 6000);
-    CHECK(b.out.state[0] == PS_CHARGE && b.out.thr[0] == 1 && abs((int)b.out.i[0] - 28) <= 3);
+    CHECK(b.out.state[0] == PS_CHARGE && b.out.set[0] == 28 && abs((int)b.out.i[0] - 28) <= 3);
     b.present[0] = 0;
     for (n = 0; n < 2000 && b.out.state[0] != PS_IDLE; n++) { b.ovr_v[0] = b.out.duty[0] > 0 ? 3830 : 0; step(&b); }
     CHECK(b.out.state[0] == PS_IDLE && n < 800);
