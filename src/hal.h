@@ -16,14 +16,13 @@ void     hal_sw(uint8_t port, uint8_t on);       /* per-port switch pin: 0 = cha
 void     hal_global(uint8_t on);                 /* P5.2 */
 void     hal_power(uint8_t on);                  /* P4.7 */
 void     hal_profile(uint8_t on);                /* P5.3 */
-void     hal_pwm_clear(void);                    /* all per-port PWM compare registers to 0 (rail untouched) */
 void     hal_power_down(void);                   /* ports off, P5.2/P4.7/P5.3/P0.7 low, interrupts off, STOP mode; does not return */
 void     hal_reboot_isp(void);                   /* outputs off, then a software reset into the USB ISP loader; does not return */
 void     hal_all_off(void);                      /* every enable low, every duty 0, P5.2 low */
 
 uint16_t hal_adc(uint8_t ch);                    /* one 12-bit conversion */
 
-/* Settings flash (IAP).  Settings live in the same pages the original firmware uses. */
+/* Settings flash (IAP): one page, see cfg.h. */
 uint8_t  hal_ee_read(uint16_t addr);
 void     hal_ee_erase(uint16_t addr);            /* erases the 512-byte sector containing addr */
 void     hal_ee_write(uint16_t addr, uint8_t v); /* program one byte (sector must have been erased) */

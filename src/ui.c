@@ -87,7 +87,7 @@ void ui_main_init(void)
 /* status text for a port */
 static void status_text(char *s, uint8_t state, uint16_t cur_counts)      /* bit 4 of state: parked by a user limit */
 {
-    static const CODE char *names[8] = { "", "TEST", "", "REST", "WAIT", "FULL", "BLEED", "ERR" };
+    static const CODE char *names[7] = { "", "TEST", "", "REST", "FULL", "BLEED", "ERR" };
     uint8_t k = 0;
     if ((state & 0x17) == (0x10 | PS_CHARGE)) { s[0] = 'L'; s[1] = 'I'; s[2] = 'M'; s[3] = 'I'; s[4] = 'T'; s[5] = 0; return; }   /* held off by a user limit */
     if ((state & 7) == PS_CHARGE) { fmt_a2(s, cal_port_ma(cur_counts)); return; }
@@ -113,7 +113,7 @@ static void element(const ui_state_t *s, uint8_t e)
         uint16_t col = th(R_TEXT), bg = s->run ? th(R_RUN) : th(R_BOX);
         if (e == 0) fmt_a1(t, cal_set_to_ma(s->iset));
         else if (e == 1) {
-            if (s->alarm) { static const CODE char *nm[7] = { "", "RAIL!", "VIN!", "VCC!", "SND ON", "SND OFF", "V LIMIT" }; uint8_t k = 0; while (nm[s->alarm][k]) { t[k] = nm[s->alarm][k]; k++; } t[k] = 0; col = (s->alarm == UA_SND_ON || s->alarm == UA_SND_OFF) ? th(R_INFO) : th(R_WARN); }
+            if (s->alarm) { static const CODE char *nm[5] = { "", "RAIL!", "VIN!", "VCC!", "V LIMIT" }; uint8_t k = 0; while (nm[s->alarm][k]) { t[k] = nm[s->alarm][k]; k++; } t[k] = 0; col = th(R_WARN); }
             else { fmt_v1(t, cal_vin_mv(s->vin)); col = th(R_VIN); }
         } else fmt_v2(t, cal_port_mv(s->tgt));
         /* the box colour changes with run state: repaint the box when it does */
@@ -176,7 +176,7 @@ void ui_text_row(uint8_t row, const char *text, uint16_t color)
 
 /* Every REFRESH_EVERY-th step the element is redrawn even if it did not change: a glitch that corrupted a few pixels would
  * otherwise stay on screen forever (only changes are drawn). */
-#define REFRESH_EVERY 8          /* must not share a factor with NELEM (21 = 3 x 7), or only some elements would ever be refreshed */
+#define REFRESH_EVERY 64         /* must not share a factor with NELEM (21 = 3 x 7), or only some elements would ever be refreshed */
 static uint8_t XD refresh_div;
 
 void ui_main_step(const ui_state_t *s)
@@ -189,10 +189,4 @@ void ui_main_step(const ui_state_t *s)
         else shown[e][0] = 0;
     }
     element(s, e);
-}
-
-void ui_main_all(const ui_state_t *s)
-{
-    uint8_t e;
-    for (e = 0; e < NELEM; e++) element(s, e);
 }

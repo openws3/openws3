@@ -7,11 +7,11 @@
  * Per port the state is:
  *   IDLE    no cell (V < 1.00 V) or not running                         duty 0, switch low
  *   PROBE   output off, settle, classify the cell                        duty 0, switch low
- *   CHARGE  constant current with soft ramp; tail timer / current step-down near the target; no current at all for 2 s (a pulled cell): rest test
- *   REST    output off for ~1 s, read the rest voltage, decide (an empty port reads below 1 V and is released)
- *   PAUSE   output off for ~18 s, then restart (cell well below the target after a rest)
- *   FULL    cell inside the target window; watched, restarts on droop or rise
- *   BLEED   cell above the target: switch HIGH (discharge path) until it falls into the window
+ *   CHARGE  constant current with soft ramp; ends in the rest test: after the tail (full voltages), at the step-down floor (storage),
+ *           or with no current at all for 2 s (a pulled cell)
+ *   REST    output off for ~1 s, then the rest voltage decides like a probe (an empty port reads below 1 V and is released)
+ *   FULL    cell inside the target window; watched: below it for 2 s = test again, above it = bleed
+ *   BLEED   cell above the target: switch HIGH (discharge path) down to the target, then the rest test
  *   FAULT   over-voltage / over-current latched; cleared only by removing the cell or stopping
  */
 #ifndef CHG_H
@@ -20,7 +20,7 @@
 #include "board.h"
 #include "sup.h"
 
-enum { PS_IDLE = 0, PS_PROBE, PS_CHARGE, PS_REST, PS_PAUSE, PS_FULL, PS_BLEED, PS_FAULT };
+enum { PS_IDLE = 0, PS_PROBE, PS_CHARGE, PS_REST, PS_FULL, PS_BLEED, PS_FAULT };
 
 #define CAP_PARK  1           /* chg_in_t.cap value: hold the port's output off (it keeps its state and timers) */
 
@@ -31,7 +31,6 @@ typedef struct {
     uint16_t adc_v[NPORTS];      /* raw port voltage ADC (ADC1..6) */
     uint16_t adc_i[NPORTS];      /* raw port current ADC (12,14,13,9,10,11) */
     uint16_t rail;               /* filtered rail ADC8 */
-    uint16_t vin;                /* filtered input voltage ADC7 */
     uint16_t tgt;                /* target voltage T (port-voltage counts) */
     uint16_t setpoint;           /* rail setpoint S of that voltage */
     uint8_t  volt;               /* the target voltage: 0..3, sup.h VOLT_* */
@@ -60,8 +59,7 @@ void chg_cut(void);              /* rail trip: duties to zero and the soft ramp 
 
 /* thresholds, in counts, exposed for tests and documentation */
 #define V_DEAD            910    /* 1.00 V: below this there is no cell */
-#define V_FAULT           4004   /* 4.40 V: over-voltage latch */
-#define V_LATCH_420     3868   /* 4.25 V: latch of the 4.20 V target after 200 passes above the rail */
+#define V_FAULT           4004   /* 4.40 V: over-voltage latch while bleeding */
 #define I_TAIL            5      /* tail-current threshold (73 mA) */
 #define PASS_TICKS        9      /* control pass: 9 x 0.5 ms = 4.5 ms */
 

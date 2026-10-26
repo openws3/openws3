@@ -24,7 +24,6 @@ void rb_v3(uint32_t mv)
 }
 
 void rb_pad(uint8_t col) { while (wn < col && wn < ROW_COLS) rb_ch(' '); }
-uint8_t rb_len(void) { return wn; }
 
 void rb_right(const char *s, uint8_t last)
 {

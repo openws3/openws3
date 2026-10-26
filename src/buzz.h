@@ -8,10 +8,10 @@
 #define BUZZ_H
 #include "compat.h"
 
-enum { PAT_NONE = 0, PAT_BOOT, PAT_KEY, PAT_DONE, PAT_ERROR, PAT_RAIL_ALARM, PAT_STEADY_BURST };
+enum { PAT_NONE = 0, PAT_BOOT, PAT_KEY, PAT_DONE, PAT_ERROR, PAT_RAIL_ALARM };
 
 void    buzz_reset(void);
-void    buzz_enable(uint8_t on);            /* user setting: when off, tones are muted (the steady alarm level is not) */
+void    buzz_enable(uint8_t on);            /* user setting: when off, tones are muted (the fan level P0.7 is not) */
 void    buzz_play(uint8_t pattern);
 void    buzz_stop(void);
 void    buzz_alarm(uint8_t on);             /* P0.7 level */

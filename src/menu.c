@@ -4,13 +4,13 @@
 #include "fmt.h"
 #include "limits.h"
 #include "theme.h"
+#include "cfg.h"
 
 /* items are numbered category by category; CAT_FIRST[c] .. CAT_FIRST[c + 1] - 1 belong to category c (diagnostics is an action, no items) */
 enum { IT_VOLT, IT_CURRENT, IT_ILIM, IT_VMIN, IT_VCUT, IT_LMODE, IT_SOUND, IT_THEME, NITEMS };
 enum { CAT_CHARGE, CAT_LIMITS, CAT_PREFS, CAT_DIAG, NCATS };
 static const uint8_t CAT_FIRST[NCATS + 1] = { IT_VOLT, IT_ILIM, IT_SOUND, NITEMS, NITEMS };
 
-menu_vals_t XD menu_v;
 static uint8_t XD level, cat, cursor, editing, backup, running, cur_max;      /* level 0: the categories (cursor = category), 1: one category's items */
 static char XD rowtxt[ROW_COLS + 1];
 static char XD tmp[12];
@@ -18,19 +18,18 @@ static char XD tmp[12];
 static const char *const CAT_LABEL[NCATS] = { "CHARGING", "LIMITS", "PREFERENCES", "DIAGNOSTICS" };
 static const char *const LABEL[NITEMS] = { "VOLTAGE", "CURRENT", "MAX IN AMPS", "MIN IN VOLTS", "BELOW MIN", "REGULATION", "SOUND", "THEME" };
 static const char *const VOLT_NAME[4] = { "4.20V", "4.35V", "3.80V STOR", "3.85V STOR" };
-static const char *const LMODE_NAME[LM_NMODES] = { "EQUAL", "CH1 FIRST", "LOW V FIRST", "HIGH V FIRST" };
 
 static uint8_t XD *slot(uint8_t it)
 {
     switch (it) {
-    case IT_VOLT: return &menu_v.volt;
-    case IT_CURRENT: return &menu_v.cur;
-    case IT_SOUND: return &menu_v.sound;
-    case IT_THEME: return &menu_v.theme;
-    case IT_ILIM: return &menu_v.ilim;
-    case IT_VMIN: return &menu_v.vmin;
-    case IT_VCUT: return &menu_v.vcut;
-    case IT_LMODE: return &menu_v.lmode;
+    case IT_VOLT: return &settings.volt;
+    case IT_CURRENT: return &settings.cur;
+    case IT_SOUND: return &settings.sound;
+    case IT_THEME: return &settings.theme;
+    case IT_ILIM: return &settings.ilim;
+    case IT_VMIN: return &settings.vmin;
+    case IT_VCUT: return &settings.vcut;
+    case IT_LMODE: return &settings.lmode;
     default: return 0;
     }
 }
@@ -44,20 +43,22 @@ uint8_t menu_editing(void) { return editing; }
 static uint8_t count(void) { return level ? (uint8_t)(CAT_FIRST[cat + 1] - CAT_FIRST[cat]) : NCATS; }
 static uint8_t item(void) { return (uint8_t)(CAT_FIRST[cat] + cursor); }
 
+static void clamp_step(uint8_t XD *v, uint8_t up, uint8_t max) { if (up) { if (*v < max) (*v)++; } else if (*v) (*v)--; }
+
 static void step(uint8_t it, uint8_t up)
 {
     uint8_t XD *v = slot(it);
     switch (it) {
-    case IT_VOLT: if (up) { if (*v < 3) (*v)++; } else if (*v) (*v)--; break;
+    case IT_VOLT: clamp_step(v, up, NVOLTS - 1); break;
     case IT_CURRENT:
         if (up) { if (*v + CUR_UNITS_PER_100MA <= cur_max) *v = (uint8_t)(*v + CUR_UNITS_PER_100MA); }
         else if (*v >= CUR_MIN + CUR_UNITS_PER_100MA) *v = (uint8_t)(*v - CUR_UNITS_PER_100MA);
         break;
     case IT_SOUND: case IT_VCUT: *v = up; break;
-    case IT_ILIM: *v = up ? lim_ilim_next(*v) : lim_ilim_prev(*v); break;
-    case IT_VMIN: *v = up ? lim_vmin_next(*v) : lim_vmin_prev(*v); break;
-    case IT_LMODE: if (up) { if (*v < LM_NMODES - 1) (*v)++; } else if (*v) (*v)--; break;
-    case IT_THEME: if (up) { if (*v < TH_COUNT - 1) (*v)++; } else if (*v) (*v)--; break;
+    case IT_ILIM: *v = lim_step(*v, up, ILIM_MIN, ILIM_KNEE, ILIM_MAX); break;
+    case IT_VMIN: *v = vmin_step(*v, up); break;
+    case IT_LMODE: clamp_step(v, up, LM_NMODES - 1); break;
+    case IT_THEME: clamp_step(v, up, TH_COUNT - 1); break;
     }
 }
 
@@ -100,13 +101,12 @@ static void value(uint8_t it)
     case IT_SOUND: rb_right(v ? "ON" : "OFF", ROW_COLS - 1); break;
     case IT_THEME: rb_right(th_name(v), ROW_COLS - 1); break;
     case IT_ILIM:
-        if (v >= ILIM_MAX) rb_right("10.0A", ROW_COLS - 1);                      /* fmt_a1 stops at 9.9A */
-        else if (v) { fmt_a1(tmp, (uint16_t)(v * 100u)); rb_right(tmp, ROW_COLS - 1); }
+        if (v) { fmt_a1(tmp, (uint16_t)(v * 100u)); rb_right(tmp, ROW_COLS - 1); }
         else rb_right("OFF", ROW_COLS - 1);
         break;
-    case IT_VMIN: if (v) { fmt_v1(tmp, (uint16_t)(v * 100u)); rb_right(tmp, ROW_COLS - 1); } else rb_right("OFF", ROW_COLS - 1); break;
+    case IT_VMIN: if (v) { if (v < 200) fmt_v2(tmp, (uint16_t)(v * 50u)); else fmt_v1(tmp, (uint16_t)(v * 50u)); rb_right(tmp, ROW_COLS - 1); } else rb_right("OFF", ROW_COLS - 1); break;
     case IT_VCUT: rb_right(v ? "STOP RUN" : "LIMIT", ROW_COLS - 1); break;
-    case IT_LMODE: rb_right(LMODE_NAME[v < LM_NMODES ? v : 0], ROW_COLS - 1); break;
+    case IT_LMODE: rb_right(lim_mode_name(v), ROW_COLS - 1); break;
     }
 }
 

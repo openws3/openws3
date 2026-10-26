@@ -20,10 +20,6 @@
 #include "menu.h"
 #include "limits.h"
 
-#ifndef CHARGE_ENABLED
-#define CHARGE_ENABLED 1          /* 0 = lab build: full UI and supervision, but charging can never start */
-#endif
-
 #define RAIL_UP_COUNTS   3185     /* wait for ADC8 >= 3185 before starting the display */
 #define RAIL_UP_TIMEOUT  10000    /* ms */
 #define SELFTEST_LO1     3388     /* phase 1 (servo to 3458) must land in [3388, 3528) */
@@ -33,22 +29,10 @@
 #define VCC_OK_MIN       976      /* bandgap count: VCC <= 5.0 V (it never starts above that) */
 #define BG_GLITCH        15       /* bandgap counts (~1.4 % of VCC) off the baseline: treat as a supply glitch */
 #define LCD_RECONFIG_PASSES 222   /* ~1 s */
-#define RAIL_BACKOFF     14       /* current setting -14 when the rail trips */
 
-/* debug mailbox (fixed XRAM address): lets a debugger look inside */
-struct dbg {
-    uint16_t magic;
-    uint32_t ms;
-    uint8_t  state[NPORTS], flags;
-    uint16_t duty[NPORTS], v[NPORTS], i[NPORTS], rail, rail_duty, vin;
-    uint8_t  iset, stop_reason, alarm;
-};
-__xdata __at (DBG_BASE) struct dbg g_dbg;
-
-static uint8_t  XD rail_hold, run, dc, strap, volt, iset_user, stop_reason, alarm_ui, poweroff_req;
-static uint8_t  XD ch_cur[NPORTS], ch_off;       /* per channel: own current (0 = the global one); bit k set = port k sits the run out */
-static uint32_t XD banner_until;                 /* ms: show a short message in the input-voltage box */
-static uint8_t  XD banner_code;
+static uint8_t  XD rail_hold, run, dc, strap, stop_reason, alarm_ui, poweroff_req;
+static uint32_t XD save_at;                      /* ms: a main-screen change is saved then (0 = nothing to save) */
+#define SAVE_DELAY_MS 3000                       /* after the last tap: stepping through values writes the flash once */
 static int16_t  XD rail_duty;
 static uint16_t XD bg_ref;                     /* slow baseline of the bandgap count: a jump away from it = a supply glitch */
 static uint8_t  XD lcd_cnt;
@@ -68,32 +52,38 @@ enum { PH_RAIL_WAIT = 1, PH_SPLASH, PH_VCC_GATE, PH_SELFTEST, PH_INPUT, PH_CHOOS
 enum { EV_PORT_FULL = 1, EV_PORT_FAULT, EV_STOPPED };           /* ev_code; ev_port = port (0..5) or the stop reason */
 static uint8_t XD phase, tele_seq, ev_seq, ev_code, ev_port, cmd_seq, cmd_res;
 
-static uint8_t ch_iset(uint8_t k) { return ch_cur[k] ? ch_cur[k] : iset_user; }
+static uint8_t ch_iset(uint8_t k) { return settings.ch_cur[k] ? settings.ch_cur[k] : settings.cur; }
+static void apply_limits(void) { lim_cfg.ilim = settings.ilim; lim_cfg.vmin = settings.vmin; lim_cfg.vcut = settings.vcut; lim_cfg.mode = settings.lmode; }
 static void note_event(uint8_t code, uint8_t port) { ev_code = code; ev_port = port; ev_seq++; }
 
-static void put16(uint8_t at, uint16_t v) { usb_tx[at] = (uint8_t)(v >> 8); usb_tx[at + 1] = (uint8_t)v; }
-static void put16b(uint8_t at, uint16_t v) { usb_tx2[at] = (uint8_t)(v >> 8); usb_tx2[at + 1] = (uint8_t)v; }
+static void put16(uint8_t XD *b, uint8_t at, uint16_t v) { b[at] = (uint8_t)(v >> 8); b[at + 1] = (uint8_t)v; }
+
+/* clear a page and write its head: the tail is zero until the page is complete (torn-copy guard) */
+static void tele_head(uint8_t XD *b, uint8_t page, uint32_t ms)
+{
+    uint8_t k;
+    b[63] = 0;
+    for (k = 3; k < 63; k++) b[k] = 0;
+    b[0] = 0x57; b[1] = 0x33; b[2] = tele_seq; b[3] = page;
+    b[4] = (uint8_t)(ms >> 24); b[5] = (uint8_t)(ms >> 16); b[6] = (uint8_t)(ms >> 8); b[7] = (uint8_t)ms;
+}
 
 /* page 2: what the limiter and the supervisor are doing (zero before the run phase) */
 static void tele_limits(uint8_t ph, uint32_t ms)
 {
     uint8_t k;
-    usb_tx2[63] = 0;
-    for (k = 3; k < 63; k++) usb_tx2[k] = 0;
-    usb_tx2[0] = 0x57; usb_tx2[1] = 0x33; usb_tx2[2] = tele_seq; usb_tx2[3] = 2;
-    usb_tx2[4] = (uint8_t)(ms >> 24); usb_tx2[5] = (uint8_t)(ms >> 16); usb_tx2[6] = (uint8_t)(ms >> 8); usb_tx2[7] = (uint8_t)ms;
+    tele_head(usb_tx2, 2, ms);
     if (ph >= PH_RUN && ph < PH_FATAL) {
         usb_tx2[8] = lim_cfg.ilim; usb_tx2[9] = lim_cfg.vmin; usb_tx2[10] = lim_cfg.vcut; usb_tx2[11] = lim_cfg.mode;
-        put16b(12, lim_out.budget); put16b(14, lim_out.p_cur); put16b(16, lim_out.p_vol); put16b(18, lim_out.est_ma); put16b(20, lim_out.bcnt);
+        put16(usb_tx2, 12, lim_out.budget); put16(usb_tx2, 14, lim_out.p_cur); put16(usb_tx2, 16, lim_out.p_vol);
+        put16(usb_tx2, 18, lim_out.est_ma); put16(usb_tx2, 20, lim_out.bcnt);
         usb_tx2[22] = lim_out.trip; usb_tx2[23] = (uint8_t)(run && !rail_hold);        /* the limiter ran this pass */
         for (k = 0; k < NPORTS; k++) {
             usb_tx2[24 + k] = lim_out.cap[k]; usb_tx2[30 + k] = cout.want[k]; usb_tx2[36 + k] = cout.thr[k];
         }
-        put16b(42, lim_in.vin); put16b(44, lim_in.rail); put16b(46, cin.setpoint); put16b(48, cin.tgt);
-        usb_tx2[50] = iset_user; usb_tx2[51] = cout.any_active;
-        usb_tx2[52] = sout.stop; usb_tx2[53] = sout.poweroff; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.rail_alarm; usb_tx2[56] = sout.alarm_steady;
-        usb_tx2[57] = sup_input_cells(); put16b(58, sup_lim_stop(sup_input_cells()));
-        put16b(60, sup_lim_off(sup_input_cells()));
+        usb_tx2[51] = cout.any_active;
+        usb_tx2[52] = sout.stop; usb_tx2[53] = sout.poweroff; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.rail_alarm; usb_tx2[56] = sout.fan;
+        usb_tx2[57] = sup_input_cells(); put16(usb_tx2, 58, sup_lim_stop(sup_input_cells())); put16(usb_tx2, 60, sup_lim_off(sup_input_cells()));
     }
     usb_tx2[63] = tele_seq;
 }
@@ -103,27 +93,24 @@ static void tele(uint8_t ph)
     uint8_t k;
     uint32_t ms = hal_ms();
     phase = ph;
-    usb_tx[63] = 0;                                   /* torn-copy guard: the tail matches the head only when complete */
-    for (k = 3; k < 63; k++) usb_tx[k] = 0;
     if (++tele_seq == 0) tele_seq = 1;
-    usb_tx[0] = 0x57; usb_tx[1] = 0x33; usb_tx[2] = tele_seq; usb_tx[3] = 1;
-    usb_tx[4] = (uint8_t)(ms >> 24); usb_tx[5] = (uint8_t)(ms >> 16); usb_tx[6] = (uint8_t)(ms >> 8); usb_tx[7] = (uint8_t)ms;
-    usb_tx[8] = (uint8_t)(run | (volt << 1) | ((run && !rail_hold) << 3) | (CHARGE_ENABLED << 4) | (rail_hold << 5) | (strap << 6) | (dc << 7));
-    usb_tx[9] = iset_user; usb_tx[10] = iset_user; usb_tx[11] = stop_reason; usb_tx[12] = (uint8_t)(alarm_ui | ((menu_on ? 15 : dbg_page) << 4));
+    tele_head(usb_tx, 1, ms);
+    usb_tx[8] = (uint8_t)(run | (settings.volt << 1) | ((run && !rail_hold) << 3) | (rail_hold << 5) | (strap << 6) | (dc << 7));
+    usb_tx[9] = settings.cur; usb_tx[11] = stop_reason; usb_tx[12] = (uint8_t)(alarm_ui | ((menu_on ? 15 : dbg_page) << 4));
     usb_tx[13] = ev_seq; usb_tx[14] = ev_code; usb_tx[15] = ev_port; usb_tx[16] = cmd_seq; usb_tx[17] = cmd_res;
     usb_tx[25] = ph;
     if (ph >= PH_RUN && ph < PH_FATAL) {
         for (k = 0; k < NPORTS; k++) {
             usb_tx[18 + k] = cout.state[k];
             usb_tx[24] |= (uint8_t)(cout.sw[k] << k);
-            put16(26 + 2 * k, cout.duty[k]);
-            put16(38 + 2 * k, cout.v[k]);
+            put16(usb_tx, 26 + 2 * k, cout.duty[k]);
+            put16(usb_tx, 38 + 2 * k, cout.v[k]);
             usb_tx[50 + k] = cout.i[k] > 255 ? 255 : (uint8_t)cout.i[k];
         }
-        put16(56, cin.rail); put16(58, cin.vin); put16(60, sin.bandgap);
+        put16(usb_tx, 56, cin.rail); put16(usb_tx, 58, sin.vin); put16(usb_tx, 60, sin.bandgap);
         usb_tx[62] = (uint8_t)(rail_duty >> 2);
     } else {
-        put16(56, adc_get(ADC_RAIL)); put16(58, adc_get(ADC_VIN)); put16(60, adc_get(ADC_BANDGAP));
+        put16(usb_tx, 56, adc_get(ADC_RAIL)); put16(usb_tx, 58, adc_get(ADC_VIN)); put16(usb_tx, 60, adc_get(ADC_BANDGAP));
     }
     usb_tx[63] = tele_seq;
     tele_limits(ph, ms);
@@ -138,7 +125,7 @@ static void outputs_off(void)
 
 static void rail_step(void)
 {
-    rail_duty = ctl_rail_step((int16_t)adc_get(ADC_RAIL), (int16_t)sup_setpoint(volt));
+    rail_duty = ctl_rail_step((int16_t)adc_get(ADC_RAIL), (int16_t)sup_setpoint(settings.volt));
     hal_rail((uint16_t)rail_duty);
 }
 
@@ -165,8 +152,7 @@ static void stop_run(uint8_t why)
 
 static void fatal(const char *title, const char *line2, uint8_t has_n, uint16_t n)
 {
-    outputs_off();
-    hal_rail(0);
+    hal_all_off();
     tele(PH_FATAL);
     ui_message(title, line2, has_n, n, 0, 0);
     buzz_play(PAT_ERROR);
@@ -195,14 +181,11 @@ void app_boot(void)
 {
     uint16_t r1 = 0, r2 = 0, vin;
     uint32_t t0;
-    uint8_t n, k, ev, sel;
+    uint8_t n, ev, sel;
 
     cfg_load();                                      /* flash reads are safe before anything is powered */
-    volt = cfg_volt(); iset_user = cfg_current(); th_set(cfg_theme());
-    for (k = 0; k < NPORTS; k++) ch_cur[k] = cfg_ch_cur(k);
-    ch_off = cfg_ch_off();
-    lim_cfg.ilim = cfg_ilim(); lim_cfg.vmin = cfg_vmin(); lim_cfg.vcut = cfg_vcut(); lim_cfg.mode = cfg_lmode();
-    input_reset(); buzz_reset(); buzz_enable(cfg_buzzer());
+    th_set(settings.theme); apply_limits();
+    input_reset(); buzz_reset(); buzz_enable(settings.sound);
 
     hal_power(1);                                    /* main power enable, first on */
     strap = hal_strap();
@@ -248,7 +231,7 @@ void app_boot(void)
     buzz_alarm(0);
 
     /* input voltage: 50 samples, then the input rules */
-    for (n = 0, vin = 0; n < 50; n++) { adc_scan(); adc_scan_slow_now(); hal_delay_ms(3); }
+    for (n = 0; n < 50; n++) { adc_scan(); adc_scan_slow_now(); hal_delay_ms(3); }
     vin = adc_get(ADC_VIN);
     n = 0;
     tele(PH_INPUT);
@@ -262,7 +245,7 @@ void app_boot(void)
     dc = 0;
     if (strap) {
         sup_set_input(vin);
-        if (!dc && vin < sup_lim_stop(sup_input_cells())) {  /* ambiguous input: ask the user */
+        if (vin < sup_lim_stop(sup_input_cells())) {  /* ambiguous input: ask the user */
             sel = 0;
             ui_choose(sel);
             for (;;) {
@@ -285,12 +268,16 @@ void app_boot(void)
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
+/* main-screen changes: written once, a while after the last tap or when charging starts */
+static void save_main(void) { save_at = 0; cfg_save(); }
+static void save_later(void) { save_at = hal_ms() + SAVE_DELAY_MS; if (!save_at) save_at = 1; }
+
 static uint8_t start_run(void)
 {
-#if CHARGE_ENABLED
-    if (!run && sout.stop == STOP_NONE) { run = 1; stop_reason = 0; chg_init(); lim_reset(); return 1; }
-#endif
-    return 0;
+    if (save_at) save_main();
+    if (run || sout.stop != STOP_NONE) return 0;
+    run = 1; stop_reason = 0; chg_init(); lim_reset();
+    return 1;
 }
 
 /* host commands (USB.md): executed here, in the main loop, with the same rules as the buttons */
@@ -303,12 +290,11 @@ static void usb_service(void)
     case 2: res = start_run() ? 0 : 1; break;                                          /* start */
     case 3:                                                                            /* set current (units), not while running */
         if (run || c[1] < CUR_MIN || c[1] > CUR_MAX || (c[1] - CUR_MIN) % CUR_UNITS_PER_100MA) { res = 1; break; }
-        iset_user = c[1];
-        cfg_set_current(iset_user);
+        settings.cur = c[1]; cfg_save();
         break;
     case 4:                                                                            /* set the target voltage, not while running */
         if (run || c[1] > 3) { res = 1; break; }
-        volt = c[1]; cfg_set_volt(volt);
+        settings.volt = c[1]; cfg_save();
         break;
     case 5: break;                                                                     /* ping */
     case 6: if (run) { res = 1; break; } hal_reboot_isp(); break;                      /* reboot into the USB ISP loader (not while charging) */
@@ -320,18 +306,15 @@ static void usb_service(void)
 /* ---- menu session: the menu and the diagnostics screens it leads to ---- */
 static void menu_enter(void)
 {
-    menu_v.volt = volt; menu_v.cur = iset_user; menu_v.sound = cfg_buzzer(); menu_v.theme = th_get();
-    menu_v.ilim = lim_cfg.ilim; menu_v.vmin = lim_cfg.vmin; menu_v.vcut = lim_cfg.vcut; menu_v.lmode = lim_cfg.mode;
     menu_open(run, CUR_MAX);
     menu_session = 1; menu_on = 1; dbg_page = 0; menu_next_row = 0;
     ui_text_enter();
 }
 
-/* close: the values were applied live, now they are saved (only what changed is written) */
+/* close: the values were applied live, now they are saved (the page is written only when something changed) */
 static void menu_leave(void)
 {
-    cfg_set_volt(volt); cfg_set_current(iset_user); cfg_set_buzzer(menu_v.sound); cfg_set_theme(th_get());
-    cfg_set_limits(lim_cfg.ilim, lim_cfg.vmin, lim_cfg.vcut, lim_cfg.mode);
+    cfg_save();
     menu_session = 0; menu_on = 0; dbg_page = 0;
     ui_main_init();
 }
@@ -361,10 +344,9 @@ static void handle_buttons(void)
         switch (ev) {
         case EV_B1:
             if (!run) {
-                iset_user = (uint8_t)(iset_user + CUR_UNITS_PER_100MA);
-                if (iset_user > CUR_MAX) iset_user = CUR_MIN;
+                settings.cur = cal_ma_step_up(settings.cur);
                 buzz_play(PAT_KEY);
-                cfg_set_current(iset_user);
+                save_later();
             }
             break;
         case EV_B1_LONG:
@@ -374,17 +356,10 @@ static void handle_buttons(void)
         case EV_OK: menu_enter(); buzz_play(PAT_KEY); break;
         case EV_B2:
             if (!run) {                                  /* no voltage change while charging */
-                volt = (uint8_t)((volt + 1) & 3);
+                settings.volt = (uint8_t)((settings.volt + 1) & 3);
                 buzz_play(PAT_KEY);
-                cfg_set_volt(volt);
+                save_later();
             }
-            break;
-        case EV_B2_LONG:
-            cfg_set_buzzer(!cfg_buzzer());
-            buzz_enable(cfg_buzzer());
-            buzz_play(PAT_KEY);
-            banner_code = cfg_buzzer() ? UA_SND_ON : UA_SND_OFF;
-            banner_until = hal_ms() + 1500;
             break;
         }
     }
@@ -392,7 +367,7 @@ static void handle_buttons(void)
 
 void app_pass(void)
 {
-    uint8_t k, hi = 0, mid = 0;
+    uint8_t k;
 
     while ((int32_t)(hal_ticks() - t_next) < 0) ;
     t_next += PASS_TICKS;
@@ -401,22 +376,19 @@ void app_pass(void)
     adc_scan();
     handle_buttons();
     usb_service();
+    if (save_at && (int32_t)(hal_ms() - save_at) >= 0) save_main();
     if (menu_session) {                              /* menu values apply while they are edited; they are saved when the menu closes */
-        if (!run) { volt = menu_v.volt; iset_user = menu_v.cur; }
-        buzz_enable(menu_v.sound);
-        if (menu_v.theme != th_get()) { th_set(menu_v.theme); ui_text_enter(); menu_next_row = 0; }   /* repaint the menu in the new colours */
-        lim_cfg.ilim = menu_v.ilim; lim_cfg.vmin = menu_v.vmin; lim_cfg.vcut = menu_v.vcut; lim_cfg.mode = menu_v.lmode;
+        buzz_enable(settings.sound);
+        if (settings.theme != th_get()) { th_set(settings.theme); ui_text_enter(); menu_next_row = 0; }   /* repaint the menu in the new colours */
+        apply_limits();
         menu_context(run, CUR_MAX);
     }
     rail_step();
 
     /* ---- supervision ---- */
-    for (k = 0; k < NPORTS; k++) { if (cout.i[k] >= 63) hi++; if (cout.i[k] >= 56) mid++; }
     sin.vin = adc_get(ADC_VIN); sin.rail = adc_get(ADC_RAIL); sin.bandgap = adc_get(ADC_BANDGAP); sin.adc0 = adc_get(0);
-    sin.setpoint = sup_setpoint(volt); sin.strap = strap; sin.dc = dc; sin.run = run; sin.volt = volt;
-    sin.i_port_hi = hi; sin.i_port_mid = mid;
+    sin.setpoint = sup_setpoint(settings.volt); sin.strap = strap; sin.dc = dc;
     sup_pass(&sin, &sout);
-    if (sout.rail_cut && sin.bandgap >= 1192) sout.stop = STOP_VCC;     /* also checks VCC (>= 1192) */
 
     /* display self-healing: re-send the panel settings about once a second; after a sudden VCC dip (bandgap count jumps off its
        baseline) also repaint everything, since a glitch can scramble the panel's rotation, colours and picture */
@@ -438,18 +410,13 @@ void app_pass(void)
     else if (sout.stop == STOP_VIN) alarm_ui = UA_VIN;
     else if (sout.stop == STOP_VCC) alarm_ui = UA_VCC;
     else if (!run && stop_reason == STOP_VLIM) alarm_ui = UA_VLIM;
-    if (banner_until && (int32_t)(hal_ms() - banner_until) < 0 && alarm_ui == UA_NONE) alarm_ui = banner_code;
     if (run && sout.stop != STOP_NONE && sout.stop != STOP_RAIL) stop_run(sout.stop);
-    /* rail trouble is a pause, not a stop: while the rail is out of band for long, or over-voltage, nothing is driven;
-       charging resumes by itself with a fresh soft ramp */
-    rail_hold = (uint8_t)(run && (sout.stop == STOP_RAIL || sout.rail_cut));
-    if (sout.rail_cut && run) {                      /* rail over-voltage: cut every port at once and back
-                                                        the current off by 14 */
-        if (iset_user >= 35) iset_user = (uint8_t)(iset_user - RAIL_BACKOFF);
-        for (k = 0; k < NPORTS; k++) if (ch_cur[k] >= 35) ch_cur[k] = (uint8_t)(ch_cur[k] - RAIL_BACKOFF);
-    }
+    /* a rail held over-voltage means the regulation failed: nothing may be driven again until the power is cycled */
+    if (sout.rail_cut) fatal("RAIL OVERVOLTAGE", "POWER CYCLE TO RESTART", 1, sin.rail);
+    /* the rail out of band for long is a pause, not a stop: nothing is driven, charging resumes by itself with a fresh soft ramp */
+    rail_hold = (uint8_t)(run && sout.stop == STOP_RAIL);
     if (sout.poweroff) { ui_message("LOW VOLTAGE", "POWERING OFF", 0, 0, 0, 0); hal_delay_ms(1000); hal_power_down(); }
-    buzz_alarm(sout.alarm_steady);
+    buzz_alarm(sout.fan);
     if (sout.rail_alarm && !buzz_busy()) buzz_play(PAT_RAIL_ALARM);
 
     /* ---- user limits (limits.h): per-port current caps, or a stop when a STOP-mode limit is exceeded ---- */
@@ -463,16 +430,14 @@ void app_pass(void)
         if (lim_out.trip) { stop_run(STOP_VLIM); buzz_play(PAT_ERROR); }
     } else {
         lim_reset();
-        for (k = 0; k < NPORTS; k++) lim_out.cap[k] = 0;
-        lim_out.est_ma = 0; lim_out.budget = LIM_P_BIG; lim_out.trip = LT_NONE;
     }
     for (k = 0; k < NPORTS; k++) cin.cap[k] = lim_out.cap[k];
 
     /* ---- charge control ---- */
     for (k = 0; k < NPORTS; k++) { cin.adc_v[k] = adc_raw(port_v_ch(k)); cin.adc_i[k] = adc_raw(port_i_ch(k)); }
-    cin.rail = adc_get(ADC_RAIL); cin.vin = adc_get(ADC_VIN);
-    cin.tgt = sup_target(volt); cin.setpoint = sup_setpoint(volt); cin.volt = volt; cin.run = run;
-    for (k = 0; k < NPORTS; k++) { cin.iset[k] = ch_iset(k); cin.en[k] = !(ch_off & (1u << k)); }
+    cin.rail = adc_get(ADC_RAIL);
+    cin.tgt = sup_target(settings.volt); cin.setpoint = sup_setpoint(settings.volt); cin.volt = settings.volt; cin.run = run;
+    for (k = 0; k < NPORTS; k++) { cin.iset[k] = ch_iset(k); cin.en[k] = !(settings.ch_off & (1u << k)); }
     if (rail_hold) { outputs_off(); chg_cut(); }
     else chg_pass(&cin, &cout);
 
@@ -489,7 +454,7 @@ void app_pass(void)
     }
 
     /* ---- display ---- */
-    ui.run = run; ui.volt = volt; ui.iset = iset_user; ui.vin = cin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui;
+    ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui;
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
     for (k = 0; k < NPORTS; k++) { ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.thr[k] && cin.cap[k] == CAP_PARK); }
     if (dbg_page) {
@@ -500,9 +465,9 @@ void app_pass(void)
             dbg_view.v[n] = cout.v[n]; dbg_view.i[n] = cout.i[n]; dbg_view.duty[n] = cout.duty[n];
             dbg_view.state[n] = cout.state[n]; dbg_view.sw[n] = cout.sw[n];
         }
-        dbg_view.rail = cin.rail; dbg_view.rail_duty = (uint16_t)rail_duty; dbg_view.vin = cin.vin; dbg_view.bandgap = sin.bandgap;
-        dbg_view.tgt = cin.tgt; dbg_view.setpoint = cin.setpoint; dbg_view.volt = volt; dbg_view.iset = iset_user;
-        dbg_view.iset_user = iset_user; dbg_view.run = run; dbg_view.stop = stop_reason; dbg_view.alarm = alarm_ui;
+        dbg_view.rail = cin.rail; dbg_view.rail_duty = (uint16_t)rail_duty; dbg_view.vin = sin.vin; dbg_view.bandgap = sin.bandgap;
+        dbg_view.tgt = cin.tgt; dbg_view.setpoint = cin.setpoint; dbg_view.volt = settings.volt; dbg_view.iset = settings.cur;
+        dbg_view.run = run; dbg_view.stop = stop_reason; dbg_view.alarm = alarm_ui;
         dbg_view.strap = strap; dbg_view.dc = dc; dbg_view.rail_hold = rail_hold; dbg_view.fan = buzz_alarm_level(); dbg_view.usb = usb_configured();
         dbg_view.ilim = lim_cfg.ilim; dbg_view.vmin = lim_cfg.vmin; dbg_view.vcut = lim_cfg.vcut; dbg_view.lmode = lim_cfg.mode;
         dbg_view.est_ma = lim_out.est_ma; dbg_view.budget = lim_out.budget;
@@ -519,9 +484,5 @@ void app_pass(void)
         ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
     }
 
-    g_dbg.magic = 0xD00D; g_dbg.ms = hal_ms(); g_dbg.flags = (uint8_t)(run | (volt << 1) | (stop_reason << 4));
-    for (k = 0; k < NPORTS; k++) { g_dbg.state[k] = cout.state[k]; g_dbg.duty[k] = cout.duty[k]; g_dbg.v[k] = cout.v[k]; g_dbg.i[k] = cout.i[k]; }
-    g_dbg.rail = cin.rail; g_dbg.rail_duty = (uint16_t)rail_duty; g_dbg.vin = cin.vin;
-    g_dbg.iset = iset_user; g_dbg.stop_reason = stop_reason; g_dbg.alarm = alarm_ui;
     tele(PH_RUN);
 }

@@ -148,12 +148,6 @@ void hal_global(uint8_t on) { GLOBAL_EN = on; }
 void hal_power(uint8_t on)  { POWER_EN = on; }
 void hal_profile(uint8_t on){ PROFILE = on; }
 
-void hal_pwm_clear(void)
-{
-    uint8_t i;
-    for (i = 0; i < NPORTS; i++) hal_pwm(i, 0);
-}
-
 void hal_power_down(void)
 {
     hal_all_off();

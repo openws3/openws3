@@ -24,7 +24,7 @@ static uint8_t num(char *buf, uint16_t v, uint8_t scale, uint16_t max, char unit
 
 uint8_t fmt_v2(char *buf, uint16_t mv) { return num(buf, (uint16_t)(((uint32_t)mv + 5u) / 10u), 2, 999, 'V'); }
 uint8_t fmt_v1(char *buf, uint16_t mv) { return num(buf, (uint16_t)(((uint32_t)mv + 50u) / 100u), 1, 999, 'V'); }
-uint8_t fmt_a1(char *buf, uint16_t ma) { return num(buf, (uint16_t)(((uint32_t)ma + 50u) / 100u), 1, 99, 'A'); }
+uint8_t fmt_a1(char *buf, uint16_t ma) { return num(buf, (uint16_t)(((uint32_t)ma + 50u) / 100u), 1, 999, 'A'); }
 uint8_t fmt_a2(char *buf, uint16_t ma) { return num(buf, (uint16_t)(((uint32_t)ma + 5u) / 10u), 2, 999, 'A'); }
 
 uint8_t fmt_u(char *buf, uint16_t v)

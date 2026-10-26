@@ -28,6 +28,5 @@ void    input_reset(void);                              /* also back to IS_NAV *
 void    input_style(uint8_t style);                      /* IS_NAV or IS_MAIN */
 void    input_tick(uint8_t b1_down, uint8_t b2_down);   /* call every tick (0.5 ms) with the (inverted) pin levels */
 uint8_t input_get(void);                                 /* pop one event, EV_NONE if none */
-uint8_t input_held(uint8_t btn);                         /* 1 or 2: currently pressed */
 
 #endif

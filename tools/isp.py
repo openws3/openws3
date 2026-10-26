@@ -47,28 +47,36 @@ def build(cmd, data=b''):
 def program_frame(cmd, addr, payload):
     return build(cmd, struct.pack('>H', addr) + b'\x5a\xa5' + payload)
 
-def find_stc():
-    for i in range(16):
+VID = 0x34bf
+FW_PID = 0x1004                          # the running OpenWS3 firmware (same vendor id): not the loader
+
+def find_hidraw(match, quiet=False):
+    """the first /dev/hidraw* whose (vendor, product) satisfies match(v, p), or None"""
+    for i in range(32):
         p = f'/dev/hidraw{i}'
         if not os.path.exists(p):
             continue
         try:
             fd = os.open(p, os.O_RDWR)
         except PermissionError:
-            print(f'[!] {p} exists but is not readable by this user')
-            print('    fix once:  sudo chmod 666 ' + p)
-            print('    or permanently:')
-            print('      echo \'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="34bf", MODE="0666"\' \\')
-            print('        | sudo tee /etc/udev/rules.d/99-stc-isp.rules')
-            print('      sudo udevadm control --reload-rules && sudo udevadm trigger')
+            if not quiet:
+                print(f'[!] {p} exists but is not readable by this user')
+                print('    fix once:  sudo chmod 666 ' + p)
+                print('    or permanently:')
+                print('      echo \'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="34bf", MODE="0666"\' \\')
+                print('        | sudo tee /etc/udev/rules.d/99-stc-isp.rules')
+                print('      sudo udevadm control --reload-rules && sudo udevadm trigger')
             continue
         except OSError:
             continue
-        v, _ = hidraw_info(fd)
+        v, pid = hidraw_info(fd)
         os.close(fd)
-        if v == 0x34bf:
+        if match(v, pid):
             return p
     return None
+
+def find_stc(quiet=False):
+    return find_hidraw(lambda v, p: v == VID and p != FW_PID, quiet)
 
 class Isp:
     def __init__(self, path, verbose=True):
@@ -145,40 +153,43 @@ def main():
             return 1
         print(f'[i] using {dev}')
 
-    isp = Isp(dev)
-
     if a.action == 'info':
-        ok = handshake(isp)
+        ok = handshake(Isp(dev))
         print('[+] handshake ok' if ok else '[-] handshake failed')
         return 0 if ok else 1
 
-    # write
     if not a.file:
         print('write needs a file'); return 1
-    data = open(a.file, 'rb').read()
-    print(f'[i] image {len(data)} bytes at {a.addr:#06x}')
+    return write(dev, open(a.file, 'rb').read(), a.addr, a.erase, a.dry_run)
+
+def write(dev, data, addr=0, erase=False, dry_run=False):
+    """program `data` at `addr` through the loader at `dev`; returns 0 on success"""
+    print(f'[i] image {len(data)} bytes at {addr:#06x}')
     blocks = [data[i:i+128] for i in range(0, len(data), 128)]
     if len(blocks[-1]) < 128:
         blocks[-1] = blocks[-1] + b'\xff' * (128 - len(blocks[-1]))
     print(f'[i] {len(blocks)} blocks')
 
-    if a.dry_run:
-        f = program_frame(0x32, a.addr, blocks[0])
+    if dry_run:
+        f = program_frame(0x32, addr, blocks[0])
         print('[dry] first frame:', f[:16].hex(), '...', f[-4:].hex(), f'({len(f)} B)')
         print('[dry] nothing sent')
         return 0
 
-    if not handshake(isp):
+    isp = Isp(dev)
+    for _ in range(10):                  # a loader that has only just enumerated may not answer yet
+        if handshake(isp): break
+        time.sleep(0.5)
+    else:
         print('[-] handshake failed'); return 1
 
-    if a.erase:
+    if erase:
         print('[i] erase/setup sequence')
         isp.cmd(0x01, bytes([0,0,0,0,0,0,0x80]))
         isp.cmd(0x05, b'\x00\x00\x5a\xa5')
         isp.cmd(0x03, b'\x00\x00\x5a\xa5')
         time.sleep(0.3)
 
-    addr = a.addr
     for i, blk in enumerate(blocks):
         cmd = 0x32 if i == 0 else 0x12
         isp.send_frame(program_frame(cmd, addr, blk))
@@ -194,7 +205,7 @@ def main():
             print(f'    {i+1}/{len(blocks)}', end='\r', flush=True)
     print(f'[+] {len(blocks)} blocks written')
 
-    if a.erase:
+    if erase:
         print('[i] reset into application')
         isp.cmd(0xff, b'\x01', 1.0)
     return 0

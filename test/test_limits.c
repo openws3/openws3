@@ -7,8 +7,11 @@
 #include "cal.h"
 #include "chg.h"
 
-static int fails, checks;
-#define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #c); } } while (0)
+#include "check.h"
+#define IN(v) lim_step(v, 1, ILIM_MIN, ILIM_KNEE, ILIM_MAX)
+#define IP(v) lim_step(v, 0, ILIM_MIN, ILIM_KNEE, ILIM_MAX)
+#define VN(v) vmin_step(v, 1)
+#define VP(v) vmin_step(v, 0)
 
 #define RAIL 3836                          /* rail at the 4.20 V target */
 
@@ -53,8 +56,7 @@ static void t_est(void)
 {
     CHECK(LIM_PARK == CAP_PARK);                 /* the two modules agree on the parked marker */
     setup(3, 91);
-    in.i[0] = in.i[1] = in.i[2] = 91;
-    lim_pass();                                  /* 3 x 1.33 A at 4.2 V from 12 V at 90 %: 1.56 A */
+    run(22);                                     /* one update: 3 x 1.33 A at 4.2 V from 12 V at 90 %: 1.56 A */
     CHECK(abs((int)out.est_ma - 1561) < 30);
     CHECK(out.cap[0] == 0 && out.cap[1] == 0 && out.cap[2] == 0 && out.trip == LT_NONE);   /* no limits set: nothing is capped */
     run(100);
@@ -136,46 +138,24 @@ static void t_by_voltage(void)
 {
     setup(4, 91);
     in.v[0] = 3500; in.v[1] = 3700; in.v[2] = 3300; in.v[3] = 3900;
-    cfg.ilim = 12; cfg.mode = LM_BY_VLOW;      /* lowest voltage keeps its current longest: the 3900 cell goes first */
-    run(800);
-    CHECK(rank(out.cap[2]) >= rank(out.cap[0]) && rank(out.cap[0]) >= rank(out.cap[1]) && rank(out.cap[1]) >= rank(out.cap[3]));
-    CHECK(out.cap[2] == 0 && out.cap[3] != 0);
-
-    setup(4, 91);
-    in.v[0] = 3500; in.v[1] = 3700; in.v[2] = 3300; in.v[3] = 3900;
     cfg.ilim = 12; cfg.mode = LM_BY_VHIGH;     /* highest voltage keeps it: the 3300 cell goes first */
     run(800);
     CHECK(rank(out.cap[3]) >= rank(out.cap[1]) && rank(out.cap[1]) >= rank(out.cap[0]) && rank(out.cap[0]) >= rank(out.cap[2]));
     CHECK(out.cap[3] == 0 && out.cap[2] != 0);
 }
 
-static void t_reorder_dwell(void)
-{
-    uint8_t c0, c2;
-    setup(4, 91);
-    in.v[0] = 3500; in.v[1] = 3700; in.v[2] = 3300; in.v[3] = 3900;
-    cfg.ilim = 12; cfg.mode = LM_BY_VLOW;
-    run(800);
-    c0 = out.cap[0]; c2 = out.cap[2];
-    in.v[0] = 3300; in.v[2] = 3500;                      /* the two swap places in voltage */
-    run(5000);                                           /* 110 periods: too early */
-    CHECK(out.cap[0] == c0 && out.cap[2] == c2);
-    run(3000);                                           /* past ~30 s: the new order is taken up */
-    CHECK(rank(out.cap[0]) >= rank(out.cap[2]) && out.cap[0] == c2 && out.cap[2] == c0);
-}
-
 static void t_cut(void)
 {
     int n;
     setup(3, 91);                                                           /* the voltage floor in cut mode stops the run */
-    cfg.vmin = 70; cfg.vcut = 1; cfg.mode = LM_EQUAL;
+    cfg.vmin = 140; cfg.vcut = 1; cfg.mode = LM_EQUAL;
     in.vin = vin_raw(6500);
     for (n = 0; n < 200; n++) { plant(); lim_pass(); CHECK(out.trip == LT_NONE && out.cap[0] == 0); }   /* not at once, and nothing is throttled */
     for (; n < 260; n++) { plant(); lim_pass(); if (out.trip) break; }
     CHECK(out.trip == LT_VOLTAGE && n < 260);                               /* after about a second */
 
     setup(3, 91);                                                           /* a brief dip does not stop the run */
-    cfg.vmin = 70; cfg.vcut = 1; cfg.mode = LM_EQUAL;
+    cfg.vmin = 140; cfg.vcut = 1; cfg.mode = LM_EQUAL;
     in.vin = vin_raw(6500); run(150);
     in.vin = vin_raw(12000);
     for (n = 0; n < 600; n++) { plant(); lim_pass(); CHECK(out.trip == LT_NONE); }
@@ -222,7 +202,7 @@ static void t_vmin(void)
     int n; uint32_t sum;
     uint8_t k;
     setup(3, 91);
-    cfg.vmin = 70; cfg.mode = LM_EQUAL;        /* floor 7.0 V from a 9 V source with 2 ohm: at most 1.0 A (smooth mode) */
+    cfg.vmin = 140; cfg.mode = LM_EQUAL;        /* floor 7.0 V from a 9 V source with 2 ohm: at most 1.0 A (smooth mode) */
     for (n = 0; n < 1500; n++) { sag(9000, 2000); plant(); lim_pass(); }
     CHECK(cal_vin_mv(in.vin) >= 6800);                                      /* the input is held near the floor, not far below it */
     CHECK(out.est_ma > 400);                                                /* and the ports still charge (no collapse) */
@@ -242,7 +222,7 @@ static void t_vmin_recover(void)
 {
     int n;
     setup(3, 91);
-    cfg.vmin = 49; cfg.mode = LM_EQUAL;
+    cfg.vmin = 98; cfg.mode = LM_EQUAL;
     for (n = 0; n < 1500; n++) { sag(5040, 1000); plant(); lim_pass(); }
     CHECK(out.budget < LIM_P_BIG);                                          /* it shrank under load */
     in.vin = vin_raw(5040);                                                 /* the ports are parked: no load, the input is back at 5.04 V */
@@ -253,22 +233,21 @@ static void t_vmin_recover(void)
 static void t_both_and_steps(void)
 {
     setup(2, 91);
-    cfg.ilim = 8; cfg.vmin = 100; cfg.mode = LM_BY_CH;                      /* both limits at once: the smaller budget rules */
+    cfg.ilim = 8; cfg.vmin = 200; cfg.mode = LM_BY_CH;                      /* both limits at once: the smaller budget rules */
     in.vin = vin_raw(9000);
     run(400);
     CHECK(out.budget <= 72);                                                /* 0.8 A x 9 V = 7.2 W from the current limit (or less from the floor) */
     CHECK(out.cap[0] == 0 || out.cap[0] > LIM_PARK);
     CHECK(rank(out.cap[1]) <= rank(out.cap[0]));
 
-    CHECK(lim_ilim_next(0) == 5 && lim_ilim_next(29) == 30 && lim_ilim_next(30) == 35 && lim_ilim_next(98) == 100 && lim_ilim_next(100) == 100);
-    CHECK(lim_ilim_prev(5) == 0 && lim_ilim_prev(0) == 0 && lim_ilim_prev(30) == 29 && lim_ilim_prev(35) == 30 && lim_ilim_prev(100) == 95);
-    CHECK(lim_vmin_next(0) == 48 && lim_vmin_next(59) == 60 && lim_vmin_next(60) == 65 && lim_vmin_next(250) == 250 && lim_vmin_next(248) == 250);
-    CHECK(lim_vmin_prev(48) == 0 && lim_vmin_prev(0) == 0 && lim_vmin_prev(60) == 59 && lim_vmin_prev(65) == 60 && lim_vmin_prev(250) == 245);
+    CHECK(IN(0) == 5 && IN(29) == 30 && IN(30) == 35 && IN(98) == 100 && IN(100) == 100);
+    CHECK(IP(5) == 0 && IP(0) == 0 && IP(30) == 29 && IP(35) == 30 && IP(100) == 95);
+    CHECK(VN(0) == 96 && VN(99) == 100 && VN(100) == 102 && VN(118) == 120 && VN(120) == 130 && VN(250) == 250 && VN(245) == 250);
+    CHECK(VP(96) == 0 && VP(0) == 0 && VP(100) == 99 && VP(102) == 100 && VP(120) == 118 && VP(130) == 120 && VP(250) == 240);
 }
 
 int main(void)
 {
-    t_est(); t_equal(); t_equal_few(); t_follows_input(); t_by_channel(); t_by_voltage(); t_reorder_dwell(); t_cut(); t_taper(); t_vmin(); t_vmin_recover(); t_both_and_steps();
-    printf("%d checks, %d failures\n", checks, fails);
-    return fails ? 1 : 0;
+    t_est(); t_equal(); t_equal_few(); t_follows_input(); t_by_channel(); t_by_voltage(); t_cut(); t_taper(); t_vmin(); t_vmin_recover(); t_both_and_steps();
+    return check_report("limits");
 }

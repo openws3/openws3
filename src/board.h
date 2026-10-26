@@ -35,9 +35,6 @@
 /*   P4.7  main power enable (first on / last off)      P5.2  global charge enable
  *   P5.3  input-profile enable, set when strap P3.4=0 ?  P3.4  input strap (DC / Lipo) ?
  *   P3.2  button 1 (INT0)   P3.6  button 2 (INT2)
- *   P4.6  buzzer, 1 kHz square wave in the beep bursts; P0.7 = FAN enable (on at boot, on by load/ADC0, see sup.c)   */
-
-/* Debug mailbox: fixed XRAM location so a debugger can read live values. */
-#define DBG_BASE     0x1F00
+ *   P4.6  buzzer, 1 kHz square wave in the beep bursts; P0.7 = FAN enable (on at boot, then by the thermistor ADC0, see sup.c)   */
 
 #endif

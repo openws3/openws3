@@ -35,8 +35,8 @@
 #define UI_C_GOOD       0x07E0
 #define UI_C_BAD        0xF800
 #define UI_C_INFO       0x07FF
-/* per-port state dot, index = PS_* (idle probe charge rest pause full bleed fault) */
-#define UI_C_DOT        { 0x2104, 0xFFE0, 0xF800, 0xFD20, 0xFD20, 0x07E0, 0x041F, 0xF81F }
+/* per-port state dot, index = PS_* (idle probe charge rest full bleed fault) */
+#define UI_C_DOT        { 0x2104, 0xFFE0, 0xF800, 0xFD20, 0x07E0, 0x041F, 0xF81F }
 #define UI_DOT_X        44
 #define UI_DOT_Y        4
 #define UI_DOT_S        6

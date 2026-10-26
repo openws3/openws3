@@ -2,7 +2,6 @@
 #include "cal.h"
 
 #define LIM_PERIOD     22       /* the caps are recomputed every 22 passes (~100 ms) */
-#define LIM_REORDER    300      /* LOW V FIRST: the priority order changes at most every 300 periods (~30 s) */
 #define TRIP_UPDATES   10       /* cut mode: below the floor for this many updates (~1 s) before the run is stopped */
 #define VIN_HYST_MV    100      /* the voltage budget grows again above the floor plus this: small enough for a 5 V supply that is
                                    only a little above a 4.9 V floor when unloaded */
@@ -19,15 +18,12 @@ lim_out_t XD lim_out;
 static uint16_t XD P_v;                              /* the voltage floor's power budget: the one stored number besides the caps */
 static uint8_t  XD tick, n_v;
 
-static uint8_t  XD s_hord[NPORTS], s_hmask, s_mask;
-static uint16_t XD s_age;
-
 void lim_reset(void)
 {
     uint8_t k;
-    P_v = LIM_P_BIG; tick = 0; n_v = 0; s_age = 0; s_hmask = 0;
+    P_v = LIM_P_BIG; tick = 0; n_v = 0;
     for (k = 0; k < NPORTS; k++) lim_out.cap[k] = 0;
-    lim_out.p_cur = lim_out.p_vol = LIM_P_BIG; lim_out.bcnt = 0;
+    lim_out.p_cur = lim_out.p_vol = lim_out.budget = LIM_P_BIG; lim_out.bcnt = 0; lim_out.est_ma = 0; lim_out.trip = LT_NONE;
 }
 
 /* Share a budget B (counts: the most the charging ports may draw together) over the charging ports.  The caps are written to
@@ -87,25 +83,12 @@ static void share(void)
         return;
     }
 
-    if (lim_cfg.mode != LM_BY_CH) {                      /* order by cell voltage (stable insertion sort, at most six) */
+    if (lim_cfg.mode == LM_BY_VHIGH) {                   /* highest voltage first (stable insertion sort, at most six).  Stable by
+                                                            itself: a charging cell reads higher and keeps its place */
         for (s_a = 1; s_a < s_n; s_a++) {
             s_t = s_order[s_a];
-            for (s_b = s_a; s_b > 0; s_b--) {
-                uint16_t u = lim_in.v[s_order[s_b - 1]];
-                if (lim_cfg.mode == LM_BY_VHIGH ? lim_in.v[s_t] <= u : lim_in.v[s_t] >= u) break;
-                s_order[s_b] = s_order[s_b - 1];
-            }
+            for (s_b = s_a; s_b > 0 && lim_in.v[s_t] > lim_in.v[s_order[s_b - 1]]; s_b--) s_order[s_b] = s_order[s_b - 1];
             s_order[s_b] = s_t;
-        }
-        /* The sorted order is only taken up when the set of ports changed or the last change is old enough: cells close in
-         * voltage would otherwise swap places (and the current) on every update. */
-        if (lim_cfg.mode == LM_BY_VLOW) {            /* HIGH V FIRST is stable by itself: a charging cell reads higher and keeps its place */
-            s_mask = 0; s_b = 0;
-            for (s_a = 0; s_a < s_n; s_a++) { s_mask |= (uint8_t)(1u << s_order[s_a]); s_b |= s_order[s_a] != s_hord[s_a]; }
-            if (s_mask != s_hmask || (s_b && s_age >= LIM_REORDER)) {
-                for (s_a = 0; s_a < s_n; s_a++) s_hord[s_a] = s_order[s_a];
-                s_hmask = s_mask; s_age = 0;
-            } else for (s_a = 0; s_a < s_n; s_a++) s_order[s_a] = s_hord[s_a];
         }
     }
     s_rem = s_B;
@@ -123,24 +106,20 @@ static void share(void)
 }
 
 static uint8_t  XD p_k;
-static uint16_t XD p_S, p_P;
+static uint16_t XD p_P;
 static uint32_t XD p_sum_ma, p_est, p_vin_mv, p_rail_mv, p_pin, p_t;
 
 void lim_pass(void)
 {
-    p_S = 0; p_sum_ma = 0; p_est = 0; p_vin_mv = cal_vin_mv(lim_in.vin); p_rail_mv = cal_port_mv(lim_in.rail);
-    for (p_k = 0; p_k < NPORTS; p_k++) {
-        if (!lim_in.charging[p_k]) continue;
-        p_S += lim_in.i[p_k]; p_sum_ma += cal_port_ma(lim_in.i[p_k]);
-    }
+    lim_out.trip = LT_NONE;
+    if (++tick < LIM_PERIOD) return;
+    tick = 0;
+
+    p_sum_ma = 0; p_est = 0; p_vin_mv = cal_vin_mv(lim_in.vin); p_rail_mv = cal_port_mv(lim_in.rail);
+    for (p_k = 0; p_k < NPORTS; p_k++) if (lim_in.charging[p_k]) p_sum_ma += cal_port_ma(lim_in.i[p_k]);
     if (p_vin_mv) p_est = p_rail_mv * p_sum_ma * 100u / ((uint32_t)EFF_PCT * p_vin_mv);       /* input current, mA */
     if (p_est > 65535u) p_est = 65535u;
     lim_out.est_ma = (uint16_t)p_est;
-    lim_out.trip = LT_NONE;
-
-    if (++tick < LIM_PERIOD) return;
-    tick = 0;
-    if (s_age < LIM_REORDER) s_age++;
 
     p_P = LIM_P_BIG; lim_out.p_cur = lim_out.p_vol = LIM_P_BIG;
     if (lim_cfg.ilim) {
@@ -152,7 +131,7 @@ void lim_pass(void)
 
     if (lim_cfg.vmin) {
         p_pin = p_est * p_vin_mv / 100000u;                                            /* what is drawn now, 0.1 W */
-        if (p_vin_mv < (uint32_t)lim_cfg.vmin * 100u) {
+        if (p_vin_mv < (uint32_t)lim_cfg.vmin * 50u) {
             if (n_v < 255) n_v++;
             if (!lim_cfg.vcut) {                         /* smooth: the budget shrinks while the input is below the floor */
                 if (P_v > p_pin + P_MARGIN) P_v = (uint16_t)(p_pin + P_MARGIN);        /* start from what is really drawn */
@@ -161,7 +140,7 @@ void lim_pass(void)
             }
         } else {
             n_v = 0;                                     /* ... and grows back slowly above floor + margin */
-            if (p_vin_mv > (uint32_t)lim_cfg.vmin * 100u + VIN_HYST_MV && P_v < LIM_P_BIG) P_v = (uint16_t)(P_v + 4);
+            if (p_vin_mv > (uint32_t)lim_cfg.vmin * 50u + VIN_HYST_MV && P_v < LIM_P_BIG) P_v = (uint16_t)(P_v + 4);
         }
         if (!lim_cfg.vcut) lim_out.p_vol = P_v;
         if (!lim_cfg.vcut && P_v < p_P) p_P = P_v;
@@ -182,27 +161,35 @@ void lim_pass(void)
     share();
 }
 
-uint8_t lim_ilim_next(uint8_t v)
+/* 0 (off), then min .. knee in steps of 1, then steps of 5 up to max (clamped, no wrap) */
+uint8_t lim_step(uint8_t v, uint8_t up, uint8_t min, uint8_t knee, uint8_t max)
 {
-    if (v == ILIM_OFF) return ILIM_MIN;
-    if (v < 30) return (uint8_t)(v + 1);                 /* 0.1 A steps up to 3 A, 0.5 A steps above */
-    return (uint8_t)(v + 5 > ILIM_MAX ? ILIM_MAX : v + 5);
+    if (up) {
+        if (v == 0) return min;
+        if (v < knee) return (uint8_t)(v + 1);
+        return (uint8_t)(v + 5 > max ? max : v + 5);
+    }
+    if (v <= min) return 0;
+    if (v <= knee) return (uint8_t)(v - 1);
+    return (uint8_t)(v - 5 < knee ? knee : v - 5);
 }
-uint8_t lim_ilim_prev(uint8_t v)
+
+uint8_t vmin_step(uint8_t v, uint8_t up)
 {
-    if (v <= ILIM_MIN) return ILIM_OFF;
-    if (v <= 30) return (uint8_t)(v - 1);
-    return (uint8_t)(v - 5 < 30 ? 30 : v - 5);
+    if (up) {
+        if (v == 0) return VMIN_MIN;
+        if (v < VMIN_FINE) return (uint8_t)(v + 1);
+        if (v < VMIN_COARSE) return (uint8_t)(v + 2);
+        return (uint8_t)(v + 10 > VMIN_MAX ? VMIN_MAX : v + 10);
+    }
+    if (v <= VMIN_MIN) return 0;
+    if (v <= VMIN_FINE) return (uint8_t)(v - 1);
+    if (v <= VMIN_COARSE) return (uint8_t)(v - 2);
+    return (uint8_t)(v - 10 < VMIN_COARSE ? VMIN_COARSE : v - 10);
 }
-uint8_t lim_vmin_next(uint8_t v)                         /* 0.1 V steps up to 6.0 V, then 0.5 V steps */
+
+const char *lim_mode_name(uint8_t m)
 {
-    if (v == VMIN_OFF) return VMIN_MIN;
-    if (v < 60) return (uint8_t)(v + 1);
-    return (uint8_t)(v + 5 > VMIN_MAX ? VMIN_MAX : v + 5);
-}
-uint8_t lim_vmin_prev(uint8_t v)
-{
-    if (v <= VMIN_MIN) return VMIN_OFF;
-    if (v <= 60) return (uint8_t)(v - 1);
-    return (uint8_t)(v - 5 < 60 ? 60 : v - 5);
+    static const CODE char *const NAME[LM_NMODES] = { "EQUAL", "CH1 FIRST", "HIGH V FIRST" };
+    return NAME[m < LM_NMODES ? m : LM_EQUAL];
 }

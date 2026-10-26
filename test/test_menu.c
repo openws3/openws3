@@ -8,9 +8,9 @@
 #include "cal.h"
 #include "limits.h"
 #include "theme.h"
+#include "cfg.h"
 
-static int fails, checks;
-#define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #c); } } while (0)
+#include "check.h"
 
 #define LEFT_SHORT   EV_B1
 #define RIGHT_SHORT  EV_B2
@@ -19,7 +19,7 @@ static int fails, checks;
 
 static void fresh(uint8_t run)
 {
-    menu_v.volt = 0; menu_v.cur = 21; menu_v.sound = 1; menu_v.theme = TH_CLASSIC; menu_v.ilim = 0; menu_v.vmin = 0; menu_v.vcut = 0; menu_v.lmode = LM_EQUAL;
+    settings.volt = 0; settings.cur = 21; settings.sound = 1; settings.theme = TH_CLASSIC; settings.ilim = 0; settings.vmin = 0; settings.vcut = 0; settings.lmode = LM_EQUAL;
     menu_open(run, CUR_MAX);
 }
 static void down(int n) { while (n--) menu_event(RIGHT_SHORT); }
@@ -71,22 +71,22 @@ static void t_edit(void)
     fresh(0); go(C_CHARGE, 0);
     CHECK(menu_event(OK) == MA_CHANGED && menu_editing());                         /* edit the target voltage */
     more(2);
-    CHECK(menu_v.volt == 2 && has(menu_text(1), "3.80V"));                         /* live */
-    less(1); CHECK(menu_v.volt == 1);
+    CHECK(settings.volt == 2 && has(menu_text(1), "3.80V"));                         /* live */
+    less(1); CHECK(settings.volt == 1);
     cancel();                                                                      /* cancel: back to what it was, still in the category */
-    CHECK(menu_v.volt == 0 && !menu_editing() && has(menu_text(0), "CHARGING"));
+    CHECK(settings.volt == 0 && !menu_editing() && has(menu_text(0), "CHARGING"));
     edit(); more(1); confirm();                                                    /* confirm */
-    CHECK(menu_v.volt == 1 && !menu_editing());
+    CHECK(settings.volt == 1 && !menu_editing());
     edit(); less(3);
-    CHECK(menu_v.volt == 0);                                                       /* values stop at the ends */
+    CHECK(settings.volt == 0);                                                       /* values stop at the ends */
     cancel();
 
     /* current: steps of 0.1 A within [0.3 A, the cap] */
     fresh(0); menu_context(0, 35); go(C_CHARGE, 1);
     edit();
-    less(1); CHECK(menu_v.cur == 21);
+    less(1); CHECK(settings.cur == 21);
     more(4);
-    CHECK(menu_v.cur == 35);                                                       /* 0.5 A cap */
+    CHECK(settings.cur == 35);                                                       /* 0.5 A cap */
     confirm();
 }
 
@@ -99,15 +99,15 @@ static void t_locked(void)
     menu_event(BACK);
     down(1); menu_event(OK);                                                       /* limits can change while charging */
     CHECK(menu_event(OK) == MA_CHANGED && menu_editing());
-    more(1); CHECK(menu_v.ilim == 5);
+    more(1); CHECK(settings.ilim == 5);
     CHECK(has(menu_text(1), "0.5A"));
     confirm();
     menu_event(BACK); down(1); menu_event(OK);                                     /* sound and theme too */
     CHECK(menu_event(OK) == MA_CHANGED && menu_editing());
-    less(1); CHECK(menu_v.sound == 0 && has(menu_text(1), "OFF"));
+    less(1); CHECK(settings.sound == 0 && has(menu_text(1), "OFF"));
     confirm();
     down(1); CHECK(menu_event(OK) == MA_CHANGED);
-    more(1); CHECK(menu_v.theme == TH_CALM && has(menu_text(2), "CALM"));
+    more(1); CHECK(settings.theme == TH_CALM && has(menu_text(2), "CALM"));
     confirm();
 }
 
@@ -117,33 +117,35 @@ static void t_limits(void)
     fresh(0); go(C_LIMITS, 0);                                                     /* MAX IN AMPS */
     edit();
     more(200);
-    CHECK(menu_v.ilim == ILIM_MAX && has(menu_text(1), "10.0A"));
-    less(1); CHECK(menu_v.ilim == 95 && has(menu_text(1), "9.5A"));
+    CHECK(settings.ilim == ILIM_MAX && has(menu_text(1), "10.0A"));
+    less(1); CHECK(settings.ilim == 95 && has(menu_text(1), "9.5A"));
     confirm();
     down(1); edit();                                                               /* MIN IN VOLTS */
-    more(1); CHECK(menu_v.vmin == VMIN_MIN && has(menu_text(2), "4.8V"));
+    more(1); CHECK(settings.vmin == VMIN_MIN && has(menu_text(2), "4.80V"));
     more(4);
-    CHECK(has(menu_text(2), "5.2V"));
+    CHECK(has(menu_text(2), "5.00V"));
     cancel();
-    CHECK(menu_v.vmin == 0);
-    edit();                                                                        /* 0.1 V steps to 6.0 V, then 0.5 V */
-    more(13);
-    CHECK(menu_v.vmin == 60 && has(menu_text(2), "6.0V"));
-    more(1); CHECK(menu_v.vmin == 65);
-    less(2); CHECK(menu_v.vmin == 59);
+    CHECK(settings.vmin == 0);
+    edit();                                                                        /* 0.05 V steps to 5.00 V, 0.1 V to 6.00 V, then 0.5 V */
+    more(5);
+    CHECK(settings.vmin == 100 && has(menu_text(2), "5.00V"));
+    more(1); CHECK(settings.vmin == 102);
+    more(9); CHECK(settings.vmin == 120 && has(menu_text(2), "6.00V"));
+    more(1); CHECK(settings.vmin == 130);
+    less(2); CHECK(settings.vmin == 118);
     more(300);
-    CHECK(menu_v.vmin == VMIN_MAX && has(menu_text(2), "25.0V"));
+    CHECK(settings.vmin == VMIN_MAX && has(menu_text(2), "12.5V"));
     cancel();
     down(1); edit();                                                               /* BELOW MIN: limit smoothly or stop the run */
-    CHECK(menu_v.vcut == 0 && has(menu_text(3), "LIMIT"));
-    more(1); CHECK(menu_v.vcut == 1 && has(menu_text(3), "STOP RUN"));
-    more(1); CHECK(menu_v.vcut == 1);                                              /* two values only */
-    less(1); CHECK(menu_v.vcut == 0);
+    CHECK(settings.vcut == 0 && has(menu_text(3), "LIMIT"));
+    more(1); CHECK(settings.vcut == 1 && has(menu_text(3), "STOP RUN"));
+    more(1); CHECK(settings.vcut == 1);                                              /* two values only */
+    less(1); CHECK(settings.vcut == 0);
     confirm();
     down(1); edit();                                                               /* REGULATION, one setting for both limits */
     for (n = 0; n < LM_NMODES + 3; n++) more(1);
-    CHECK(menu_v.lmode == LM_BY_VHIGH && has(menu_text(4), "HIGH V FIRST"));
-    less(3); CHECK(menu_v.lmode == LM_EQUAL && has(menu_text(4), "EQUAL"));
+    CHECK(settings.lmode == LM_BY_VHIGH && has(menu_text(4), "HIGH V FIRST"));
+    less(3); CHECK(settings.lmode == LM_EQUAL && has(menu_text(4), "EQUAL"));
     confirm();
 }
 
@@ -154,9 +156,9 @@ static void t_theme(void)
     CHECK(has(menu_text(2), "THEME") && has(menu_text(2), "CLASSIC"));
     edit();
     for (n = 0; n < TH_COUNT + 2; n++) more(1);
-    CHECK(menu_v.theme == TH_COUNT - 1 && has(menu_text(2), "HIGH CONTRAST"));
-    less(1); CHECK(menu_v.theme == TH_CONTRAST - 1);
-    cancel(); CHECK(menu_v.theme == TH_CLASSIC);
+    CHECK(settings.theme == TH_COUNT - 1 && has(menu_text(2), "HIGH CONTRAST"));
+    less(1); CHECK(settings.theme == TH_CONTRAST - 1);
+    cancel(); CHECK(settings.theme == TH_CLASSIC);
 }
 
 static void check_rows(void)
@@ -190,6 +192,5 @@ static void t_rows(void)
 int main(void)
 {
     t_nav(); t_edit(); t_locked(); t_limits(); t_theme(); t_rows();
-    printf("menu: %d checks, %d failures\n", checks, fails);
-    return fails ? 1 : 0;
+    return check_report("menu");
 }

@@ -6,8 +6,7 @@
 #include "chg.h"
 #include "sup.h"
 
-static int fails, checks;
-#define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #c); } } while (0)
+#include "check.h"
 
 #define T0   3822       /* 4.20 V target */
 #define S0   3836       /* rail setpoint of the 4.20 V target */
@@ -40,7 +39,7 @@ static void bench_init(bench_t *b, int volt, int iset)
     memset(b, 0, sizeof *b);
     b->k_amp_per_duty = 0.01; b->r_pass = 0.20; b->rail_v = S[volt] * VPC;
     b->in.volt = volt; b->in.tgt = T[volt]; b->in.setpoint = S[volt];
-    b->in.vin = 3000; b->in.rail = S[volt]; b->in.run = 1;
+    b->in.rail = S[volt]; b->in.run = 1;
     { int k; for (k = 0; k < NPORTS; k++) { b->in.iset[k] = (uint8_t)iset; b->in.en[k] = 1; } }
     chg_init();
 }
@@ -55,7 +54,7 @@ static void attach(bench_t *b, int p, double v0, double cap_mah, double r)
     b->present[p] = 1;
 }
 
-/* one control pass (17 ms) of plant + controller */
+/* one control pass (4.5 ms) of plant + controller */
 static void step(bench_t *b)
 {
     int p;
@@ -69,7 +68,7 @@ static void step(bench_t *b)
             a = want < room ? want : (room > 0 ? room : 0);
         }
         b->amps[p] = a;
-        b->cell[p].q += a * 0.017;
+        b->cell[p].q += a * 0.0045;
         v = ocv(&b->cell[p]) + a * b->cell[p].r;
         b->in.adc_v[p] = (uint16_t)(v / VPC);
         b->in.adc_i[p] = (uint16_t)(fabs(a) / IPC);
@@ -101,7 +100,7 @@ static void t_cc(void)
     attach(&b, 0, 3.7, 400, 0.1);
     run(&b, 400);
     CHECK(b.out.duty[0] >= 2 && b.out.duty[0] <= 8);          /* soft ramp: +1 per 100 passes, not a step */
-    run(&b, 4000);                                              /* ~68 s */
+    run(&b, 4000);                                              /* 18 s */
     CHECK(abs((int)b.out.i[0] - 21) <= 2);                      /* regulated to the setting */
     CHECK(b.out.sw[0] == 0);
     /* a higher setting is reached and held too */
@@ -109,11 +108,11 @@ static void t_cc(void)
     attach(&b, 0, 3.7, 400, 0.1);
     run(&b, 12000);
     CHECK(abs((int)b.out.i[0] - 63) <= 3);
-    /* the current is limited to 63 below 3.80 V when the setting is >= 70 */
+    /* the highest setting too, from a low cell */
     bench_init(&b, 0, 91);
     attach(&b, 0, 3.6, 400, 0.1);
-    run(&b, 12000);
-    CHECK(b.out.i[0] <= 66);
+    run(&b, 16000);                                             /* the soft ramp needs ~13000 passes to get there */
+    CHECK(abs((int)b.out.i[0] - 91) <= 3);
 }
 
 static void t_classify(void)
@@ -195,7 +194,7 @@ static sup_in_t si(void)
 {
     sup_in_t s;
     memset(&s, 0, sizeof s);
-    s.vin = 3000; s.rail = 3836; s.setpoint = 3836; s.bandgap = 995; s.strap = 1; s.run = 1; s.adc0 = 2000;
+    s.vin = 3000; s.rail = 3836; s.setpoint = 3836; s.bandgap = 995; s.strap = 1; s.adc0 = 2000;
     return s;
 }
 
@@ -208,7 +207,7 @@ static void t_sup(void)
     CHECK(sup_lim_stop(5) == 2427 && sup_lim_off(5) == 2123 && sup_lim_stop(2) == 971);
 
     sup_reset(); in = si(); sup_pass(&in, &o);
-    CHECK(o.stop == STOP_NONE && !o.poweroff && !o.rail_cut && !o.alarm_steady);
+    CHECK(o.stop == STOP_NONE && !o.poweroff && !o.rail_cut && !o.fan);
 
     in.vin = 699; sup_pass(&in, &o); CHECK(o.stop == STOP_VIN);                       /* input gone */
     sup_reset(); sup_set_input(3000); in = si(); in.vin = 2000;                         /* booted on a 5S pack: stop below 2427 */
@@ -242,12 +241,10 @@ static void t_sup(void)
     in.rail = 3700; for (k = 0; k < 200; k++) sup_pass(&in, &o);
     CHECK(!o.rail_alarm);
 
-    /* alarms: the storage voltages follow ADC0; the others follow the number of heavily loaded ports */
-    sup_reset(); in = si(); in.volt = 2; in.adc0 = 1200; sup_pass(&in, &o); CHECK(o.alarm_steady);
-    in.adc0 = 1400; sup_pass(&in, &o); CHECK(o.alarm_steady);            /* hysteresis */
-    in.adc0 = 1500; sup_pass(&in, &o); CHECK(!o.alarm_steady);
-    sup_reset(); in = si(); in.volt = 0; in.i_port_hi = 3; sup_pass(&in, &o); CHECK(o.alarm_steady);
-    in.i_port_hi = 0; in.i_port_mid = 6; sup_pass(&in, &o); CHECK(!o.alarm_steady);
+    /* fan: follows the thermistor, with hysteresis */
+    sup_reset(); in = si(); in.adc0 = 1200; sup_pass(&in, &o); CHECK(o.fan);
+    in.adc0 = 1400; sup_pass(&in, &o); CHECK(o.fan);
+    in.adc0 = 1500; sup_pass(&in, &o); CHECK(!o.fan);
 }
 
 /* the user limits (limits.h) hold a port's current below the wanted one, or park it, without disturbing its state machine */
@@ -335,9 +332,51 @@ static void t_per_port(void)
     CHECK(b.out.state[0] == PS_IDLE && b.out.duty[0] == 0 && b.out.state[1] == PS_CHARGE);
 }
 
+/* storage: the current steps down while the loaded cell is above the target, then the rest test ends it in the window */
+static void t_storage(void)
+{
+    bench_t b; int k, full_at = -1, min_set = 255;
+    bench_init(&b, 2, 35);                                                          /* 3.80 V, 0.5 A */
+    attach(&b, 0, 3.60, 40, 0.3);                                                   /* a high-resistance cell: big load rise */
+    for (k = 0; k < 200000 && full_at < 0; k++) {
+        step(&b);
+        if (b.out.want[0] && b.out.want[0] < min_set) min_set = b.out.want[0];
+        if (b.out.state[0] == PS_FULL) full_at = k;
+    }
+    CHECK(full_at > 0);
+    CHECK(min_set < 21);                                                            /* it stepped down to the floor on the way */
+    CHECK(ocv(&b.cell[0]) > 3.76 && ocv(&b.cell[0]) < 3.85);                        /* at rest close to 3.80 V */
+}
+
+/* FULL: a cell that sags below the hold window is tested again; inside it nothing happens */
+static void t_full_hold(void)
+{
+    bench_t b;
+    bench_init(&b, 0, 21);
+    attach(&b, 0, 4.19, 40, 0.1); run(&b, 20);
+    CHECK(b.out.state[0] == PS_FULL);
+    run(&b, 2000); CHECK(b.out.state[0] == PS_FULL);
+    b.ovr_v[0] = T0 - 40; run(&b, 400); CHECK(b.out.state[0] == PS_FULL);           /* a short sag is ignored */
+    run(&b, 200); CHECK(b.out.state[0] == PS_PROBE || b.out.state[0] == PS_CHARGE);
+    bench_init(&b, 0, 21);
+    attach(&b, 0, 4.19, 40, 0.1); run(&b, 20);
+    b.ovr_v[0] = T0 + 60; run(&b, 600); CHECK(b.out.state[0] == PS_BLEED);          /* risen above it: bleed */
+}
+
+/* bleed: down to the target, then the rest test ends it in FULL */
+static void t_bleed(void)
+{
+    bench_t b; int k, full_at = -1;
+    bench_init(&b, 2, 21);                                                          /* 3.80 V storage */
+    attach(&b, 0, 3.95, 20, 0.1);
+    for (k = 0; k < 400000 && full_at < 0; k++) { step(&b); if (b.out.state[0] == PS_FULL) full_at = k; }
+    CHECK(full_at > 0);
+    CHECK(ocv(&b.cell[0]) > 3.76 && ocv(&b.cell[0]) < 3.84);
+    run(&b, 20000); CHECK(b.out.state[0] == PS_FULL && b.out.sw[0] == 0);           /* and it stays there */
+}
+
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_caps(); t_pulled(); t_per_port();
-    printf("chg: %d checks, %d failures\n", checks, fails);
-    return fails ? 1 : 0;
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_caps(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed();
+    return check_report("chg");
 }

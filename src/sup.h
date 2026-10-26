@@ -28,10 +28,6 @@ typedef struct {
     uint16_t setpoint;                  /* rail setpoint S */
     uint8_t  strap;                     /* P3.4 */
     uint8_t  dc;                        /* user chose "DC input" (only meaningful when strap=1) */
-    uint8_t  run;
-    uint8_t  volt;
-    uint8_t  i_port_hi;                 /* ports drawing >= 63 counts */
-    uint8_t  i_port_mid;                /* ports drawing >= 56 counts */
 } sup_in_t;
 
 enum { STOP_NONE = 0, STOP_VIN, STOP_VCC, STOP_RAIL, STOP_USER, STOP_VLIM };   /* VLIM: the user's minimum input voltage (limits.h) */
@@ -39,16 +35,14 @@ enum { STOP_NONE = 0, STOP_VIN, STOP_VCC, STOP_RAIL, STOP_USER, STOP_VLIM };   /
 typedef struct {
     uint8_t  stop;          /* STOP_* : charging must stop now (all ports off, P5.2 low) */
     uint8_t  poweroff;      /* input collapsed: shut down */
-    uint8_t  rail_cut;      /* rail over-voltage: momentarily cut the ports and back the current off */
+    uint8_t  rail_cut;      /* rail held over-voltage (4.42 V for 0.22 s): a fatal error, everything off */
     uint8_t  rail_alarm;    /* rail out of regulation for long: alarm pattern */
-    uint8_t  alarm_steady;  /* P0.7 level: overload / low ADC0 at a storage voltage */
+    uint8_t  fan;           /* P0.7 level: the board is warm (ADC0, the thermistor) */
 } sup_out_t;
 
 void sup_reset(void);
 void sup_set_input(uint16_t vin_at_boot);   /* the pack's cell count is read ONCE at boot and fixes the limits */
 uint8_t sup_input_cells(void);
 void sup_pass(const sup_in_t XD *in, sup_out_t XD *out);
-
-/* the setting the user gets when stepping the current */
 
 #endif

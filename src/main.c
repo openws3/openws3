@@ -1,6 +1,5 @@
 /*
  * WhoopStor V3 firmware entry point: boot, then one control pass every PASS_TICKS.
- * Build with CHARGE=0 (make CHARGE=0) for a bench image that does everything except energise a port.
  */
 #include "hal.h"
 #include "app.h"

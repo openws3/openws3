@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Host tool for the OpenWS3 (WhoopStor V3 open firmware)'s USB monitor interface (HID, 34bf:1004, no driver; Linux hidraw).
-Layout and commands: fw/USB.md.
+Layout and commands: USB.md.
 
   fwmon.py status                  one decoded snapshot
   fwmon.py watch [-n N] [--raw]    live view: a line whenever a port changes state or an event happens, plus a summary every second
@@ -11,15 +11,17 @@ Layout and commands: fw/USB.md.
   fwmon.py voltage 4.20            target voltage: 4.20, 4.35, 3.80 or 3.85 (V; the last two are storage); refused while charging
 
 Needs read/write access to /dev/hidraw* (udev rule or sudo).  Commands open the device afresh each time (a long-lived
-fd wedges after an OUT report on this chip - see tools/bench/RESULTS.md).
+fd wedges after an OUT report on this chip).
 """
-import argparse, fcntl, json, os, select, struct, sys, time
+import argparse, json, os, select, struct, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import isp
 
 VID, PID = 0x34BF, 0x1004
 REPORT = 64
 
 PHASE = {1: 'rail-wait', 2: 'splash', 3: 'vcc-gate', 4: 'self-test', 5: 'input', 6: 'choose', 7: 'run', 0x80: 'FATAL'}
-STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'PAUSE', 'FULL', 'BLEED', 'FAULT']
+STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'FULL', 'BLEED', 'FAULT']
 STOP = {0: '-', 1: 'input-low', 2: 'vcc-low', 3: 'rail', 4: 'user', 5: 'min-input-voltage'}
 EVENT = {0: '-', 1: 'port-full', 2: 'port-fault', 3: 'stopped'}
 VOLTS = ['4.20', '4.35', '3.80', '3.85']
@@ -28,7 +30,7 @@ V_PER_COUNT = 4.5 / 4096
 A_PER_COUNT = 1 / 68.25
 
 
-LMODE = ['EQUAL', 'CH1 FIRST', 'LOW V FIRST', 'HIGH V FIRST']
+LMODE = ['EQUAL', 'CH1 FIRST', 'HIGH V FIRST']
 P_NONE = 10000                       # budget value meaning "no limit"
 _lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
 
@@ -37,9 +39,8 @@ def parse_limits(r):
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     return dict(lim=dict(
         ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(12), p_cur=u16(14), p_vol=u16(16), est_ma=u16(18), bcnt=u16(20),
-        trip=r[22], active=r[23], cap=list(r[24:30]), want=list(r[30:36]), thr=list(r[36:42]), vin=u16(42), rail=u16(44),
-        setpoint=u16(46), target=u16(48), iset_eff=r[50], any_active=r[51], sup_stop=r[52], poweroff=r[53], rail_cut=r[54],
-        rail_alarm=r[55], alarm_steady=r[56], cells=r[57], lim_stop=u16(58), lim_off=u16(60)))
+        trip=r[22], active=r[23], cap=list(r[24:30]), want=list(r[30:36]), thr=list(r[36:42]), any_active=r[51], sup_stop=r[52], poweroff=r[53], rail_cut=r[54],
+        rail_alarm=r[55], fan=r[56], cells=r[57], lim_stop=u16(58), lim_off=u16(60)))
 
 
 def parse(r):
@@ -53,30 +54,17 @@ def parse(r):
     f = r[8]
     return dict(
         version=r[3], ms=struct.unpack_from('>I', r, 4)[0],
-        run=f & 1, volt=(f >> 1) & 3, outputs=(f >> 3) & 1, charge_enabled=(f >> 4) & 1, rail_hold=(f >> 5) & 1,
+        run=f & 1, volt=(f >> 1) & 3, outputs=(f >> 3) & 1, rail_hold=(f >> 5) & 1,
         strap=(f >> 6) & 1, dc=(f >> 7) & 1,
-        iset=r[9], iset_user=r[10], stop=r[11], alarm=r[12] & 15, debug_page=r[12] >> 4, ev_seq=r[13], ev_code=r[14], ev_port=r[15],
+        iset=r[9], stop=r[11], alarm=r[12] & 15, debug_page=r[12] >> 4, ev_seq=r[13], ev_code=r[14], ev_port=r[15],
         cmd_seq=r[16], cmd_res=r[17], state=list(r[18:24]), sw=[(r[24] >> k) & 1 for k in range(6)], phase=r[25],
         duty=[u16(26 + 2 * k) for k in range(6)], v=[u16(38 + 2 * k) for k in range(6)], i=list(r[50:56]),
         rail=u16(56), vin=u16(58), bandgap=u16(60), rail_duty=r[62] * 4, **_lim)
 
 
 def find(flags=os.O_RDWR):
-    for n in range(32):
-        path = '/dev/hidraw%d' % n
-        if not os.path.exists(path): continue
-        try:
-            fd = os.open(path, flags)
-        except OSError:
-            continue
-        buf = bytearray(12)
-        try:
-            fcntl.ioctl(fd, 0x80084803, buf, True)             # HIDIOCGRAWINFO
-            _, vid, pid = struct.unpack_from('<IHH', buf, 0)
-        except OSError:
-            vid = pid = 0
-        if (vid, pid) == (VID, PID): return fd
-        os.close(fd)
+    path = isp.find_hidraw(lambda v, p: (v, p) == (VID, PID), quiet=True)
+    if path: return os.open(path, flags)
     sys.exit('no OpenWS3 USB device (%04x:%04x) found - is it running OpenWS3, and are /dev/hidraw* readable?' % (VID, PID))
 
 
@@ -137,8 +125,8 @@ def fmt_limits(t):
     cap = lambda c: '-' if c == 0 else 'PARK' if c == 1 else amps(c)
     watts = lambda p: 'none' if p >= P_NONE else '%.1fW' % (p / 10)
     out = '\n         limits  in %s  min %s  below-min %s  regulation %s  | %s' % (
-        '%.1fA' % (L['ilim'] / 10) if L['ilim'] else 'off', '%.1fV' % (L['vmin'] / 10) if L['vmin'] else 'off',
-        'STOP RUN' if L['vcut'] else 'LIMIT', LMODE[L['lmode']] if L['lmode'] < 4 else L['lmode'], 'evaluated' if L['active'] else 'idle')
+        '%.1fA' % (L['ilim'] / 10) if L['ilim'] else 'off', '%.2fV' % (L['vmin'] / 20) if L['vmin'] else 'off',
+        'STOP RUN' if L['vcut'] else 'LIMIT', LMODE[L['lmode']] if L['lmode'] < len(LMODE) else L['lmode'], 'evaluated' if L['active'] else 'idle')
     out += '\n         budget  %s (current %s, voltage %s) = %s over the ports (%d counts)  est input %.2fA  trip %d' % (
         watts(L['budget']), watts(L['p_cur']), watts(L['p_vol']), amps(L['bcnt']) if L['bcnt'] else 'no cap', L['bcnt'], L['est_ma'] / 1000, L['trip'])
     ports = [k for k in range(6) if t['state'][k] == 2]
@@ -146,8 +134,8 @@ def fmt_limits(t):
         out += '\n         ports   ' + '  '.join('%d: want %s cap %s%s' % (k + 1, amps(L['want'][k]), cap(L['cap'][k]), ' THR' if L['thr'][k] else '') for k in ports)
         if L['lmode'] == 0:
             out += '\n         share   %s per port over %d charging' % (amps(L['bcnt'] // len(ports)) if L['bcnt'] else '-', len(ports))
-    out += '\n         supply  input %d counts rail %d (set %d, target %d)  eff.current %s  cells %d  stop-below %d off-below %d  sup stop=%s' % (
-        L['vin'], L['rail'], L['setpoint'], L['target'], amps(L['iset_eff']), L['cells'], L['lim_stop'], L['lim_off'], STOP.get(L['sup_stop'], L['sup_stop']))
+    out += '\n         supply  cells %d  stop-below %d off-below %d  sup stop=%s' % (
+        L['cells'], L['lim_stop'], L['lim_off'], STOP.get(L['sup_stop'], L['sup_stop']))
     return out
 
 
@@ -189,18 +177,19 @@ def log(path, secs):
 
 
 def flash(path):
-    """Reboot into the ISP loader (command 6) and write the image with tools/dump/isp.py."""
-    import subprocess
-    isp = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'isp.py')
+    """Reboot into the ISP loader (command 6) and write the image with tools/isp.py."""
+    data = open(path, 'rb').read()
     try:
         command(6, 0, ack=False)
     except SystemExit:
         print('(no firmware USB device: assuming it is already in ISP)')
-    time.sleep(2.0)
-    for _ in range(10):
-        if subprocess.run([sys.executable, '-I', isp, 'info'], capture_output=True).returncode == 0: break
-        time.sleep(1.0)
-    sys.exit(subprocess.run([sys.executable, '-I', isp, 'write', path, '--erase']).returncode)
+    end = time.time() + 12
+    dev = None
+    while not dev and time.time() < end:
+        time.sleep(0.2)
+        dev = isp.find_stc(quiet=True)
+    if not dev: sys.exit('the ISP loader did not appear')
+    sys.exit(isp.write(dev, data, erase=True))
 
 
 def main():

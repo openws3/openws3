@@ -1,5 +1,5 @@
 /*
- * Debug screens (open with B1+B2 held together, see input.h).  Pure text generation: the app fills a snapshot, this module
+ * Debug screens (opened from the menu's DIAGNOSTICS).  Pure text generation: the app fills a snapshot, this module
  * returns the text of one 26-character row of one page.  The display code (ui.c) only draws rows.
  *
  * Pages: 1 power (bandgap, VCC, input, rail, thermistor)   2 port voltages in three scales   3 port currents and drive
@@ -23,7 +23,7 @@ typedef struct {
     uint8_t  state[NPORTS], sw[NPORTS];
     uint16_t rail, rail_duty, vin, bandgap;
     uint16_t tgt, setpoint;
-    uint8_t  volt, iset, iset_user, run, stop, alarm, strap, dc, rail_hold, fan, usb;
+    uint8_t  volt, iset, run, stop, alarm, strap, dc, rail_hold, fan, usb;
     uint8_t  ilim, vmin, vcut, lmode, trip, cap[NPORTS];      /* user limits (limits.h) */
     uint16_t est_ma, budget;
 } dbg_view_t;

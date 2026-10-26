@@ -9,10 +9,10 @@
 #include "input.h"
 #include "dbgscr.h"
 #include "buzz.h"
+#include "limits.h"
 #include <string.h>
 
-static int fails, checks;
-#define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #c); } } while (0)
+#include "check.h"
 #define NEAR(a, b, tol) CHECK(abs((int)(a) - (int)(b)) <= (tol))
 
 static void t_cal(void)
@@ -119,7 +119,8 @@ static void t_fmt(void)
     CHECK(!strcmp((fmt_v2(b, 65530), b), "9.99V"));
     CHECK(!strcmp((fmt_a1(b, 300), b), "0.3A"));
     CHECK(!strcmp((fmt_a1(b, 1300), b), "1.3A"));
-    CHECK(fmt_a1(b, 65535) == 4 && !strcmp(b, "9.9A"));
+    CHECK(!strcmp((fmt_a1(b, 10000), b), "10.0A"));
+    CHECK(fmt_a1(b, 65535) == 5 && !strcmp(b, "65.5A"));
     CHECK(!strcmp((fmt_a2(b, 312), b), "0.31A") && !strcmp((fmt_a2(b, 0), b), "0.00A") && !strcmp((fmt_a2(b, 65535), b), "9.99A"));
     CHECK(!strcmp((fmt_u(b, 0), b), "0") && !strcmp((fmt_u(b, 65535), b), "65535") && !strcmp((fmt_u(b, 3958), b), "3958"));
 }
@@ -214,8 +215,8 @@ static void t_cfg(void)
 {
     CHECK(cfg_valid_current(0xFF) == 21);          /* erased flash */
     CHECK(cfg_valid_ilim(0xFF) == 0 && cfg_valid_ilim(4) == 0 && cfg_valid_ilim(5) == 5 && cfg_valid_ilim(100) == 100 && cfg_valid_ilim(101) == 0);
-    CHECK(cfg_valid_vmin(0xFF) == 0 && cfg_valid_vmin(47) == 0 && cfg_valid_vmin(48) == 48 && cfg_valid_vmin(250) == 250 && cfg_valid_vmin(251) == 0);
-    CHECK(cfg_valid_lmode(0xFF) == 0 && cfg_valid_lmode(3) == 3 && cfg_valid_lmode(4) == 0);   /* unknown -> equal sharing */
+    CHECK(cfg_valid_vmin(0xFF) == 0 && cfg_valid_vmin(95) == 0 && cfg_valid_vmin(96) == 96 && cfg_valid_vmin(250) == 250 && cfg_valid_vmin(251) == 0);
+    CHECK(cfg_valid_lmode(0xFF) == 0 && cfg_valid_lmode(2) == 2 && cfg_valid_lmode(3) == 0);   /* unknown -> equal sharing */
     CHECK(cfg_valid_ch_cur(0xFF) == 0 && cfg_valid_ch_cur(0) == 0 && cfg_valid_ch_cur(20) == 0 && cfg_valid_ch_cur(21) == 21 && cfg_valid_ch_cur(91) == 91 && cfg_valid_ch_cur(92) == 0);
     CHECK(cfg_valid_ch_off(0xFF) == 0 && cfg_valid_ch_off(0x40) == 0 && cfg_valid_ch_off(0) == 0 && cfg_valid_ch_off(5) == 5 && cfg_valid_ch_off(0x3F) == 0x3F);   /* erased flash: no port sits out */
     CHECK(cfg_valid_current(20) == 21);
@@ -225,6 +226,10 @@ static void t_cfg(void)
     CHECK(cfg_valid_volt(0xFF) == 0); CHECK(cfg_valid_volt(3) == 3); CHECK(cfg_valid_volt(4) == 0);
     CHECK(cfg_valid_buzzer(0xFF) == 1);            /* erased = buzzer on */
     CHECK(cfg_valid_buzzer(0) == 0); CHECK(cfg_valid_buzzer(1) == 1);
+    memset(&settings, 0xFF, sizeof settings); cfg_validate();                     /* erased page: the defaults */
+    CHECK(settings.cur == 21 && settings.volt == 0 && settings.sound == 1 && settings.theme == TH_CLASSIC);
+    CHECK(settings.ilim == 0 && settings.vmin == 0 && settings.vcut == 0 && settings.lmode == LM_EQUAL);
+    CHECK(settings.ch_cur[0] == 0 && settings.ch_cur[NPORTS - 1] == 0 && settings.ch_off == 0);
 }
 
 /* run the engine for `n` ticks (0.5 ms); returns the number of ticks with the tone pin high, and edges */
@@ -277,7 +282,7 @@ static void t_dbg(void)
     memset(&dbg_view, 0, sizeof dbg_view);
     dbg_view.bandgap = 1073; dbg_view.vin = 768; dbg_view.rail = 3971; dbg_view.rail_duty = 187; dbg_view.adc[0] = 2345;
     dbg_view.v[3] = 3966; dbg_view.i[3] = 21; dbg_view.duty[3] = 345; dbg_view.state[3] = 2;
-    dbg_view.volt = 1; dbg_view.iset = 21; dbg_view.iset_user = 28; dbg_view.tgt = 3958; dbg_view.setpoint = 3972;
+    dbg_view.volt = 1; dbg_view.iset = 21; dbg_view.tgt = 3958; dbg_view.setpoint = 3972;
     dbg_view.ms = 123456; dbg_view.fan = 1;
     CHECK(dbg_vcc_mv(1073) == 4543); CHECK(dbg_vcc_mv(976) == 4994); CHECK(dbg_vcc_mv(1219) == 3999); CHECK(dbg_vcc_mv(0) == 0);
     CHECK(!strncmp(dbg_text(1, 1), "BANDGAP 1073 counts", 19));
@@ -287,10 +292,10 @@ static void t_dbg(void)
     CHECK(!strncmp(dbg_text(1, 6), "ADC0 (THERM) 2345", 17));
     CHECK(!strncmp(dbg_text(1, 7), "FAN P0.7  ON", 12));
     CHECK(!strncmp(dbg_text(1, 9), "UPTIME 123 s", 12));
-    CHECK(!strncmp(dbg_text(2, 4), "P4 3966 4.357 4.399", 19));          /* A = 4.5V/4096, B = VCC/4096 */
+    CHECK(!strncmp(dbg_text(2, 4), "P4 3966 4.357", 13));
     CHECK(!strncmp(dbg_text(3, 4), "P4  21  308 D345 CHARGE", 23));
     CHECK(!strncmp(dbg_text(4, 1), "RUN 0  VOLT 1 4.35V", 19));
-    CHECK(!strncmp(dbg_text(4, 2), "SET 21 USER 28  300mA", 21));
+    CHECK(!strncmp(dbg_text(4, 2), "SET 21  300mA", 13));
     CHECK(!strncmp(dbg_text(4, 6), "PORT STATE 000200", 17));
     dbg_view.adc[10] = 1234; dbg_view.adc[15] = 1073;
     CHECK(!strncmp(dbg_text(5, 4), "A9:   0 A10:1234 A11:   0", 25));
@@ -326,6 +331,5 @@ static void t_theme(void)
 int main(void)
 {
     t_cal(); t_clamp(); t_port(); t_rail(); t_fmt(); t_input(); t_cfg(); t_buzz(); t_dbg(); t_theme();
-    printf("%d checks, %d failures\n", checks, fails);
-    return fails ? 1 : 0;
+    return check_report("pure");
 }

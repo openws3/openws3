@@ -18,3 +18,20 @@ uint8_t cfg_valid_lmode(uint8_t raw) { return raw < LM_NMODES ? raw : LM_EQUAL; 
 uint8_t cfg_valid_theme(uint8_t raw) { return raw < TH_COUNT ? raw : TH_CLASSIC; }
 uint8_t cfg_valid_ch_cur(uint8_t raw) { return (raw >= CUR_MIN && raw <= CUR_MAX) ? raw : 0; }
 uint8_t cfg_valid_ch_off(uint8_t raw) { return raw < (1u << NPORTS) ? raw : 0; }
+
+cfg_t XD settings;
+
+void cfg_validate(void)
+{
+    uint8_t k;
+    settings.cur = cfg_valid_current(settings.cur);
+    settings.volt = cfg_valid_volt(settings.volt);
+    settings.sound = cfg_valid_buzzer(settings.sound);
+    settings.theme = cfg_valid_theme(settings.theme);
+    settings.ilim = cfg_valid_ilim(settings.ilim);
+    settings.vmin = cfg_valid_vmin(settings.vmin);
+    settings.vcut = settings.vcut == 1;
+    settings.lmode = cfg_valid_lmode(settings.lmode);
+    for (k = 0; k < NPORTS; k++) settings.ch_cur[k] = cfg_valid_ch_cur(settings.ch_cur[k]);
+    settings.ch_off = cfg_valid_ch_off(settings.ch_off);
+}

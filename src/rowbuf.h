@@ -11,7 +11,6 @@ void    rb_str(const char *s);
 void    rb_num(uint32_t v, uint8_t width);       /* unsigned decimal, right-aligned in `width` columns (0: as is) */
 void    rb_v3(uint32_t mv);                      /* millivolts as X.XXX */
 void    rb_pad(uint8_t col);                     /* spaces up to column col */
-uint8_t rb_len(void);
 void    rb_right(const char *s, uint8_t last);   /* s right-aligned so that it ends at column `last` (spaces before it) */
 const char *rb_end(void);                        /* pad to ROW_COLS, NUL terminate, return the row */
 

@@ -5,7 +5,6 @@ static uint8_t  q[QN], qh, qt;
 static uint16_t held[2];          /* ticks the button has been down */
 static uint16_t next[2];          /* ticks until its next repeat */
 static uint8_t  reps[2];          /* repeats sent for this press */
-static uint8_t  down[2];
 static uint16_t both;             /* ticks both buttons have been down together (chord) */
 static uint8_t  chord, back_sent, style;
 
@@ -19,7 +18,7 @@ void input_reset(void)
 {
     uint8_t i;
     qh = qt = 0;
-    for (i = 0; i < 2; i++) { held[i] = 0; reps[i] = 0; down[i] = 0; }
+    for (i = 0; i < 2; i++) { held[i] = 0; reps[i] = 0; }
     both = 0; chord = back_sent = style = 0;
 }
 
@@ -27,7 +26,6 @@ void input_style(uint8_t s) { style = s; }
 
 static void one(uint8_t i, uint8_t now_down, uint8_t ev_tap, uint8_t ev_rep, uint8_t ev_long, uint16_t long_ticks)
 {
-    down[i] = now_down;
     if (now_down) {
         if (held[i] < 0xFFFF) held[i]++;
         if (style == IS_MAIN) {
@@ -46,7 +44,6 @@ static void one(uint8_t i, uint8_t now_down, uint8_t ev_tap, uint8_t ev_rep, uin
 void input_tick(uint8_t b1_down, uint8_t b2_down)
 {
     if (chord) {                                     /* both buttons own this press until both are released */
-        down[0] = b1_down; down[1] = b2_down;
         if (b1_down && b2_down) {
             if (both < 0xFFFF) both++;
             if (!back_sent && both >= CHORD_LONG) { back_sent = 1; put(EV_BACK); }
@@ -59,7 +56,6 @@ void input_tick(uint8_t b1_down, uint8_t b2_down)
     }
     if (b1_down && b2_down && held[0] <= CHORD_WIN && held[1] <= CHORD_WIN && !reps[0] && !reps[1]) {   /* the second button followed in time */
         chord = 1; back_sent = 0; both = 1;
-        down[0] = down[1] = 1;
         return;
     }
     one(0, b1_down, EV_B1, EV_B1_REP, EV_B1_LONG, B1_LONG);
@@ -74,5 +70,3 @@ uint8_t input_get(void)
     qh = (uint8_t)((qh + 1) % QN);
     return e;
 }
-
-uint8_t input_held(uint8_t btn) { return btn >= 1 && btn <= 2 && down[btn - 1]; }

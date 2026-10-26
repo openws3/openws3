@@ -11,7 +11,6 @@
  *   LM_EQUAL     every port gets the same share (a port that wants less frees the rest); if the share would be too small to
  *                drive, the highest-numbered ports are parked so that the others get a usable one
  *   LM_BY_CH     one by one: port 1 keeps its current longest, the highest port number is cut first
- *   LM_BY_VLOW   one by one: the cell with the lowest voltage keeps its current longest (the fullest cell is cut first)
  *   LM_BY_VHIGH  one by one: the cell with the highest voltage keeps its current longest
  * Input current is estimated, not measured: rail voltage x the sum of the measured port currents / (90 % x input voltage).
  * The sharing is a pure function of the budget and the ports' want, voltage and measured current: higher-priority ports reserve
@@ -23,7 +22,7 @@
 #include "compat.h"
 #include "board.h"
 
-enum { LM_EQUAL = 0, LM_BY_CH, LM_BY_VLOW, LM_BY_VHIGH, LM_NMODES };
+enum { LM_EQUAL = 0, LM_BY_CH, LM_BY_VHIGH, LM_NMODES };
 enum { LT_NONE = 0, LT_VOLTAGE };
 
 #define LIM_PARK       1        /* cap value: the port is switched off until the budget allows its current again */
@@ -33,14 +32,17 @@ enum { LT_NONE = 0, LT_VOLTAGE };
 /* settings ranges (stored in these units) */
 #define ILIM_OFF       0
 #define ILIM_MIN       5        /* 0.5 A  (0.1 A units) */
+#define ILIM_KNEE      30       /* 0.1 A steps up to 3 A, 0.5 A above */
 #define ILIM_MAX       100      /* 10 A */
 #define VMIN_OFF       0
-#define VMIN_MIN       48       /* 4.8 V  (0.1 V units) */
-#define VMIN_MAX       250      /* 25.0 V */
+#define VMIN_MIN       96       /* 4.80 V  (0.05 V units) */
+#define VMIN_FINE      100      /* 0.05 V steps up to 5.00 V, 0.1 V steps up to 6.00 V, 0.5 V above */
+#define VMIN_COARSE    120
+#define VMIN_MAX       250      /* 12.50 V */
 
 typedef struct {
     uint8_t ilim;               /* input current limit, 0.1 A units, 0 = off */
-    uint8_t vmin;               /* minimum input voltage, 0.1 V units, 0 = off */
+    uint8_t vmin;               /* minimum input voltage, 0.05 V units, 0 = off */
     uint8_t vcut;               /* 1: below the floor stop the run; 0: limit the current smoothly */
     uint8_t mode;               /* LM_*: how the budget is shared */
 } lim_cfg_t;
@@ -69,10 +71,9 @@ extern lim_out_t XD lim_out;                /* the result */
 void lim_reset(void);                       /* at the start of a run, and whenever nothing is charging */
 void lim_pass(void);
 
-/* the values the menu steps through: the next / previous setting (clamped, no wrap); 0 is "off" */
-uint8_t lim_ilim_next(uint8_t v);
-uint8_t lim_ilim_prev(uint8_t v);
-uint8_t lim_vmin_next(uint8_t v);
-uint8_t lim_vmin_prev(uint8_t v);
+/* the values the menu steps through: 0 (off), then min .. knee in 0.1 steps, then 0.5 steps up to max; clamped, no wrap */
+uint8_t vmin_step(uint8_t v, uint8_t up);        /* the same for MIN IN VOLTS: off, VMIN_MIN .. VMIN_MAX in the steps above */
+uint8_t lim_step(uint8_t v, uint8_t up, uint8_t min, uint8_t knee, uint8_t max);
+const char *lim_mode_name(uint8_t m);      /* REGULATION as shown: "EQUAL" ... (unknown -> "EQUAL") */
 
 #endif

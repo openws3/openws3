@@ -2,6 +2,7 @@
  * ADC scanner.  Conversion time on the hardware is not measured yet, so a pass converts only what the control needs:
  *   fast (every pass):  6 port voltages, 6 port currents, the rail - 2 samples each
  *   slow (every 8th):   VIN, bandgap (VCC), ADC0 - 4 samples each
+ * Readings are corrected for VCC sag (scaled by the bandgap); the bandgap and ADC0 are left as read.
  * adc_raw() is the latest sample average; adc_get() is a light filter: (old + new) / 2 per scan of that channel.
  */
 #ifndef ADC_H

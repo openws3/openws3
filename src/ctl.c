@@ -14,9 +14,9 @@ int16_t ctl_clamp_duty(int32_t duty)
 
 int16_t ctl_port_step(int16_t duty, int16_t iset, int16_t imeas)
 {
-    int32_t err = (int32_t)iset - imeas;
-    int32_t half = err >= 0 ? err / 2 : -((-err + 1) / 2);      /* floor(err/2) */
-    return ctl_clamp_duty(duty + half);
+    int16_t err = iset - imeas;                                  /* 16 bits: the 8051 has no cheap 32-bit divide */
+    int16_t half = err >= 0 ? err >> 1 : -((-err + 1) >> 1);    /* floor(err/2) */
+    return ctl_clamp_duty((int32_t)duty + half);
 }
 
 void ctl_rail_reset(int16_t duty)

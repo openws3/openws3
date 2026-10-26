@@ -15,7 +15,6 @@ storage-voltage bleed, input / rail / VCC supervision, a colour LCD UI with a se
 
 ```bash
 make                 # build/fw.bin                (needs SDCC 4.x)
-make CHARGE=0        # image that does everything except energise a port (UI, supervision, buttons work)
 make test            # host unit tests: charge logic, limits, menu, settings (plain C, run on the PC)
 ```
 
@@ -45,9 +44,9 @@ The menu has four categories; **OK** opens one and **BACK** returns to the list 
 | CHARGING | VOLTAGE | 4.20 V / 4.35 V / 3.80 V storage / 3.85 V storage (not while charging) |
 | | CURRENT | per-port current, 0.3 A and up, within what the present input allows (not while charging) |
 | LIMITS | MAX IN AMPS | limit on the estimated input current: off, 0.5 to 3.0 A in 0.1 A steps, then 0.5 A steps up to 10 A. The ports are limited smoothly |
-| | MIN IN VOLTS | minimum input voltage: off, 4.8 to 6.0 V in 0.1 V steps, then 0.5 V steps up to 25.0 V |
+| | MIN IN VOLTS | minimum input voltage: off, 4.80 to 5.00 V in 0.05 V steps, to 6.0 V in 0.1 V steps, then 0.5 V steps up to 12.5 V |
 | | BELOW MIN | what happens when the input is below that minimum: `LIMIT` reduces the charge current smoothly until the input recovers; `STOP RUN` stops charging after a second and shows `V LIMIT` |
-| | REGULATION | how the limits share the budget over the ports: `EQUAL`, `CH1 FIRST`, `LOW V FIRST`, `HIGH V FIRST` (below) |
+| | REGULATION | how the limits share the budget over the ports: `EQUAL`, `CH1 FIRST`, `HIGH V FIRST` (below) |
 | PREFERENCES | SOUND | on / off |
 | | THEME | colours only, no behaviour change: `CLASSIC` (the original look), `CALM` (colour only where it means something), `AMBER` (one hue on black, red for trouble), `HIGH CONTRAST`. Applies at once |
 | DIAGNOSTICS | | the debug pages (below) |
@@ -68,7 +67,6 @@ the budget is shared:
 |---|---|
 | EQUAL | every charging port gets the same share (a port that wants less frees the rest); if the share would be under 0.1 A, the highest-numbered ports wait so the others get a usable current |
 | CH1 FIRST | one by one: port 1 keeps its current longest, the highest port number is reduced first, down to switched off |
-| LOW V FIRST | one by one: the cell with the lowest voltage keeps its current longest |
 | HIGH V FIRST | one by one: the cell with the highest voltage keeps its current longest |
 
 Higher-priority ports reserve what they really draw, so a port in its taper makes room for the next one. A port that is switched off by
@@ -81,9 +79,9 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 | Page | Shows |
 |---|---|
 | 1 power | bandgap count and the VCC it implies, VIN, rail and its PWM, ADC0 (probably a thermistor), fan, strap, uptime |
-| 2 port V | raw count per port, and the voltage under two scales: 4.5 V / 4096 (what the firmware uses) and VCC / 4096 |
+| 2 port V | raw count and voltage per port |
 | 3 port I | raw count, mA, PWM duty, state, bleed switch |
-| 4 status | run, target voltage, current settings, targets, stop/alarm, strap, USB, build flags |
+| 4 status | run, target voltage, current setting, targets, stop/alarm, strap, USB |
 | 5 ADC raw | all 16 channels |
 | 6 limits | estimated input current, the two limits and their modes, the budget, the cap on each port |
 
@@ -91,14 +89,13 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 
 | Input | Action |
 |---|---|
-| Button 1, tap | current setting +0.1 A (0.3 … 1.3 A, wraps); ignored while charging |
+| Button 1, tap | current setting +0.1 A (0.3 … 1.3 A, wraps); ignored while charging. Taps are saved 3 s after the last one, or when charging starts |
 | Button 1, hold (0.35 s) | start / stop charging |
 | Button 2, tap | target voltage: 4.20 V → 4.35 V → 3.80 V storage → 3.85 V storage; ignored while charging |
-| Button 2, hold (0.5 s) | sound on / off |
 | Both buttons, tap | open the menu |
 
 Header: set current, input voltage, target voltage (red while charging). Cells: port voltage, and below it the measured
-current while charging (`LIMIT` when a user limit holds the port off), or `TEST` / `REST` / `WAIT` / `FULL` / `BLEED` / `ERR`; the dot shows the state.
+current while charging (`LIMIT` when a user limit holds the port off), or `TEST` / `REST` / `FULL` / `BLEED` / `ERR`; the dot shows the state.
 
 ## Layout
 
