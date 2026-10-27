@@ -168,6 +168,9 @@ def write(dev, data, addr=0, erase=False, dry_run=False):
     blocks = [data[i:i+128] for i in range(0, len(data), 128)]
     if len(blocks[-1]) < 128:
         blocks[-1] = blocks[-1] + b'\xff' * (128 - len(blocks[-1]))
+    if erase:                            # erased flash already reads 0xFF: the padding at the end need not be sent
+        while len(blocks) > 1 and blocks[-1] == b'\xff' * 128:
+            blocks.pop()
     print(f'[i] {len(blocks)} blocks')
 
     if dry_run:

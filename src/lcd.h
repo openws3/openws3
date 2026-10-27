@@ -6,9 +6,8 @@
 #define LCD_PX_W 160
 #define LCD_PX_H 80
 
-#define RGB(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
-
 void lcd_init(void);
+void lcd_wake(void);              /* sleep-out; the panel wants 5 ms before lcd_reconfig */
 void lcd_reconfig(void);          /* re-send the panel registers (not the picture); see lcd.c */
 void lcd_fill(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color);
 /* sx, sy: integer stretch of the 6x8 cell.  Characters outside the font draw as space. */

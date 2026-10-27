@@ -1,7 +1,6 @@
 #include "buzz.h"
 
 /* Patterns as {on, off} pairs in ticks (0.5 ms), 0 terminates. */
-#define REPEAT 0x8000
 typedef struct { uint16_t on, off; } seg_t;
 
 static const CODE seg_t p_boot[]  = { {167, 167}, {167, 0}, {0, 0} };                         /* two 84 ms bursts, 167 ms apart */
@@ -11,16 +10,12 @@ static const CODE seg_t p_error[] = { {277, 111}, {277, 0}, {0, 0} };           
 static const CODE seg_t p_rail[]  = { {125, 125}, {125, 125}, {125, 360}, {0, 0} };           /* triple blink (62 ms), then repeat */
 
 static const CODE seg_t *pat;
-static uint8_t  repeat, seg, in_off, enabled, alarm_lvl, tone_lvl;
+static uint8_t  repeat, seg, in_off, enabled, tone_lvl;
 static uint16_t left;
 
-void buzz_reset(void) { pat = 0; repeat = 0; seg = 0; in_off = 0; left = 0; alarm_lvl = 0; tone_lvl = 0; enabled = 1; }
+void buzz_reset(void) { pat = 0; repeat = 0; seg = 0; in_off = 0; left = 0; tone_lvl = 0; enabled = 1; }
 void buzz_enable(uint8_t on) { enabled = on ? 1 : 0; }
-void buzz_alarm(uint8_t on) { alarm_lvl = on ? 1 : 0; }
-uint8_t buzz_alarm_level(void) { return alarm_lvl; }
 uint8_t buzz_busy(void) { return pat != 0; }
-
-void buzz_stop(void) { pat = 0; tone_lvl = 0; }
 
 void buzz_play(uint8_t id)
 {

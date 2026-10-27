@@ -35,7 +35,7 @@ int16_t ctl_rail_step(int16_t meas, int16_t setpoint)
     rail_i += err;
     if (rail_i >  RAIL_I_LIMIT) rail_i =  RAIL_I_LIMIT;
     if (rail_i < -RAIL_I_LIMIT) rail_i = -RAIL_I_LIMIT;
-    rail_q8 += (err * 256) / 10 + (rail_i * 256) / 1000;
+    rail_q8 += ((err * 6554) >> 8) + ((rail_i * 16777) >> 16);     /* x 256/10 and x 256/1000: multiply and shift, no 32-bit divide */
     if (rail_q8 > top)      { rail_q8 = top; if (err > 0) rail_i -= err; }   /* anti-windup */
     else if (rail_q8 < 0)   { rail_q8 = 0;   if (err < 0) rail_i -= err; }
     return (int16_t)((rail_q8 + 128) >> 8);

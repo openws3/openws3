@@ -10,6 +10,8 @@ Layout and commands: USB.md.
   fwmon.py current 0.5             set the charge current (0.3 ... 1.3 A in 0.1 A steps; refused while charging)
   fwmon.py voltage 4.20            target voltage: 4.20, 4.35, 3.80 or 3.85 (V; the last two are storage); refused while charging
 
+Driving the outputs by hand: tools/devtool.py.
+
 Needs read/write access to /dev/hidraw* (udev rule or sudo).  Commands open the device afresh each time (a long-lived
 fd wedges after an OUT report on this chip).
 """
@@ -26,40 +28,58 @@ STOP = {0: '-', 1: 'input-low', 2: 'vcc-low', 3: 'rail', 4: 'user', 5: 'min-inpu
 EVENT = {0: '-', 1: 'port-full', 2: 'port-fault', 3: 'stopped'}
 VOLTS = ['4.20', '4.35', '3.80', '3.85']
 RESULT = {0: 'ok', 1: 'refused', 2: 'unknown command'}
-V_PER_COUNT = 4.5 / 4096
-A_PER_COUNT = 1 / 68.25
+V_PER_COUNT = 4.5 / 4096            # per vu: the charger's voltage readings (port voltages, page 1 bytes 38-49)
+A_PER_COUNT = 1 / 68.25             # per iu: its current readings
+BG_NOM = 1071                       # bandgap count at the calibration VCC: raw counts x BG_NOM / bandgap = readings (src/adc.h)
+reading = lambda raw, bandgap: raw * BG_NOM / bandgap if bandgap else 0
+vin_volts = lambda reading: (reading + 1) * 0.4 / 61           # cal.c cal_vin_mv
+vcc_volts = lambda bandgap: 1.19 * 4096 / bandgap if bandgap else 0
+vmin_volts = lambda v: v * 0.05 if v <= 200 else 10 + (v - 200) * 0.5        # limits.h VMIN_MV
 
 
 LMODE = ['EQUAL', 'CH1 FIRST', 'HIGH V FIRST']
 P_NONE = 10000                       # budget value meaning "no limit"
 _lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
+_dev = {}                            # the latest page 3 (developer mode, tools/devtool.py), merged the same way
 
 
 def parse_limits(r):
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     return dict(lim=dict(
         ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(12), p_cur=u16(14), p_vol=u16(16), est_ma=u16(18), bcnt=u16(20),
-        trip=r[22], active=r[23], cap=list(r[24:30]), want=list(r[30:36]), set=list(r[36:42]), any_active=r[51], sup_stop=r[52], poweroff=r[53], rail_cut=r[54],
-        rail_alarm=r[55], fan=r[56], cells=r[57], lim_stop=u16(58), lim_off=u16(60)))
+        trip=r[22], active=r[23], cap=list(r[24:30]), want=list(r[30:36]), set=list(r[36:42]), setpoint=u16(42), target=u16(44),
+        any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(57) << 16) | u16(59), dirty=r[61]))
+
+
+def parse_dev(r):
+    u16 = lambda i: (r[i] << 8) | r[i + 1]
+    return dict(dev=dict(
+        v=[u16(8 + 2 * k) for k in range(6)], i=[u16(20 + 2 * k) for k in range(6)], therm=u16(32), vin=u16(34), rail=u16(36), bandgap=u16(38),
+        duty=[u16(40 + 2 * k) for k in range(6)], rail_duty=u16(52), sw=r[54], flags=r[55], b1=r[56] & 1, b2=(r[56] >> 1) & 1, strap=(r[56] >> 2) & 1,
+        watchdog=r[57] & 1, supply_stop=(r[57] >> 1) & 1, trip=r[58], setpoint=u16(59)))
 
 
 def parse(r):
-    """decode one 64-byte telemetry report; None if it is not a complete one.  Page 2 (byte 3 = 2) only updates `_lim` and returns None."""
+    """decode one 64-byte telemetry report; None if it is not a complete one.  Pages 2 and 3 (byte 3) only update `_lim` / `_dev`
+    and return None."""
     if len(r) != REPORT or r[0] != 0x57 or r[1] != 0x33 or r[2] == 0 or r[2] != r[63]:
         return None
     if r[3] == 2:
-        _lim.update(parse_limits(r))
+        _lim.update(parse_limits(r)); _dev.clear()
+        return None
+    if r[3] == 3:
+        _dev.update(parse_dev(r)); _lim.clear()
         return None
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     f = r[8]
     return dict(
-        version=r[3], ms=struct.unpack_from('>I', r, 4)[0],
+        version=r[3], fw=r[10], ms=struct.unpack_from('>I', r, 4)[0],
         run=f & 1, volt=(f >> 1) & 3, outputs=(f >> 3) & 1, rail_hold=(f >> 5) & 1,
-        strap=(f >> 6) & 1, dc=(f >> 7) & 1,
+        strap=(f >> 6) & 1,
         iset=r[9], stop=r[11], alarm=r[12] & 15, debug_page=r[12] >> 4, ev_seq=r[13], ev_code=r[14], ev_port=r[15],
         cmd_seq=r[16], cmd_res=r[17], state=list(r[18:24]), sw=[(r[24] >> k) & 1 for k in range(6)], phase=r[25],
         duty=[u16(26 + 2 * k) for k in range(6)], v=[u16(38 + 2 * k) for k in range(6)], i=list(r[50:56]),
-        rail=u16(56), vin=u16(58), bandgap=u16(60), rail_duty=r[62] * 4, **_lim)
+        rail=u16(56), vin=u16(58), bandgap=u16(60), rail_duty=r[62] * 4, **_lim, **_dev)
 
 
 def find(flags=os.O_RDWR):
@@ -105,15 +125,17 @@ def command(cmd, arg=0, ack=True):
 
 
 def fmt_status(t):
-    head = '%8.1fs %-9s %s %s  set %.1fA  %s  rail %d  vin %d  vcc %d' % (
+    bg = t['bandgap']
+    head = '%8.1fs %-9s %s %s  set %.1fA  %s  rail %.3fV  vin %.2fV  vcc %.2fV  (counts %d %d %d)' % (
         t['ms'] / 1000, PHASE.get(t['phase'], t['phase']), 'RUN' if t['run'] else 'idle', VOLTS[t['volt']] + ' V',
-        0.1 * t['iset'] / 7.0, 'hold' if t['rail_hold'] else '', t['rail'], t['vin'], t['bandgap'])
+        0.1 * t['iset'] / 7.0, 'hold' if t['rail_hold'] else '', reading(t['rail'], bg) * V_PER_COUNT, vin_volts(reading(t['vin'], bg)),
+        vcc_volts(bg), t['rail'], t['vin'], bg)
     cells = '  '.join('%d:%-6s %.3fV %3dmA%s' % (k + 1, STATE[t['state'][k]], t['v'][k] * V_PER_COUNT, round(t['i'][k] * A_PER_COUNT * 1000),
                                                   ' sw' if t['sw'][k] else '') for k in range(6) if t['state'][k] or t['v'][k] > 900)
     extra = ''
     if t['stop']: extra += '  stop=%s' % STOP.get(t['stop'], t['stop'])
     if t['alarm']: extra += '  alarm=%d' % t['alarm']
-    if t['debug_page']: extra += '  screen=%s' % ('menu' if t['debug_page'] == 15 else 'diag%d' % t['debug_page'])
+    if t['debug_page']: extra += '  screen=%s' % {15: 'menu', 14: 'developer mode'}.get(t['debug_page'], 'diag%d' % t['debug_page'])
     return head + extra + ('\n         ' + cells if cells else '') + fmt_limits(t)
 
 
@@ -125,7 +147,7 @@ def fmt_limits(t):
     cap = lambda c: '-' if c == 0 else 'PARK' if c == 1 else amps(c)
     watts = lambda p: 'none' if p >= P_NONE else '%.1fW' % (p / 10)
     out = '\n         limits  in %s  min %s  below-min %s  regulation %s  | %s' % (
-        '%.1fA' % (L['ilim'] / 10) if L['ilim'] else 'off', '%.2fV' % (L['vmin'] / 20) if L['vmin'] else 'off',
+        '%.1fA' % (L['ilim'] / 10) if L['ilim'] else 'off', '%.2fV' % vmin_volts(L['vmin']) if L['vmin'] else 'off',
         'STOP RUN' if L['vcut'] else 'LIMIT', LMODE[L['lmode']] if L['lmode'] < len(LMODE) else L['lmode'], 'evaluated' if L['active'] else 'idle')
     out += '\n         budget  %s (current %s, voltage %s) = %s over the ports (%d counts)  est input %.2fA  trip %d' % (
         watts(L['budget']), watts(L['p_cur']), watts(L['p_vol']), amps(L['bcnt']) if L['bcnt'] else 'no cap', L['bcnt'], L['est_ma'] / 1000, L['trip'])
@@ -134,8 +156,8 @@ def fmt_limits(t):
         out += '\n         ports   ' + '  '.join('%d: want %s cap %s set %s' % (k + 1, amps(L['want'][k]), cap(L['cap'][k]), amps(L['set'][k])) for k in ports)
         if L['lmode'] == 0:
             out += '\n         share   %s per port over %d charging' % (amps(L['bcnt'] // len(ports)) if L['bcnt'] else '-', len(ports))
-    out += '\n         supply  cells %d  stop-below %d off-below %d  sup stop=%s' % (
-        L['cells'], L['lim_stop'], L['lim_off'], STOP.get(L['sup_stop'], L['sup_stop']))
+    out += '\n         setpoints  target %.3fV  rail %.3fV  sup stop=%s' % (
+        L['target'] * V_PER_COUNT, L['setpoint'] * V_PER_COUNT, STOP.get(L['sup_stop'], L['sup_stop']))
     return out
 
 
@@ -204,7 +226,10 @@ def main():
     m = sub.add_parser('voltage'); m.add_argument('volts', choices=VOLTS)
     a = ap.parse_args()
 
-    if a.cmd == 'status': print(fmt_status(snapshot()))
+    if a.cmd == 'status':
+        t = snapshot()
+        print(fmt_status(t))
+        if t['fw'] and 'lim' in t: print('firmware %d.%d build %08x%s' % (t['fw'] >> 4, t['fw'] & 15, t['lim']['build'], '+' if t['lim']['dirty'] else ''))
     elif a.cmd == 'watch': watch(a.n, a.raw)
     elif a.cmd == 'log': log(a.file, a.secs)
     elif a.cmd == 'flash': flash(a.file)

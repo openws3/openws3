@@ -17,14 +17,14 @@
 
 typedef struct {
     uint32_t ms;
-    uint16_t adc[NADC];                    /* adc_raw(0..15): the latest averaged samples */
-    uint16_t v[NPORTS], i[NPORTS];         /* filtered port voltage / current counts */
+    uint16_t adc[NADC];                    /* adc_raw(0..15): counts */
+    uint16_t v[NPORTS], i[NPORTS];         /* filtered port voltage (vu) / current (iu) readings */
     uint16_t duty[NPORTS];
     uint8_t  state[NPORTS], sw[NPORTS];
-    uint16_t rail, rail_duty, vin, bandgap;
+    uint16_t rail, rail_duty, vin, bandgap;  /* rail, vin: filtered readings; bandgap: counts */
     uint16_t tgt, setpoint;
-    uint8_t  volt, iset, run, stop, alarm, strap, dc, rail_hold, fan, usb;
-    uint8_t  ilim, vmin, vcut, lmode, trip, cap[NPORTS];      /* user limits (limits.h) */
+    uint8_t  volt, iset, run, stop, alarm, strap, rail_hold, fan, usb;
+    uint8_t  ilim, vmin, vcut, lmode, cap[NPORTS];            /* user limits (limits.h) */
     uint16_t est_ma, budget;
 } dbg_view_t;
 

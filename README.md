@@ -32,6 +32,16 @@ python3 tools/fwmon.py flash build/fw.bin
 The firmware is also a USB HID device (`34bf:1004`, product "OpenWS3"): `python3 tools/fwmon.py watch` shows boot phases, port states,
 voltages, currents, events and faults live; `start`/`stop`/`current`/`voltage` drive it. Details and report layout: `USB.md`.
 
+`python3 tools/devtool.py` is a terminal UI for bench work: it switches every output by hand (port PWMs and bleed switches,
+global enable, fan, input profile, the rail as a setpoint or a raw duty) and shows every input live (port and rail voltages,
+port currents, input, VCC, thermistor, buttons, strap). The firmware keeps guards underneath (a 0.5 s link watchdog, a cut above
+4.40 V or 2.8 A per port, the rail over-voltage stop); holding both buttons on the unit leaves the mode. Not while charging.
+`tools/openws3.html` is the tool for users: open the file in Chrome or Edge (WebHID, no server, no driver) and press Connect. It opens
+in a simple view: start / stop, charge current and target voltage, each port's state, voltage and current with a 10 s plot, and a
+firmware installer for users (a guided "hold the left button while plugging in USB-C" flow for a charger that does not run OpenWS3 yet; a running unit restarts into the loader by itself). Esc stops charging.
+The Advanced view adds the raw inputs, the limiter, setpoints, an event log and developer mode (the manual controls above).
+`make` also writes `build/openws3.html`, the same page with `build/fw.bin` inside: that is the one to hand out.
+
 
 ## Menu
 
@@ -42,9 +52,9 @@ The menu has four categories; **OK** opens one and **BACK** returns to the list 
 | Category | Item | Setting |
 |---|---|---|
 | CHARGING | VOLTAGE | 4.20 V / 4.35 V / 3.80 V storage / 3.85 V storage (not while charging) |
-| | CURRENT | per-port current, 0.3 A and up, within what the present input allows (not while charging) |
+| | CURRENT | charge current, 0.3 to 1.3 A in 0.1 A steps (not while charging) |
 | LIMITS | MAX IN AMPS | limit on the estimated input current: off, 0.5 to 3.0 A in 0.1 A steps, then 0.5 A steps up to 10 A. The ports are limited smoothly |
-| | MIN IN VOLTS | minimum input voltage: off, 4.80 to 5.00 V in 0.05 V steps, to 6.0 V in 0.1 V steps, then 0.5 V steps up to 12.5 V |
+| | MIN IN VOLTS | minimum input voltage: off, 4.80 to 5.00 V in 0.05 V steps, to 6.0 V in 0.1 V steps, then 0.5 V steps up to 25 V |
 | | BELOW MIN | what happens when the input is below that minimum: `LIMIT` reduces the charge current smoothly until the input recovers; `STOP RUN` stops charging after a second and shows `V LIMIT` |
 | | REGULATION | how the limits share the budget over the ports: `EQUAL`, `CH1 FIRST`, `HIGH V FIRST` (below) |
 | PREFERENCES | SOUND | on / off |
@@ -70,7 +80,11 @@ the budget is shared:
 | HIGH V FIRST | one by one: the cell with the highest voltage keeps its current longest |
 
 Higher-priority ports reserve what they really draw, so a port in its taper makes room for the next one. A port that is switched off by
-a limit shows `LIMIT` and restarts at the duty it had. The input rules of the supervisor (cell-count limits, power-off thresholds) still apply underneath.
+a limit shows `LIMIT` and restarts at the duty it had. The supervisor's input gate (about 4.6 V) still applies underneath.
+
+**Running from a LiPo pack:** nothing detects the pack or its cell count. Set MIN IN VOLTS to the pack's cut-off (about 3.3 V per
+cell: 6.6 V for 2S, 13.2 V for 4S, 19.8 V for 6S) with BELOW MIN on `STOP RUN`, so charging stops before the pack is
+over-discharged. The unit itself stays on and draws a little; unplug it from the pack when done.
 
 ### Diagnostics pages
 
@@ -79,8 +93,8 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 | Page | Shows |
 |---|---|
 | 1 power | bandgap count and the VCC it implies, VIN, rail and its PWM, ADC0 (probably a thermistor), fan, strap, uptime |
-| 2 port V | raw count and voltage per port |
-| 3 port I | raw count, mA, PWM duty, state, bleed switch |
+| 2 port V | raw ADC count and voltage (corrected for VCC) per port |
+| 3 port I | raw ADC count, mA (corrected for VCC), PWM duty, state, bleed switch |
 | 4 status | run, target voltage, current setting, targets, stop/alarm, strap, USB |
 | 5 ADC raw | all 16 channels |
 | 6 limits | estimated input current, the two limits and their modes, the budget, the cap on each port |
@@ -106,8 +120,9 @@ src/chg.c          per-port charge state machine (pure)           src/sup.c   ra
 src/limits.c       input current / voltage limits (pure)          src/menu.c  settings menu (pure), rowbuf.c text rows
 src/ctl.c          rail PI, cal.c units, fmt.c text, input_pure.c buttons, buzz_pure.c patterns, cfg*.c settings
 src/usb.c          USB HID monitor (telemetry + commands)         src/ui.c    screens
+src/dev.c          developer mode: outputs set by the host, guards
 src/app.c          boot sequence, 4.5 ms control pass             src/font.c  GENERATED from tools/font5x7.txt
-test/              host tests (C)                                 tools/      fwmon.py (USB monitor / flasher), isp.py (ISP client)
+test/              host tests (C)                                 tools/      fwmon.py (USB monitor / flasher), devtool.py, openws3.html (web tool), bundle.py, isp.py
 ```
 
 "Pure" files have no hardware access and are what the host tests compile.

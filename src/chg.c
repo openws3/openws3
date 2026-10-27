@@ -1,7 +1,7 @@
 #include "chg.h"
 #include "ctl.h"
 
-/* ---- thresholds relative to the target voltage T, in port-voltage counts (1 count = 1.0986 mV) ----------------------- */
+/* ---- thresholds relative to the target voltage T, in vu (adc.h: 1.0986 mV) -------------------------------------------- */
 /* the full-charge voltages (4.20, 4.35 V) and the storage voltages (3.80, 3.85 V) use different windows */
 #define WIN_LO_FULL     20      /* probe / rest: FULL window, full voltages [T-20, T+10) */
 #define WIN_HI_FULL     10
@@ -39,7 +39,7 @@ typedef struct {
     uint16_t t_tail, t_open, t_stor, t_rest, t_full, t_probe, t_gone;
     uint8_t  t_over, oc;
     uint8_t  announced;          /* the FULL beep was given for this fill */
-    uint8_t  want, thr, ieff;    /* for the limits: working current before the cap, whether the cap bites, the current actually regulated to */
+    uint8_t  want, ieff;         /* for the limits: working current before the cap, the current actually regulated to (below iset: capped) */
     uint16_t pduty;              /* the duty a parked port had: it restarts from there (the soft ramp is minutes long on this hardware) */
 } port_t;
 
@@ -48,7 +48,7 @@ static port_t XD P[NPORTS], W;
 static void p_reset(port_t XD *p, uint8_t iset)
 {
     p->st = PS_IDLE; p->duty = 0; p->sw = 0;
-    p->want = p->thr = p->ieff = 0; p->pduty = 0;
+    p->want = p->ieff = 0; p->pduty = 0;
     p->iset = iset; p->ramp = 0; p->ramp_div = 0;
     p->t_tail = p->t_open = p->t_stor = p->t_rest = p->t_full = p->t_probe = 0;
     p->t_over = p->oc = 0;
@@ -133,9 +133,9 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
     uint8_t g = in->iset[k];
 
     /* measurement filters: V = (V + 3*adc)/4 twice per pass, I = (I + adc)/2 */
-    W.v = (uint16_t)((W.v + 3u * in->adc_v[k]) >> 2);
-    W.v = (uint16_t)((W.v + 3u * in->adc_v[k]) >> 2);
-    W.i = (uint16_t)((W.i + (uint32_t)in->adc_i[k]) >> 1);
+    W.v = (uint16_t)((W.v + 3u * in->v_now[k]) >> 2);
+    W.v = (uint16_t)((W.v + 3u * in->v_now[k]) >> 2);
+    W.i = (uint16_t)((W.i + (uint32_t)in->i_now[k]) >> 1);
 
     if (!in->run || !in->en[k]) { p_reset(&W, g); return; }
 
@@ -152,7 +152,7 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
     if (volt < VOLT_STORAGE) W.iset = g;              /* working current: the setting (storage keeps its step-downs until the next probe) */
 
     W.sw = 0;
-    W.want = W.thr = 0;
+    W.want = 0;
     switch (W.st) {
 
     case PS_PROBE:
@@ -163,9 +163,9 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
 
     case PS_CHARGE: {
         uint8_t over_rail = W.v > in->rail + RAIL_MARGIN;
-        W.want = W.iset; W.ieff = W.iset; W.thr = 0;      /* the user limits may hold the current below the wanted one, or park the port */
-        if (in->cap[k] == CAP_PARK) { W.ieff = 0; W.thr = 1; }
-        else if (in->cap[k] && in->cap[k] < W.iset) { W.ieff = in->cap[k]; W.thr = 1; }
+        W.want = W.iset; W.ieff = W.iset;                  /* the user limits may hold the current below the wanted one, or park the port */
+        if (in->cap[k] == CAP_PARK) W.ieff = 0;
+        else if (in->cap[k] && in->cap[k] < W.iset) W.ieff = in->cap[k];
         /* current limit supervision: 2*Iset + 7 for 200 passes */
         if (W.i >= (uint16_t)(2u * g + 7u)) {
             if (++W.oc >= T_OC) { W.oc = 0; go_fault(&W, ev); break; }
@@ -178,7 +178,7 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
         } else W.t_open = 0;
 
         if (!over_rail) {
-            if (W.thr) {
+            if (W.ieff < W.iset) {
                 /* throttled: the current says nothing about the cell, so the tail and step-down timers stand still */
             } else if (volt < VOLT_STORAGE) {
                 if (W.v < T - WIN_LO_FULL) W.t_tail = 0;

@@ -10,6 +10,7 @@
 #define NELEM (3 + NPORTS * 3)           /* 3 header boxes, then per port: voltage, status text, dot */
 
 static char    XD shown[NELEM][9];
+static uint16_t XD shown_fg[NELEM];
 static uint8_t XD shown_dot[NPORTS];
 static uint8_t XD next_el;
 
@@ -17,6 +18,30 @@ static uint8_t box_x(uint8_t i)  { return UI_BOX_X0 + i * UI_BOX_PITCH; }
 static uint8_t cell_y(uint8_t p) { return UI_CELL_Y0 + (p / 3) * UI_CELL_PITCH_Y; }
 
 static uint8_t slen(const char *s) { uint8_t n = 0; while (s[n]) n++; return n; }
+static void scopy(char XD *d, const char *s) { while ((*d++ = *s++) != 0) ; }
+
+/* Only the characters that changed are drawn: at the bus rate a whole row takes ~13 ms, a 1x2 glyph ~1 ms.  diff() finds the span
+ * [d_first, d_last) of `s` (n characters) that differs from `was`, what the screen shows; 0 = nothing changed. */
+static uint8_t XD d_first, d_last;
+static uint8_t diff(const char XD *was, const char *s, uint8_t n)
+{
+    d_first = 0;
+    while (d_first < n && was[d_first] == s[d_first]) d_first++;
+    if (d_first == n && was[n] == 0) return 0;
+    d_last = n;
+    if (slen(was) == n) while (d_last > d_first && was[d_last - 1] == s[d_last - 1]) d_last--;
+    return 1;
+}
+
+/* draw that span of `s`, whose first character sits at x */
+static void draw_span(uint8_t x, uint8_t y, uint8_t sy, const char *s, uint16_t fg, uint16_t bg)
+{
+    static char XD part[ROW_COLS + 1];
+    uint8_t i;
+    for (i = d_first; i < d_last; i++) part[i - d_first] = s[i];
+    part[d_last - d_first] = 0;
+    lcd_text((uint8_t)(x + d_first * 6), y, part, 1, sy, fg, bg);
+}
 
 /* centre `text` on the 160 px wide screen at scale sx,sy */
 static void centered(uint8_t y, const char *text, uint8_t sx, uint8_t sy, uint16_t fg, uint16_t bg)
@@ -44,26 +69,15 @@ void ui_message(const char *title, const char *line2, uint8_t has_n1, uint16_t n
     if (has_n2) { fmt_u(b, n2); centered(60, b, 1, 1, th(R_DIM), th(R_BG)); }
 }
 
-void ui_choose(uint8_t dc)
-{
-    lcd_fill(0, 0, LCD_PX_W, LCD_PX_H, th(R_BG));
-    centered(2, "POWER INPUT", 1, 2, th(R_TEXT), th(R_BG));
-    centered(22, "PLEASE CHOOSE:", 1, 1, th(R_DIM), th(R_BG));
-    lcd_fill(14, 34, 132, 14, dc ? th(R_RUN) : th(R_BG));
-    lcd_text(18, 37, "1:DC INPUT", 1, 1, th(R_TEXT), dc ? th(R_RUN) : th(R_BG));
-    lcd_fill(14, 50, 132, 14, dc ? th(R_BG) : th(R_RUN));
-    lcd_text(18, 53, "2:LIPO INPUT", 1, 1, th(R_TEXT), dc ? th(R_BG) : th(R_RUN));
-    centered(70, "B1/B2 SWITCH  BOTH OK", 1, 1, th(R_DIM), th(R_BG));
-}
-
 static void put(uint8_t e, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
 {
-    uint8_t i = 0;
-    while (s[i] && i < 7 && shown[e][i] == s[i]) i++;
-    if (s[i] == 0 && shown[e][i] == 0) return;           /* unchanged */
-    lcd_text(x, y, s, 1, sy, fg, bg);
-    for (i = 0; i < 7 && s[i]; i++) shown[e][i] = s[i];
-    shown[e][i] = 0;
+    uint8_t i, n = slen(s);
+    if (n > 7) n = 7;
+    if (shown_fg[e] != fg) { shown_fg[e] = fg; shown[e][0] = 0; }     /* a new colour redraws it all */
+    if (!diff(shown[e], s, n)) return;
+    draw_span(x, y, sy, s, fg, bg);
+    for (i = 0; i < n; i++) shown[e][i] = s[i];
+    shown[e][n] = 0;
 }
 
 void ui_main_init(void)
@@ -84,17 +98,6 @@ void ui_main_init(void)
     next_el = 0;
 }
 
-/* status text for a port */
-static void status_text(char *s, uint8_t state, uint16_t cur_counts)      /* bit 4 of state: parked by a user limit */
-{
-    static const CODE char *names[7] = { "", "TEST", "", "REST", "FULL", "BLEED", "ERR" };
-    uint8_t k = 0;
-    if ((state & 0x17) == (0x10 | PS_CHARGE)) { s[0] = 'L'; s[1] = 'I'; s[2] = 'M'; s[3] = 'I'; s[4] = 'T'; s[5] = 0; return; }   /* held off by a user limit */
-    if ((state & 7) == PS_CHARGE) { fmt_a2(s, cal_port_ma(cur_counts)); return; }
-    while (names[state & 7][k]) { s[k] = names[state & 7][k]; k++; }
-    s[k] = 0;
-}
-
 static uint16_t status_color(uint8_t state)
 {
     switch (state) {
@@ -113,7 +116,8 @@ static void element(const ui_state_t *s, uint8_t e)
         uint16_t col = th(R_TEXT), bg = s->run ? th(R_RUN) : th(R_BOX);
         if (e == 0) fmt_a1(t, cal_set_to_ma(s->iset));
         else if (e == 1) {
-            if (s->alarm) { static const CODE char *nm[5] = { "", "RAIL!", "VIN!", "VCC!", "V LIMIT" }; uint8_t k = 0; while (nm[s->alarm][k]) { t[k] = nm[s->alarm][k]; k++; } t[k] = 0; col = th(R_WARN); }
+            static const CODE char *const ALARM[] = { "", "VIN!", "VCC!", "RAIL!", "", "V LIMIT" };   /* by STOP_* */
+            if (s->alarm) { scopy(t, ALARM[s->alarm]); col = th(R_WARN); }
             else { fmt_v1(t, cal_vin_mv(s->vin)); col = th(R_VIN); }
         } else fmt_v2(t, cal_port_mv(s->tgt));
         /* the box colour changes with run state: repaint the box when it does */
@@ -126,10 +130,14 @@ static void element(const ui_state_t *s, uint8_t e)
             fmt_v2(t, cal_port_mv(s->v[p]));
             put(e, x + UI_CELL_VX, y + UI_CELL_VY, 2, th(R_VOLT), th(R_BOX), t);
         } else if (part == 1) {
-            status_text(t, (uint8_t)(s->state[p] | (s->parked[p] ? 0x10 : 0)), s->i[p]);
+            static const CODE char *const NAME[] = { "", "TEST", "", "REST", "FULL", "BLEED", "ERR" };   /* by PS_* */
+            uint8_t st = s->state[p], held = st == PS_CHARGE && s->parked[p];      /* held off by a user limit */
+            if (held) scopy(t, "LIMIT");
+            else if (st == PS_CHARGE) fmt_a2(t, cal_port_ma(s->i[p]));
+            else scopy(t, NAME[st]);
             /* pad so a shorter text overwrites the previous one */
             { uint8_t n = slen(t); while (n < 5) t[n++] = ' '; t[n] = 0; }
-            put(e, x + UI_CELL_IX, y + UI_CELL_IY, 1, s->parked[p] && s->state[p] == PS_CHARGE ? th(R_WARN) : status_color(s->state[p]), th(R_BOX), t);
+            put(e, x + UI_CELL_IX, y + UI_CELL_IY, 1, held ? th(R_WARN) : status_color(st), th(R_BOX), t);
         } else {
             uint8_t st = s->state[p] & 7;
             uint16_t c = th(R_DOT0 + st);
@@ -152,24 +160,16 @@ void ui_text_enter(void)
     for (r = 0; r < DBG_ROWS; r++) for (i = 0; i <= DBG_COLS; i++) dbg_shown[r][i] = 0;   /* the whole row: a stale tail would count as drawn */
 }
 
-/* draws only the span of characters that changed: a whole row would take ~13 ms on this bus.  A different colour
- * redraws the whole row. */
+/* a different colour redraws the whole row */
 void ui_text_row(uint8_t row, const char *text, uint16_t color)
 {
-    static char XD part[DBG_COLS + 1];
-    uint8_t first = 0, last, n, i;
+    uint8_t n, i;
     if (row >= DBG_ROWS) return;
     if (dbg_col[row] != color) { dbg_col[row] = color; for (i = 0; i <= DBG_COLS; i++) dbg_shown[row][i] = 0; }
     n = slen(text);
     if (n > DBG_COLS) n = DBG_COLS;
-    while (first < n && dbg_shown[row][first] == text[first]) first++;
-    if (first == n && dbg_shown[row][n] == 0) return;                /* unchanged */
-    if (dbg_shown[row][0] == 0) first = 0;                           /* nothing drawn yet */
-    last = n;
-    while (last > first && dbg_shown[row][last - 1] == text[last - 1] && dbg_shown[row][last - 1]) last--;
-    for (i = first; i < last; i++) part[i - first] = text[i];
-    part[last - first] = 0;
-    lcd_text((uint8_t)(first * 6), (uint8_t)(row * 8), part, 1, 1, color, th(R_BG));
+    if (!diff(dbg_shown[row], text, n)) return;
+    draw_span(0, (uint8_t)(row * 8), 1, text, color, th(R_BG));
     for (i = 0; i < n; i++) dbg_shown[row][i] = text[i];
     dbg_shown[row][n] = 0;
 }

@@ -1,6 +1,6 @@
 #include "input.h"
 
-#define QN 4
+#define QN 4                      /* a power of two: the index wraps with a mask (a % would be a library call in the interrupt) */
 static uint8_t  q[QN], qh, qt;
 static uint16_t held[2];          /* ticks the button has been down */
 static uint16_t next[2];          /* ticks until its next repeat */
@@ -10,7 +10,7 @@ static uint8_t  chord, back_sent, style;
 
 static void put(uint8_t ev)
 {
-    uint8_t n = (uint8_t)((qt + 1) % QN);
+    uint8_t n = (uint8_t)((qt + 1) & (QN - 1));
     if (n != qh) { q[qt] = ev; qt = n; }         /* drop when full */
 }
 
@@ -67,6 +67,6 @@ uint8_t input_get(void)
     uint8_t e;
     if (qh == qt) return EV_NONE;
     e = q[qh];
-    qh = (uint8_t)((qh + 1) % QN);
+    qh = (uint8_t)((qh + 1) & (QN - 1));
     return e;
 }

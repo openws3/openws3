@@ -19,8 +19,11 @@
 #include "layout.h"
 #include "menu.h"
 #include "limits.h"
+#include "dev.h"
+#include "version.h"
+#include "version_build.h"
 
-#define RAIL_UP_COUNTS   3185     /* wait for ADC8 >= 3185 before starting the display */
+#define RAIL_UP          3185     /* vu (3.5 V): wait for the rail before starting the display */
 #define RAIL_UP_TIMEOUT  10000    /* ms */
 #define SELFTEST_LO1     3388     /* phase 1 (servo to 3458) must land in [3388, 3528) */
 #define SELFTEST_HI1     3528
@@ -30,14 +33,15 @@
 #define BG_GLITCH        15       /* bandgap counts (~1.4 % of VCC) off the baseline: treat as a supply glitch */
 #define LCD_RECONFIG_PASSES 222   /* ~1 s */
 
-static uint8_t  XD rail_hold, run, dc, strap, stop_reason, alarm_ui, poweroff_req;
+static uint8_t  XD rail_hold, run, strap, stop_reason, alarm_ui;   /* alarm_ui: the STOP_* reason the display shows, 0 = none */
 static uint32_t XD save_at;                      /* ms: a main-screen change is saved then (0 = nothing to save) */
 #define SAVE_DELAY_MS 3000                       /* after the last tap: stepping through values writes the flash once */
 static int16_t  XD rail_duty;
 static uint16_t XD bg_ref;                     /* slow baseline of the bandgap count: a jump away from it = a supply glitch */
 static uint8_t  XD lcd_cnt;
-static uint8_t  XD dbg_page, dbg_next_row;      /* diagnostics screen (opened from the menu): 0 = off, else 1..DBG_PAGES */
-static uint8_t  XD menu_on, menu_session, menu_next_row;   /* menu showing / a menu session is open (menu or diagnostics) / row being drawn */
+#define SCR_DEV  14                             /* screen: 0 = main, 1..DBG_PAGES = a diagnostics page, SCR_DEV = developer mode (dev.h), */
+#define SCR_MENU 15                             /* SCR_MENU = the menu (as USB byte 12 reports it) */
+static uint8_t  XD screen, text_row;            /* text_row: the row of the menu / diagnostics drawn next */
 static uint32_t XD t_next;
 static chg_in_t  XD cin;
 static chg_out_t XD cout;
@@ -48,9 +52,9 @@ static sup_out_t XD sout;
 /* ------------------------------------------------------------------------------------------------------------- */
 
 /* ---- USB telemetry (layout in USB.md).  The interrupt copies usb_tx to the host; it is rebuilt here, tail byte last. ---- */
-enum { PH_RAIL_WAIT = 1, PH_SPLASH, PH_VCC_GATE, PH_SELFTEST, PH_INPUT, PH_CHOOSE, PH_RUN, PH_FATAL = 0x80 };
+enum { PH_RAIL_WAIT = 1, PH_SPLASH, PH_VCC_GATE, PH_SELFTEST, PH_INPUT, PH_RUN = 7, PH_FATAL = 0x80 };
 enum { EV_PORT_FULL = 1, EV_PORT_FAULT, EV_STOPPED };           /* ev_code; ev_port = port (0..5) or the stop reason */
-static uint8_t XD phase, tele_seq, ev_seq, ev_code, ev_port, cmd_seq, cmd_res;
+static uint8_t XD tele_seq, ev_seq, ev_code, ev_port, cmd_seq, cmd_res;
 
 static uint8_t ch_iset(uint8_t k) { return settings.ch_cur[k] ? settings.ch_cur[k] : settings.cur; }
 static void apply_limits(void) { lim_cfg.ilim = settings.ilim; lim_cfg.vmin = settings.vmin; lim_cfg.vcut = settings.vcut; lim_cfg.mode = settings.lmode; }
@@ -81,25 +85,27 @@ static void tele_limits(uint8_t ph, uint32_t ms)
         for (k = 0; k < NPORTS; k++) {
             usb_tx2[24 + k] = lim_out.cap[k]; usb_tx2[30 + k] = cout.want[k]; usb_tx2[36 + k] = cout.set[k];
         }
+        put16(usb_tx2, 42, sup_setpoint(settings.volt)); put16(usb_tx2, 44, sup_target(settings.volt));    /* vu */
         usb_tx2[51] = cout.any_active;
-        usb_tx2[52] = sout.stop; usb_tx2[53] = sout.poweroff; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.rail_alarm; usb_tx2[56] = sout.fan;
-        usb_tx2[57] = sup_input_cells(); put16(usb_tx2, 58, sup_lim_stop(sup_input_cells())); put16(usb_tx2, 60, sup_lim_off(sup_input_cells()));
+        usb_tx2[52] = sout.stop; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.stop == STOP_RAIL; usb_tx2[56] = sout.fan;
     }
+    put16(usb_tx2, 57, (uint16_t)(FW_BUILD >> 16)); put16(usb_tx2, 59, (uint16_t)FW_BUILD); usb_tx2[61] = FW_DIRTY;   /* the build id */
     usb_tx2[63] = tele_seq;
 }
 
 static void tele(uint8_t ph)
 {
     uint8_t k;
-    uint32_t ms = hal_ms();
-    phase = ph;
+    uint32_t ms;
+    if (!usb_configured()) return;                   /* nobody reads it */
+    ms = hal_ms();
     if (++tele_seq == 0) tele_seq = 1;
     tele_head(usb_tx, 1, ms);
-    usb_tx[8] = (uint8_t)(run | (settings.volt << 1) | ((run && !rail_hold) << 3) | (rail_hold << 5) | (strap << 6) | (dc << 7));
-    usb_tx[9] = settings.cur; usb_tx[11] = stop_reason; usb_tx[12] = (uint8_t)(alarm_ui | ((menu_on ? 15 : dbg_page) << 4));
+    usb_tx[8] = (uint8_t)(run | (settings.volt << 1) | ((run && !rail_hold) << 3) | (rail_hold << 5) | (strap << 6));
+    usb_tx[9] = settings.cur; usb_tx[10] = (uint8_t)(FW_MAJOR << 4 | FW_MINOR); usb_tx[11] = stop_reason; usb_tx[12] = (uint8_t)(alarm_ui | (screen << 4));
     usb_tx[13] = ev_seq; usb_tx[14] = ev_code; usb_tx[15] = ev_port; usb_tx[16] = cmd_seq; usb_tx[17] = cmd_res;
     usb_tx[25] = ph;
-    if (ph >= PH_RUN && ph < PH_FATAL) {
+    if (ph >= PH_RUN && ph < PH_FATAL && screen != SCR_DEV) {          /* developer mode: the ports are on page 3 */
         for (k = 0; k < NPORTS; k++) {
             usb_tx[18 + k] = cout.state[k];
             usb_tx[24] |= (uint8_t)(cout.sw[k] << k);
@@ -107,13 +113,12 @@ static void tele(uint8_t ph)
             put16(usb_tx, 38 + 2 * k, cout.v[k]);
             usb_tx[50 + k] = cout.i[k] > 255 ? 255 : (uint8_t)cout.i[k];
         }
-        put16(usb_tx, 56, cin.rail); put16(usb_tx, 58, sin.vin); put16(usb_tx, 60, sin.bandgap);
         usb_tx[62] = (uint8_t)(rail_duty >> 2);
-    } else {
-        put16(usb_tx, 56, adc_get(ADC_RAIL)); put16(usb_tx, 58, adc_get(ADC_VIN)); put16(usb_tx, 60, adc_get(ADC_BANDGAP));
     }
+    put16(usb_tx, 56, adc_raw(ADC_RAIL)); put16(usb_tx, 58, adc_raw(ADC_VIN)); put16(usb_tx, 60, adc_raw(ADC_BANDGAP));   /* counts */
     usb_tx[63] = tele_seq;
-    tele_limits(ph, ms);
+    if (screen == SCR_DEV) { tele_head(usb_tx2, 3, ms); dev_tele(usb_tx2); usb_tx2[63] = tele_seq; }
+    else tele_limits(ph, ms);
 }
 
 static void outputs_off(void)
@@ -147,7 +152,7 @@ static void stop_run(uint8_t why)
     note_event(EV_STOPPED, why);
     chg_abort();
     soft_stop();
-    outputs_off();
+    hal_global(0);
 }
 
 static void fatal(const char *title, const char *line2, uint8_t has_n, uint16_t n)
@@ -165,7 +170,7 @@ static uint8_t selftest(uint16_t *r1, uint16_t *r2)
     uint8_t ph, n;
     ctl_rail_reset(rail_duty);
     for (ph = 0; ph < 2; ph++) {
-        int16_t S = ph ? 3958 : 3458;
+        int16_t S = (int16_t)sup_target(ph ? VOLT_4_35 : VOLT_3_80);
         for (n = 0; n < 100; n++) {
             adc_scan();
             rail_duty = ctl_rail_step((int16_t)adc_get(ADC_RAIL), S);
@@ -181,7 +186,7 @@ void app_boot(void)
 {
     uint16_t r1 = 0, r2 = 0, vin;
     uint32_t t0;
-    uint8_t n, ev, sel;
+    uint8_t n;
 
     cfg_load();                                      /* flash reads are safe before anything is powered */
     th_set(settings.theme); apply_limits();
@@ -192,7 +197,7 @@ void app_boot(void)
     if (!strap) hal_profile(1);                      /* P5.3 set when the strap is low */
     rail_duty = 100; hal_rail(100);                  /* rail PWM starts at 100/400 */
     ctl_rail_reset(rail_duty);
-    buzz_alarm(1);                                   /* steady P0.7 level during start-up */
+    hal_fan(1);                                      /* the fan runs during start-up */
     hal_irq_on();
 
     adc_prime();
@@ -200,7 +205,7 @@ void app_boot(void)
     for (;;) {                                       /* wait for the rail */
         adc_scan();
         tele(PH_RAIL_WAIT);
-        if (adc_get(ADC_RAIL) >= RAIL_UP_COUNTS) break;
+        if (adc_get(ADC_RAIL) >= RAIL_UP) break;
         if (hal_ms() - t0 > RAIL_UP_TIMEOUT) { lcd_init(); fatal("NO RAIL", "RAIL DID NOT COME UP", 1, adc_get(ADC_RAIL)); }
         hal_delay_ms(2);
     }
@@ -224,7 +229,7 @@ void app_boot(void)
         ui_message("RAIL TEST FAIL", "RETRYING", 1, r1, 1, r2);
         hal_delay_ms(1000);
     }
-    buzz_alarm(0);
+    hal_fan(0);
 
     /* input voltage: 50 samples, then the input rules */
     for (n = 0; n < 50; n++) { adc_scan(); adc_scan_slow_now(); hal_delay_ms(3); }
@@ -246,27 +251,12 @@ void app_boot(void)
     hal_delay_ms(1000);
 
     sup_reset();
-    dc = 0;
-    if (strap) {
-        sup_set_input(vin);
-        if (vin < sup_lim_stop(sup_input_cells())) {  /* ambiguous input: ask the user */
-            sel = 0;
-            ui_choose(sel);
-            for (;;) {
-                tele(PH_CHOOSE);
-                hal_delay_ms(10);
-                ev = input_get();
-                if (ev == EV_B1 || ev == EV_B2) { sel ^= 1; buzz_play(PAT_KEY); ui_choose(sel); }
-                else if (ev == EV_OK) { dc = sel; buzz_play(PAT_KEY); break; }
-            }
-        }
-    }
 
     ui_main_init();
     adc_prime();
     bg_ref = adc_get(ADC_BANDGAP); lcd_cnt = 0;
     t_next = hal_ticks();
-    run = 0; stop_reason = 0; alarm_ui = 0; poweroff_req = 0; dbg_page = 0; menu_on = 0; menu_session = 0;
+    run = 0; stop_reason = 0; alarm_ui = 0; screen = 0;
     lim_reset();
     chg_init();
 }
@@ -284,42 +274,74 @@ static uint8_t start_run(void)
     return 1;
 }
 
+/* ---- screens: the menu, the diagnostics pages it leads to, developer mode ---- */
+static void show(uint8_t s)
+{
+    screen = s; text_row = 0;
+    if (s == SCR_DEV) ui_message("DEV MODE", "HOLD BOTH KEYS TO EXIT", 0, 0, 0, 0);
+    else ui_text_enter();
+}
+
+/* developer mode (dev.h): every output off first, the rail stays regulated where it is */
+static void dev_enter(uint8_t session)
+{
+    if (screen && screen != SCR_DEV) cfg_save();     /* the menu may have been open: its values are applied, keep them */
+    outputs_off();
+    dev_reset(sup_setpoint(settings.volt), rail_duty, strap ? 0 : DF_PROFILE, session);     /* the profile pin as at boot */
+    if (screen != SCR_DEV) show(SCR_DEV);
+}
+
+static void dev_leave(void)
+{
+    outputs_off();
+    hal_profile(!strap);
+    ctl_rail_reset(rail_duty);
+    chg_init(); lim_reset();
+    screen = 0;
+    ui_main_init();
+    buzz_play(PAT_KEY);
+}
+
 /* host commands (USB.md): executed here, in the main loop, with the same rules as the buttons */
 static void usb_service(void)
 {
-    uint8_t c[8], res = 0;
+    uint8_t c[USB_CMD], res = 0;
     if (!usb_cmd_get(c)) return;
     switch (c[0]) {
     case 1: if (run) stop_run(STOP_USER); break;                                       /* stop (always allowed) */
-    case 2: res = start_run() ? 0 : 1; break;                                          /* start */
+    case 2: res = screen != SCR_DEV && start_run() ? 0 : 1; break;                    /* start (not in developer mode) */
     case 3:                                                                            /* set current (units), not while running */
         if (run || c[1] < CUR_MIN || c[1] > CUR_MAX || (c[1] - CUR_MIN) % CUR_UNITS_PER_100MA) { res = 1; break; }
         settings.cur = c[1]; cfg_save();
         break;
     case 4:                                                                            /* set the target voltage, not while running */
-        if (run || c[1] > 3) { res = 1; break; }
+        if (run || c[1] >= NVOLTS) { res = 1; break; }
         settings.volt = c[1]; cfg_save();
         break;
     case 5: break;                                                                     /* ping */
     case 6: if (run) { res = 1; break; } hal_reboot_isp(); break;                      /* reboot into the USB ISP loader (not while charging) */
+    case 7:                                                                            /* developer mode, byte 1 = session (not while charging, */
+        if (run || (screen == SCR_DEV && dev_taken(c[1]))) { res = 1; break; }       /* nor while another host drives it) */
+        dev_enter(c[1]);
+        break;
+    case 8: if (screen != SCR_DEV || !dev_set(c)) res = 1; break;                     /* developer mode: the outputs (the owner only) */
+    case 9: if (screen == SCR_DEV) dev_leave(); break;                                 /* leave developer mode */
     default: res = 2; break;
     }
     cmd_seq = c[2]; cmd_res = res;
 }
 
-/* ---- menu session: the menu and the diagnostics screens it leads to ---- */
 static void menu_enter(void)
 {
-    menu_open(run, CUR_MAX);
-    menu_session = 1; menu_on = 1; dbg_page = 0; menu_next_row = 0;
-    ui_text_enter();
+    menu_open(run);
+    show(SCR_MENU);
 }
 
 /* close: the values were applied live, now they are saved (the page is written only when something changed) */
 static void menu_leave(void)
 {
     cfg_save();
-    menu_session = 0; menu_on = 0; dbg_page = 0;
+    screen = 0;
     ui_main_init();
 }
 
@@ -328,7 +350,7 @@ static void menu_key(uint8_t ev)
     static uint8_t XD a;
     a = menu_event(ev);
     if (a == MA_LOCKED) buzz_play(PAT_ERROR);
-    else if (a == MA_DIAG) { menu_on = 0; dbg_page = 1; dbg_next_row = 0; ui_text_enter(); buzz_play(PAT_KEY); }
+    else if (a == MA_DIAG) { show(1); buzz_play(PAT_KEY); }
     else if (a == MA_EXIT) { menu_leave(); buzz_play(PAT_KEY); }
     else if (a) buzz_play(PAT_KEY);
 }
@@ -336,13 +358,14 @@ static void menu_key(uint8_t ev)
 static void handle_buttons(void)
 {
     uint8_t ev;
-    input_style(menu_on || dbg_page ? IS_NAV : IS_MAIN);
+    input_style(screen ? IS_NAV : IS_MAIN);
     while ((ev = input_get()) != EV_NONE) {
-        if (menu_on) { menu_key(ev); continue; }
-        if (dbg_page) {                                  /* diagnostics: right = next page, left = previous, BACK = the menu */
-            if (ev == EV_B2) { dbg_page = (uint8_t)(dbg_page % DBG_PAGES + 1); dbg_next_row = 0; ui_text_enter(); }
-            else if (ev == EV_B1) { dbg_page = (uint8_t)(dbg_page == 1 ? DBG_PAGES : dbg_page - 1); dbg_next_row = 0; ui_text_enter(); }
-            else if (ev == EV_BACK) { dbg_page = 0; menu_on = 1; menu_next_row = 0; ui_text_enter(); buzz_play(PAT_KEY); }
+        if (screen == SCR_DEV) { if (ev == EV_BACK) dev_leave(); continue; }     /* the buttons are only watched (page 3) */
+        if (screen == SCR_MENU) { menu_key(ev); continue; }
+        if (screen) {                                    /* diagnostics: right = next page, left = previous, BACK = the menu */
+            if (ev == EV_B2) show((uint8_t)(screen % DBG_PAGES + 1));
+            else if (ev == EV_B1) show((uint8_t)(screen == 1 ? DBG_PAGES : screen - 1));
+            else if (ev == EV_BACK) { show(SCR_MENU); buzz_play(PAT_KEY); }
             continue;
         }
         switch (ev) {
@@ -360,7 +383,7 @@ static void handle_buttons(void)
         case EV_OK: menu_enter(); buzz_play(PAT_KEY); break;
         case EV_B2:
             if (!run) {                                  /* no voltage change while charging */
-                settings.volt = (uint8_t)((settings.volt + 1) & 3);
+                settings.volt = (uint8_t)((settings.volt + 1) % NVOLTS);
                 buzz_play(PAT_KEY);
                 save_later();
             }
@@ -381,47 +404,49 @@ void app_pass(void)
     handle_buttons();
     usb_service();
     if (save_at && (int32_t)(hal_ms() - save_at) >= 0) save_main();
-    if (menu_session) {                              /* menu values apply while they are edited; they are saved when the menu closes */
+    if (screen && screen != SCR_DEV) {               /* menu values apply while they are edited; they are saved when the menu closes */
         buzz_enable(settings.sound);
-        if (settings.theme != th_get()) { th_set(settings.theme); ui_text_enter(); menu_next_row = 0; }   /* repaint the menu in the new colours */
+        if (settings.theme != th_get()) { th_set(settings.theme); show(screen); }   /* repaint the menu in the new colours */
         apply_limits();
-        menu_context(run, CUR_MAX);
+        menu_context(run);
     }
-    rail_step();
+    if (screen != SCR_DEV) rail_step();              /* developer mode runs the rail itself */
 
     /* ---- supervision ---- */
-    sin.vin = adc_get(ADC_VIN); sin.rail = adc_get(ADC_RAIL); sin.bandgap = adc_get(ADC_BANDGAP); sin.adc0 = adc_get(0);
-    sin.setpoint = sup_setpoint(settings.volt); sin.strap = strap; sin.dc = dc;
+    sin.vin = adc_get(ADC_VIN); sin.rail = adc_get(ADC_RAIL); sin.rail_sat = adc_saturated(ADC_RAIL); sin.bandgap = adc_get(ADC_BANDGAP); sin.adc0 = adc_get(0);
+    sin.setpoint = screen == SCR_DEV ? dev_setpoint() : sup_setpoint(settings.volt);
     sup_pass(&sin, &sout);
 
     /* display self-healing: re-send the panel settings about once a second; after a sudden VCC dip (bandgap count jumps off its
        baseline) also repaint everything, since a glitch can scramble the panel's rotation, colours and picture */
     {
         int16_t d = (int16_t)sin.bandgap - (int16_t)bg_ref;
-        bg_ref = (uint16_t)((int16_t)bg_ref + d / 32);
+        bg_ref = (uint16_t)((int16_t)bg_ref + (d >> 5));
         if (d > BG_GLITCH || d < -BG_GLITCH) {
             bg_ref = sin.bandgap;
-            lcd_reconfig();
-            if (menu_session) ui_text_enter(); else ui_main_init();
-        } else if (++lcd_cnt >= LCD_RECONFIG_PASSES) {
+            lcd_wake(); hal_delay_ms(5); lcd_reconfig();
+            if (screen) show(screen); else ui_main_init();
+        } else if (++lcd_cnt == LCD_RECONFIG_PASSES - 2) {
+            lcd_wake();                              /* the settings follow two passes (9 ms) later: no busy wait */
+        } else if (lcd_cnt >= LCD_RECONFIG_PASSES) {
             lcd_cnt = 0;
             lcd_reconfig();
         }
     }
 
-    alarm_ui = UA_NONE;
-    if (sout.stop == STOP_RAIL) alarm_ui = UA_RAIL;
-    else if (sout.stop == STOP_VIN) alarm_ui = UA_VIN;
-    else if (sout.stop == STOP_VCC) alarm_ui = UA_VCC;
-    else if (!run && stop_reason == STOP_VLIM) alarm_ui = UA_VLIM;
+    alarm_ui = sout.stop ? sout.stop : !run && stop_reason == STOP_VLIM ? STOP_VLIM : STOP_NONE;
     if (run && sout.stop != STOP_NONE && sout.stop != STOP_RAIL) stop_run(sout.stop);
     /* a rail held over-voltage means the regulation failed: nothing may be driven again until the power is cycled */
-    if (sout.rail_cut) fatal("RAIL OVERVOLTAGE", "POWER CYCLE TO RESTART", 1, sin.rail);
+    if (sout.rail_cut) fatal("RAIL OVERVOLTAGE", "ADC FULL, POWER CYCLE", 1, adc_raw(ADC_RAIL));
     /* the rail out of band for long is a pause, not a stop: nothing is driven, charging resumes by itself with a fresh soft ramp */
     rail_hold = (uint8_t)(run && sout.stop == STOP_RAIL);
-    if (sout.poweroff) { ui_message("LOW VOLTAGE", "POWERING OFF", 0, 0, 0, 0); hal_delay_ms(1000); hal_power_down(); }
-    buzz_alarm(sout.fan);
-    if (sout.rail_alarm && !buzz_busy()) buzz_play(PAT_RAIL_ALARM);
+    if (screen == SCR_DEV) {                         /* developer mode: the host drives the outputs, the guards in dev.c */
+        rail_duty = dev_pass(sout.stop == STOP_VIN || sout.stop == STOP_VCC, sout.fan);
+        tele(PH_RUN);
+        return;
+    }
+    hal_fan(sout.fan);
+    if (sout.stop == STOP_RAIL && !buzz_busy()) buzz_play(PAT_RAIL_ALARM);
 
     /* ---- user limits (limits.h): per-port current caps, or a stop when a STOP-mode limit is exceeded ---- */
     if (run && !rail_hold) {
@@ -438,7 +463,7 @@ void app_pass(void)
     for (k = 0; k < NPORTS; k++) cin.cap[k] = lim_out.cap[k];
 
     /* ---- charge control ---- */
-    for (k = 0; k < NPORTS; k++) { cin.adc_v[k] = adc_raw(port_v_ch(k)); cin.adc_i[k] = adc_raw(port_i_ch(k)); }
+    for (k = 0; k < NPORTS; k++) { cin.v_now[k] = adc_now(port_v_ch(k)); cin.i_now[k] = adc_now(port_i_ch(k)); }
     cin.rail = adc_get(ADC_RAIL);
     cin.tgt = sup_target(settings.volt); cin.setpoint = sup_setpoint(settings.volt); cin.volt = settings.volt; cin.run = run;
     for (k = 0; k < NPORTS; k++) { cin.iset[k] = ch_iset(k); cin.en[k] = !(settings.ch_off & (1u << k)); }
@@ -461,7 +486,7 @@ void app_pass(void)
     ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui;
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
     for (k = 0; k < NPORTS; k++) { ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.state[k] == PS_CHARGE && !cout.set[k]); }
-    if (dbg_page) {
+    if (screen && screen != SCR_MENU) {
         uint8_t n;
         dbg_view.ms = hal_ms();
         for (n = 0; n < NADC; n++) dbg_view.adc[n] = adc_raw(n);
@@ -472,18 +497,17 @@ void app_pass(void)
         dbg_view.rail = cin.rail; dbg_view.rail_duty = (uint16_t)rail_duty; dbg_view.vin = sin.vin; dbg_view.bandgap = sin.bandgap;
         dbg_view.tgt = cin.tgt; dbg_view.setpoint = cin.setpoint; dbg_view.volt = settings.volt; dbg_view.iset = settings.cur;
         dbg_view.run = run; dbg_view.stop = stop_reason; dbg_view.alarm = alarm_ui;
-        dbg_view.strap = strap; dbg_view.dc = dc; dbg_view.rail_hold = rail_hold; dbg_view.fan = buzz_alarm_level(); dbg_view.usb = usb_configured();
+        dbg_view.strap = strap; dbg_view.rail_hold = rail_hold; dbg_view.fan = sout.fan; dbg_view.usb = usb_configured();
         dbg_view.ilim = lim_cfg.ilim; dbg_view.vmin = lim_cfg.vmin; dbg_view.vcut = lim_cfg.vcut; dbg_view.lmode = lim_cfg.mode;
         dbg_view.est_ma = lim_out.est_ma; dbg_view.budget = lim_out.budget;
-        dbg_view.trip = (uint8_t)(stop_reason == STOP_VLIM);
         for (n = 0; n < NPORTS; n++) dbg_view.cap[n] = cin.cap[n];
-        ui_text_row(dbg_next_row, dbg_text(dbg_page, dbg_next_row), dbg_next_row == 0 ? th(R_INFO) : th(R_TEXT));       /* one row per pass */
-        if (++dbg_next_row == DBG_ROWS) dbg_next_row = 0;
-    } else if (menu_on) {
+        ui_text_row(text_row, dbg_text(screen, text_row), text_row == 0 ? th(R_INFO) : th(R_TEXT));       /* one row per pass */
+        if (++text_row == DBG_ROWS) text_row = 0;
+    } else if (screen) {
         static const char * XD t;
-        t = menu_text(menu_next_row);
-        ui_text_row(menu_next_row, t, t[0] == '>' ? th(R_GOOD) : t[0] == '*' ? th(R_WARN) : menu_next_row == 0 ? th(R_INFO) : menu_next_row == MENU_ROWS - 1 ? th(R_DIM) : th(R_TEXT));
-        if (++menu_next_row == MENU_ROWS) menu_next_row = 0;
+        t = menu_text(text_row);
+        ui_text_row(text_row, t, t[0] == '>' ? th(R_GOOD) : t[0] == '*' ? th(R_WARN) : text_row == 0 ? th(R_INFO) : text_row == MENU_ROWS - 1 ? th(R_DIM) : th(R_TEXT));
+        if (++text_row == MENU_ROWS) text_row = 0;
     } else {
         ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
     }

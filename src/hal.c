@@ -27,7 +27,7 @@ __sbit __at (0xC7) POWER_EN; /* P4.7 */
 __sbit __at (0xCB) PROFILE;  /* P5.3 */
 __sfr __at (0x87) PCON;
 __sbit __at (0xC6) TONE;     /* P4.6 */
-__sbit __at (0x87) ALARM;    /* P0.7 */
+__sbit __at (0x87) FAN;      /* P0.7 */
 __sbit __at (0xB2) BTN1;     /* P3.2 */
 __sbit __at (0xB6) BTN2;     /* P3.6 */
 __sbit __at (0xB4) STRAP;    /* P3.4 */
@@ -40,7 +40,7 @@ static volatile uint32_t __xdata g_ticks;       /* 0.5 ms ticks since boot */
 
 /* STARTUP RULE: no initialised XRAM variables anywhere.  SDCC's startup copies them with `movx @r0` and uses P2 as
  * the high address byte, finishing with P2 = 0xFF - which would drive every PWM pin and two port enables high.
- * A boot test that watches the enables catches any violation.
+ * The build fails on any violation (Makefile: the map must show an empty XINIT).
  *
  * Runs before the C runtime: drive every power-path pin low while they are still quasi-bidirectional
  * (a strong 0 even before the port mode registers are written).  */
@@ -148,15 +148,6 @@ void hal_global(uint8_t on) { GLOBAL_EN = on; }
 void hal_power(uint8_t on)  { POWER_EN = on; }
 void hal_profile(uint8_t on){ PROFILE = on; }
 
-void hal_power_down(void)
-{
-    hal_all_off();
-    POWER_EN = 0; PROFILE = 0; ALARM = 0; TONE = 0;
-    IE = 0;
-    PCON |= 0x02;                      /* STOP mode: only a reset (power cycle) wakes it */
-    for (;;);
-}
-
 void hal_all_off(void)
 {
     uint8_t i;
@@ -226,6 +217,6 @@ void hal_ee_erase(uint16_t addr) { iap(3, addr, 0); iap_idle(); }
 void hal_ee_write(uint16_t addr, uint8_t v) { iap(2, addr, v); iap_idle(); }
 
 void hal_tone(uint8_t level)  { TONE = level; }
-void hal_alarm(uint8_t level) { ALARM = level; }
+void hal_fan(uint8_t on)      { FAN = on; }
 uint8_t hal_btn(uint8_t n)    { return n == 1 ? !BTN1 : !BTN2; }
 uint8_t hal_strap(void)       { return STRAP; }

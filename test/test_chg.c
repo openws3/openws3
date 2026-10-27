@@ -60,7 +60,7 @@ static void step(bench_t *b)
     int p;
     for (p = 0; p < NPORTS; p++) {
         double a = 0, v;
-        if (!b->present[p]) { b->in.adc_v[p] = 0; b->in.adc_i[p] = 0; if (b->ovr_v[p]) b->in.adc_v[p] = (uint16_t)b->ovr_v[p]; continue; }
+        if (!b->present[p]) { b->in.v_now[p] = 0; b->in.i_now[p] = 0; if (b->ovr_v[p]) b->in.v_now[p] = (uint16_t)b->ovr_v[p]; continue; }
         if (b->out.sw[p]) a = -0.15;                         /* bleed load */
         else {
             double want = b->k_amp_per_duty * b->out.duty[p];
@@ -70,12 +70,12 @@ static void step(bench_t *b)
         b->amps[p] = a;
         b->cell[p].q += a * 0.0045;
         v = ocv(&b->cell[p]) + a * b->cell[p].r;
-        b->in.adc_v[p] = (uint16_t)(v / VPC);
-        b->in.adc_i[p] = (uint16_t)(fabs(a) / IPC);
+        b->in.v_now[p] = (uint16_t)(v / VPC);
+        b->in.i_now[p] = (uint16_t)(fabs(a) / IPC);
     }
     for (p = 0; p < NPORTS; p++) {
-        if (b->ovr_v[p]) b->in.adc_v[p] = (uint16_t)b->ovr_v[p];
-        if (b->ovr_i[p]) b->in.adc_i[p] = (uint16_t)b->ovr_i[p];
+        if (b->ovr_v[p]) b->in.v_now[p] = (uint16_t)b->ovr_v[p];
+        if (b->ovr_i[p]) b->in.i_now[p] = (uint16_t)b->ovr_i[p];
     }
     chg_pass(&b->in, &b->out);
 }
@@ -194,7 +194,7 @@ static sup_in_t si(void)
 {
     sup_in_t s;
     memset(&s, 0, sizeof s);
-    s.vin = 3000; s.rail = 3836; s.setpoint = 3836; s.bandgap = 995; s.strap = 1; s.adc0 = 2000;
+    s.vin = 3000; s.rail = 3836; s.setpoint = 3836; s.bandgap = 995; s.adc0 = 2000;
     return s;
 }
 
@@ -203,43 +203,40 @@ static void t_sup(void)
     sup_in_t in; sup_out_t o; int k;
     CHECK(sup_target(0) == 3822 && sup_target(1) == 3958 && sup_target(2) == 3458 && sup_target(3) == 3504);
     CHECK(sup_setpoint(0) == 3836 && sup_setpoint(1) == 3972 && sup_setpoint(2) == 3803 && sup_setpoint(3) == 3940);
-    CHECK(sup_cells(3000) == 5 && sup_cells(100) == 2 && sup_cells(60000) == 6);
-    CHECK(sup_lim_stop(5) == 2427 && sup_lim_off(5) == 2123 && sup_lim_stop(2) == 971);
 
     sup_reset(); in = si(); sup_pass(&in, &o);
-    CHECK(o.stop == STOP_NONE && !o.poweroff && !o.rail_cut && !o.fan);
+    CHECK(o.stop == STOP_NONE && !o.rail_cut && !o.fan);
 
     in.vin = 699; sup_pass(&in, &o); CHECK(o.stop == STOP_VIN);                       /* input gone */
-    sup_reset(); sup_set_input(3000); in = si(); in.vin = 2000;                         /* booted on a 5S pack: stop below 2427 */
-    CHECK(sup_input_cells() == 5);
-    for (k = 0; k < 2; k++) sup_pass(&in, &o);
-    CHECK(o.stop == STOP_NONE);                                                         /* needs confirmation */
-    sup_pass(&in, &o); CHECK(o.stop == STOP_VIN);
-    sup_reset(); sup_set_input(3000); in = si(); in.dc = 1; in.vin = 2000; for (k = 0; k < 10; k++) sup_pass(&in, &o);
-    CHECK(o.stop == STOP_NONE);                                                         /* DC input: no cell-count limit */
-    sup_reset(); sup_set_input(1800); in = si(); in.vin = 1400; in.strap = 1;           /* booted on 3S (stop 1456, off 1365) */
-    for (k = 0; k < 10; k++) sup_pass(&in, &o);
-    CHECK(o.stop == STOP_VIN && o.poweroff == 0);                                       /* below the stop limit, above power-down */
-    in.vin = 1300; for (k = 0; k < 10; k++) sup_pass(&in, &o);
-    CHECK(o.poweroff == 1);                                                             /* below the power-down limit */
+    in.vin = 700; sup_pass(&in, &o); CHECK(o.stop == STOP_NONE);                      /* back above the gate */
 
     sup_reset(); in = si(); in.bandgap = 1230; sup_pass(&in, &o); CHECK(o.stop == STOP_VCC);
 
     /* rail: out of band for 250 passes -> alarm + stop; recovers inside +-30 */
     sup_reset(); in = si(); in.rail = 3700;
     for (k = 0; k < 249; k++) sup_pass(&in, &o);
-    CHECK(o.stop == STOP_NONE && !o.rail_alarm);
-    sup_pass(&in, &o); CHECK(o.rail_alarm && o.stop == STOP_RAIL);
-    in.rail = 3836 + 20; sup_pass(&in, &o); CHECK(!o.rail_alarm && o.stop == STOP_NONE);
-    /* rail over-voltage: cut after 50 passes */
-    sup_reset(); in = si(); in.rail = 4100;
+    CHECK(o.stop == STOP_NONE);
+    sup_pass(&in, &o); CHECK(o.stop == STOP_RAIL);
+    in.rail = 3836 + 20; sup_pass(&in, &o); CHECK(o.stop == STOP_NONE);
+    /* rail over-voltage (the ADC at full scale): cut after 50 passes; a high reading below full scale is not one */
+    sup_reset(); in = si(); in.rail = 4080; for (k = 0; k < 200; k++) { sup_pass(&in, &o); CHECK(!o.rail_cut); }
+    sup_reset(); in = si(); in.rail = 4095; in.rail_sat = 1;
     for (k = 0; k < 49; k++) sup_pass(&in, &o);
     CHECK(!o.rail_cut); sup_pass(&in, &o); CHECK(o.rail_cut);
+    /* a long sag followed by an overshoot while recovering is not an over-voltage */
+    sup_reset(); in = si(); in.rail = 3500; for (k = 0; k < 300; k++) sup_pass(&in, &o);
+    in.rail = 4095; in.rail_sat = 1; for (k = 0; k < 20; k++) { sup_pass(&in, &o); CHECK(!o.rail_cut); }
+    in.rail = 3836; in.rail_sat = 0; for (k = 0; k < 20; k++) sup_pass(&in, &o);
+    in.rail = 4095; in.rail_sat = 1; for (k = 0; k < 30; k++) { sup_pass(&in, &o); CHECK(!o.rail_cut); }      /* the count decays in between */
+    /* but over-voltage most of the time is */
+    sup_reset(); in = si();
+    for (k = 0; k < 400 && !o.rail_cut; k++) { in.rail_sat = k % 4 != 0; in.rail = in.rail_sat ? 4095 : 3836; sup_pass(&in, &o); }
+    CHECK(o.rail_cut && k < 120);
     /* a short excursion is forgiven: the counter decays */
     sup_reset(); in = si(); in.rail = 3700; for (k = 0; k < 100; k++) sup_pass(&in, &o);
     in.rail = 3836; for (k = 0; k < 120; k++) sup_pass(&in, &o);
     in.rail = 3700; for (k = 0; k < 200; k++) sup_pass(&in, &o);
-    CHECK(!o.rail_alarm);
+    CHECK(o.stop != STOP_RAIL);
 
     /* fan: follows the thermistor, with hysteresis */
     sup_reset(); in = si(); in.adc0 = 1200; sup_pass(&in, &o); CHECK(o.fan);

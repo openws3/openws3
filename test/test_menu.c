@@ -20,7 +20,7 @@
 static void fresh(uint8_t run)
 {
     settings.volt = 0; settings.cur = 21; settings.sound = 1; settings.theme = TH_CLASSIC; settings.ilim = 0; settings.vmin = 0; settings.vcut = 0; settings.lmode = LM_EQUAL;
-    menu_open(run, CUR_MAX);
+    menu_open(run);
 }
 static void down(int n) { while (n--) menu_event(RIGHT_SHORT); }
 static void more(int n) { while (n--) menu_event(RIGHT_SHORT); }       /* while editing */
@@ -81,12 +81,12 @@ static void t_edit(void)
     CHECK(settings.volt == 0);                                                       /* values stop at the ends */
     cancel();
 
-    /* current: steps of 0.1 A within [0.3 A, the cap] */
-    fresh(0); menu_context(0, 35); go(C_CHARGE, 1);
+    /* current: steps of 0.1 A within [0.3 A, 1.3 A] */
+    fresh(0); go(C_CHARGE, 1);
     edit();
     less(1); CHECK(settings.cur == 21);
-    more(4);
-    CHECK(settings.cur == 35);                                                       /* 0.5 A cap */
+    more(2); CHECK(settings.cur == 35);
+    more(20); CHECK(settings.cur == CUR_MAX);
     confirm();
 }
 
@@ -134,7 +134,8 @@ static void t_limits(void)
     more(1); CHECK(settings.vmin == 130);
     less(2); CHECK(settings.vmin == 118);
     more(300);
-    CHECK(settings.vmin == VMIN_MAX && has(menu_text(2), "12.5V"));
+    CHECK(settings.vmin == VMIN_MAX && has(menu_text(2), "25.0V"));
+    less(1); CHECK(settings.vmin == VMIN_MAX - 1 && has(menu_text(2), "24.5V"));
     cancel();
     down(1); edit();                                                               /* BELOW MIN: limit smoothly or stop the run */
     CHECK(settings.vcut == 0 && has(menu_text(3), "LIMIT"));

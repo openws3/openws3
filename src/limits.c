@@ -1,120 +1,81 @@
 #include "limits.h"
 #include "cal.h"
 
-#define LIM_PERIOD     22       /* the caps are recomputed every 22 passes (~100 ms) */
+#define LIM_PERIOD     22       /* the budget is worked out every 22 passes (~100 ms) */
 #define TRIP_UPDATES   10       /* cut mode: below the floor for this many updates (~1 s) before the run is stopped */
 #define VIN_HYST_MV    100      /* the voltage budget grows again above the floor plus this: small enough for a 5 V supply that is
                                    only a little above a 4.9 V floor when unloaded */
 #define EFF_PCT        90       /* assumed converter efficiency */
 #define P_MARGIN       10       /* 1 W: where the voltage budget starts shrinking from, above what is really drawn */
-#define RESERVE_MARGIN 3        /* a port drawing less than it wants (taper, ramp) is assumed to need what it draws plus this */
-#define UNPARK_MIN     14       /* a parked port restarts only with this much available: no flicker at LIM_CAP_MIN */
+#define DRAWS          2        /* iu: a port drawing more than this can be brought down (the sense offset reads about this) */
 
 lim_cfg_t XD lim_cfg;
 lim_in_t  XD lim_in;
 lim_out_t XD lim_out;
 
 /* All working data is static in external RAM: direct RAM is full on this chip, and locals / parameters live there. */
-static uint16_t XD P_v;                              /* the voltage floor's power budget: the one stored number besides the caps */
+static uint16_t XD P_v;                              /* the voltage floor's power budget: the one stored number */
 static uint8_t  XD tick, n_v;
+
+static void gate_free(void) { lim_out.on = 0; lim_out.rise = 0xFF; lim_out.cut = NPORTS; lim_out.excess = 0; }
 
 void lim_reset(void)
 {
-    uint8_t k;
-    P_v = LIM_P_BIG; tick = 0; n_v = 0;
-    for (k = 0; k < NPORTS; k++) lim_out.cap[k] = 0;
+    P_v = LIM_P_BIG; tick = LIM_PERIOD - 1; n_v = 0;                /* the budget is worked out on the first pass */
+    gate_free();
     lim_out.p_cur = lim_out.p_vol = lim_out.budget = LIM_P_BIG; lim_out.bcnt = 0; lim_out.est_ma = 0; lim_out.trip = LT_NONE;
 }
 
-/* Share a budget B (counts: the most the charging ports may draw together) over the charging ports.  The caps are written to
- * lim_out.cap; their previous values give the park hysteresis.
- *   ordered modes  in priority order: a port that fits keeps its current, the first that does not gets what is left, the rest
- *                  are parked.  Higher-priority ports reserve what they really draw, not what they want.
- *   equal          every port gets the same share; a port that wants less than the share frees the rest for the others.  When the
- *                  share is too small to drive, the highest-numbered ports are parked, as few as it takes for the rest to get a usable one. */
-static uint16_t XD s_B, s_rem, s_share, s_W;
-static uint8_t  XD s_order[NPORTS], s_was[NPORTS], s_open[NPORTS];
-static uint8_t  XD s_n, s_k, s_a, s_b, s_t, s_w, s_r, s_changed, s_nopen, s_m, s_fit;
+/* The gate (limits.h), every pass, on the measured port currents against the budget lim_out.bcnt. */
+static uint8_t XD g_ord[NPORTS], g_k, g_a, g_b, g_t, g_deny, g_slack;
+static int16_t XD g_room;
+static uint16_t XD g_sum;
 
-static uint8_t give(uint16_t c, uint8_t was_parked)
+/* port a goes before port b */
+static uint8_t first(uint8_t a, uint8_t b)
 {
-    return c >= (was_parked ? UNPARK_MIN : LIM_CAP_MIN) ? (uint8_t)c : LIM_PARK;
+    if (lim_cfg.mode == LM_BY_VHIGH && lim_in.v[a] != lim_in.v[b]) return lim_in.v[a] > lim_in.v[b];
+    if (lim_cfg.mode == LM_EQUAL && lim_in.i[a] != lim_in.i[b]) return lim_in.i[a] < lim_in.i[b];
+    return a < b;
 }
 
-static void share(void)
+static void gate(void)
 {
-    s_n = 0; s_W = 0;
-    for (s_k = 0; s_k < NPORTS; s_k++) {
-        s_was[s_k] = lim_out.cap[s_k] == LIM_PARK;
-        if (lim_in.charging[s_k]) { s_order[s_n++] = s_k; s_W += lim_in.want[s_k]; }
-        else lim_out.cap[s_k] = 0;
+    g_sum = 0;
+    for (g_a = 0; g_a < NPORTS; g_a++) {                 /* the priority order (insertion sort, six ports) */
+        g_t = g_a;
+        for (g_b = g_a; g_b > 0 && first(g_t, g_ord[g_b - 1]); g_b--) g_ord[g_b] = g_ord[g_b - 1];
+        g_ord[g_b] = g_t;
+        if (lim_in.charging[g_a]) g_sum += lim_in.i[g_a];
     }
-    if (s_B >= s_W) {                                    /* everything fits: no caps */
-        for (s_a = 0; s_a < s_n; s_a++) lim_out.cap[s_order[s_a]] = 0;
-        return;
+    lim_out.on = 1; lim_out.rise = 0; lim_out.cut = NPORTS; lim_out.excess = 0;
+    g_room = (int16_t)lim_out.bcnt - (int16_t)g_sum;
+    g_deny = g_slack = NPORTS;
+    for (g_a = 0; g_a < NPORTS; g_a++) {
+        g_k = g_ord[g_a];
+        if (!lim_in.charging[g_k]) continue;
+        if (lim_in.up[g_k]) {
+            if (g_room >= LIM_ROOM) { lim_out.rise |= (uint8_t)(1u << g_k); g_room -= LIM_ROOM; }
+            else if (g_deny == NPORTS) g_deny = g_k;      /* the first port that wants more and gets no room */
+        }
+        if (lim_in.i[g_k] > DRAWS) g_slack = g_k;          /* the last port that draws something */
     }
-
-    if (lim_cfg.mode == LM_EQUAL) {
-        for (s_m = s_n; s_m; s_m--) {                    /* serve the first s_m ports (the order is by port number) */
-            s_rem = s_B; s_nopen = s_m;
-            for (s_a = 0; s_a < s_m; s_a++) s_open[s_order[s_a]] = 1;
-            do {                                         /* settle the ports that want less than the share */
-                s_changed = 0; s_share = s_rem / s_nopen;
-                for (s_a = 0; s_a < s_m; s_a++) {
-                    s_k = s_order[s_a];
-                    if (s_open[s_k] && lim_in.want[s_k] <= s_share) {
-                        s_open[s_k] = 0; lim_out.cap[s_k] = 0; s_rem -= lim_in.want[s_k]; s_nopen--; s_changed = 1;
-                    }
-                }
-            } while (s_changed && s_nopen);
-            s_share = s_nopen ? s_rem / s_nopen : 0;
-            s_fit = 1;                                   /* every capped port must get a share it can be driven with */
-            for (s_a = 0; s_a < s_m; s_a++) {
-                s_k = s_order[s_a];
-                if (s_open[s_k] && give(s_share, s_was[s_k]) == LIM_PARK) s_fit = 0;
-            }
-            if (s_fit) break;
-        }
-        for (s_a = 0; s_a < s_n; s_a++) {
-            s_k = s_order[s_a];
-            if (s_a >= s_m) lim_out.cap[s_k] = LIM_PARK;
-            else if (s_open[s_k]) lim_out.cap[s_k] = give(s_share, s_was[s_k]);
-        }
-        return;
-    }
-
-    if (lim_cfg.mode == LM_BY_VHIGH) {                   /* highest voltage first (stable insertion sort, at most six).  Stable by
-                                                            itself: a charging cell reads higher and keeps its place */
-        for (s_a = 1; s_a < s_n; s_a++) {
-            s_t = s_order[s_a];
-            for (s_b = s_a; s_b > 0 && lim_in.v[s_t] > lim_in.v[s_order[s_b - 1]]; s_b--) s_order[s_b] = s_order[s_b - 1];
-            s_order[s_b] = s_t;
-        }
-    }
-    s_rem = s_B;
-    for (s_a = 0; s_a < s_n; s_a++) {
-        s_k = s_order[s_a]; s_w = lim_in.want[s_k];
-        s_r = lim_in.i[s_k] + RESERVE_MARGIN < s_w ? (uint8_t)(lim_in.i[s_k] + RESERVE_MARGIN) : s_w;   /* what it really needs */
-        if (s_rem >= s_w) lim_out.cap[s_k] = 0;                                                         /* fits: no cap */
-        else {
-            lim_out.cap[s_k] = give(s_rem, s_was[s_k]);
-            if (lim_out.cap[s_k] == LIM_PARK) s_r = 0;
-            else if (s_r > lim_out.cap[s_k]) s_r = lim_out.cap[s_k];
-        }
-        s_rem = s_rem > s_r ? (uint16_t)(s_rem - s_r) : 0;
+    if (g_slack == NPORTS) return;
+    if (g_sum > lim_out.bcnt) {                          /* over the budget: the last port comes down */
+        lim_out.cut = g_slack;
+        lim_out.excess = g_sum - lim_out.bcnt > 255 ? 255 : (uint8_t)(g_sum - lim_out.bcnt);
+    } else if (g_deny != NPORTS && g_deny != g_slack && first(g_deny, g_slack)
+               && (lim_cfg.mode != LM_EQUAL || lim_in.i[g_slack] > lim_in.i[g_deny] + LIM_ROOM)) {
+        lim_out.cut = g_slack; lim_out.excess = LIM_ROOM;  /* a port further up wants more: the last one makes room */
     }
 }
 
-static uint8_t  XD p_k;
+static uint8_t  XD p_k, p_s;
 static uint16_t XD p_P;
 static uint32_t XD p_sum_ma, p_est, p_vin_mv, p_rail_mv, p_pin, p_t;
 
-void lim_pass(void)
+static void budget(void)
 {
-    lim_out.trip = LT_NONE;
-    if (++tick < LIM_PERIOD) return;
-    tick = 0;
-
     p_sum_ma = 0; p_est = 0; p_vin_mv = cal_vin_mv(lim_in.vin); p_rail_mv = cal_port_mv(lim_in.rail);
     for (p_k = 0; p_k < NPORTS; p_k++) if (lim_in.charging[p_k]) p_sum_ma += cal_port_ma(lim_in.i[p_k]);
     if (p_vin_mv) p_est = p_rail_mv * p_sum_ma * 100u / ((uint32_t)EFF_PCT * p_vin_mv);       /* input current, mA */
@@ -129,64 +90,61 @@ void lim_pass(void)
         lim_out.p_cur = (uint16_t)p_t;
     }
 
-    if (lim_cfg.vmin) {
-        p_pin = p_est * p_vin_mv / 100000u;                                            /* what is drawn now, 0.1 W */
-        if (p_vin_mv < (uint32_t)lim_cfg.vmin * 50u) {
-            if (n_v < 255) n_v++;
-            if (!lim_cfg.vcut) {                         /* smooth: the budget shrinks while the input is below the floor */
-                if (P_v > p_pin + P_MARGIN) P_v = (uint16_t)(p_pin + P_MARGIN);        /* start from what is really drawn */
-                s_w = (uint8_t)(P_v / 16 > 255 ? 255 : P_v / 16); if (s_w < 2) s_w = 2;
-                P_v = P_v > s_w ? (uint16_t)(P_v - s_w) : 0;
-            }
-        } else {
-            n_v = 0;                                     /* ... and grows back slowly above floor + margin */
-            if (p_vin_mv > (uint32_t)lim_cfg.vmin * 50u + VIN_HYST_MV && P_v < LIM_P_BIG) P_v = (uint16_t)(P_v + 4);
+    if (!lim_cfg.vmin) { P_v = LIM_P_BIG; n_v = 0; }
+    else if (lim_cfg.vcut) {                             /* cut: the run stops after a second below the floor */
+        if (p_vin_mv >= VMIN_MV(lim_cfg.vmin)) n_v = 0;
+        else if (++n_v >= TRIP_UPDATES) { n_v = TRIP_UPDATES; lim_out.trip = LT_VOLTAGE; }
+    } else {                                             /* smooth: the budget shrinks while the input is below the floor ... */
+        if (p_vin_mv < VMIN_MV(lim_cfg.vmin)) {
+            p_pin = p_est * p_vin_mv / 100000u;                                        /* what is drawn now, 0.1 W */
+            if (P_v > p_pin + P_MARGIN) P_v = (uint16_t)(p_pin + P_MARGIN);            /* start from what is really drawn */
+            p_s = (uint8_t)(P_v / 16 > 255 ? 255 : P_v / 16); if (p_s < 2) p_s = 2;
+            P_v = P_v > p_s ? (uint16_t)(P_v - p_s) : 0;
+        } else if (p_vin_mv > VMIN_MV(lim_cfg.vmin) + VIN_HYST_MV && P_v < LIM_P_BIG) {
+            P_v = (uint16_t)(P_v + 4);                   /* ... and grows back slowly above floor + margin */
         }
-        if (!lim_cfg.vcut) lim_out.p_vol = P_v;
-        if (!lim_cfg.vcut && P_v < p_P) p_P = P_v;
-        if (lim_cfg.vcut && n_v >= TRIP_UPDATES) lim_out.trip = LT_VOLTAGE;         /* cut: below the floor for a second */
-    } else { P_v = LIM_P_BIG; n_v = 0; }
+        lim_out.p_vol = P_v;
+        if (P_v < p_P) p_P = P_v;
+    }
 
     lim_out.budget = p_P;
-    if (p_P >= LIM_P_BIG || !p_rail_mv) {                /* no limit active */
-        lim_out.bcnt = 0;
-        for (p_k = 0; p_k < NPORTS; p_k++) lim_out.cap[p_k] = 0;
-        return;
-    }
-    /* power budget -> port current budget: P x 90 % / rail voltage, in current counts (14.65 mA each) */
+    if (p_P >= LIM_P_BIG || !p_rail_mv) { lim_out.bcnt = 0; return; }     /* no limit active */
+    /* power budget -> port current budget: P x 90 % / rail voltage, in iu (14.65 mA) */
     p_t = (uint32_t)p_P * (EFF_PCT * 1000UL) / p_rail_mv;                              /* mA */
-    p_t = p_t * 273u / 4000u;
-    s_B = p_t > 1000u ? 1000u : (uint16_t)p_t;
-    lim_out.bcnt = s_B;
-    share();
+    p_t = cal_ma_to_port(p_t > 60000u ? 60000u : (uint16_t)p_t);
+    lim_out.bcnt = p_t > 1000u ? 1000u : p_t ? (uint16_t)p_t : 1;            /* at least 1: 0 means no limit */
 }
 
-/* 0 (off), then min .. knee in steps of 1, then steps of 5 up to max (clamped, no wrap) */
-uint8_t lim_step(uint8_t v, uint8_t up, uint8_t min, uint8_t knee, uint8_t max)
+void lim_pass(void)
 {
-    if (up) {
-        if (v == 0) return min;
-        if (v < knee) return (uint8_t)(v + 1);
-        return (uint8_t)(v + 5 > max ? max : v + 5);
-    }
-    if (v <= min) return 0;
-    if (v <= knee) return (uint8_t)(v - 1);
-    return (uint8_t)(v - 5 < knee ? knee : v - 5);
+    lim_out.trip = LT_NONE;
+    if (++tick >= LIM_PERIOD) { tick = 0; budget(); }
+    if (lim_out.bcnt) gate(); else gate_free();
 }
 
-uint8_t vmin_step(uint8_t v, uint8_t up)
+/* a step ladder: { value from which this step applies, step } ..., closed by { max, 0 } */
+typedef struct { uint8_t from, step; } rung_t;
+static const CODE rung_t ILIM_STEPS[] = { { ILIM_MIN, 1 }, { 30, 5 }, { ILIM_MAX, 0 } };
+static const CODE rung_t VMIN_STEPS[] = { { VMIN_MIN, 1 }, { 100, 2 }, { 120, 10 }, { VMIN_KNEE, 1 }, { VMIN_MAX, 0 } };   /* all 0.5 V from 6 V */
+
+static uint8_t ladder(uint8_t v, uint8_t up, const CODE rung_t *l)
 {
+    uint8_t k = 0, top = 0;
+    uint16_t n;
+    while (l[top].step) top++;                           /* l[top] closes the ladder: its value is the maximum */
     if (up) {
-        if (v == 0) return VMIN_MIN;
-        if (v < VMIN_FINE) return (uint8_t)(v + 1);
-        if (v < VMIN_COARSE) return (uint8_t)(v + 2);
-        return (uint8_t)(v + 10 > VMIN_MAX ? VMIN_MAX : v + 10);
+        if (!v) return l[0].from;
+        while (k + 1 < top && v >= l[k + 1].from) k++;
+        n = (uint16_t)v + l[k].step;
+        return (uint8_t)(n > l[top].from ? l[top].from : n);
     }
-    if (v <= VMIN_MIN) return 0;
-    if (v <= VMIN_FINE) return (uint8_t)(v - 1);
-    if (v <= VMIN_COARSE) return (uint8_t)(v - 2);
-    return (uint8_t)(v - 10 < VMIN_COARSE ? VMIN_COARSE : v - 10);
+    if (v <= l[0].from) return 0;
+    while (k + 1 < top && v > l[k + 1].from) k++;
+    return (uint8_t)(v - l[k].step < l[k].from ? l[k].from : v - l[k].step);
 }
+
+uint8_t ilim_step(uint8_t v, uint8_t up) { return ladder(v, up, ILIM_STEPS); }
+uint8_t vmin_step(uint8_t v, uint8_t up) { return ladder(v, up, VMIN_STEPS); }
 
 const char *lim_mode_name(uint8_t m)
 {

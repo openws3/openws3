@@ -13,7 +13,6 @@ void timer0_isr(void) __interrupt(1)
     hal_tick();
     input_tick(hal_btn(1), hal_btn(2));
     hal_tone(buzz_tick());
-    hal_alarm(buzz_alarm_level());
 }
 
 /* USB device (interrupt 25).  Moves bytes between the SIE and two buffers only; see usb.h. */

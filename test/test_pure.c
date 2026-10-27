@@ -24,9 +24,8 @@ static void t_cal(void)
     NEAR(cal_port_mv(3532), 3880, 2);        /* raw 3532 -> 3.88 V */
     CHECK(cal_port_mv(0) == 0);
     NEAR(cal_port_mv(4095), 4499, 2);
-    NEAR(cal_mv_to_port(4200), 3822, 1);
-    NEAR(cal_mv_to_port(1000), 910, 1);      /* the dead-cell cutoff 910 is 1.00 V */
-    NEAR(cal_mv_to_port(cal_port_mv(2000)), 2000, 1);
+    NEAR(cal_ma_to_port(cal_port_ma(70)), 70, 1);
+    CHECK(cal_ma_to_port(1000) == 68);       /* 1 A = 68.25 counts, rounded down */
     NEAR(cal_port_ma(21), 308, 1);           /* iset 21 counts = 0.308 A */
     NEAR(cal_port_ma(91), 1333, 2);
     CHECK(cal_port_ma(0) == 0);
@@ -215,7 +214,7 @@ static void t_cfg(void)
 {
     CHECK(cfg_valid_current(0xFF) == 21);          /* erased flash */
     CHECK(cfg_valid_ilim(0xFF) == 0 && cfg_valid_ilim(4) == 0 && cfg_valid_ilim(5) == 5 && cfg_valid_ilim(100) == 100 && cfg_valid_ilim(101) == 0);
-    CHECK(cfg_valid_vmin(0xFF) == 0 && cfg_valid_vmin(95) == 0 && cfg_valid_vmin(96) == 96 && cfg_valid_vmin(250) == 250 && cfg_valid_vmin(251) == 0);
+    CHECK(cfg_valid_vmin(0xFF) == 0 && cfg_valid_vmin(95) == 0 && cfg_valid_vmin(96) == 96 && cfg_valid_vmin(230) == 230 && cfg_valid_vmin(231) == 0);
     CHECK(cfg_valid_lmode(0xFF) == 0 && cfg_valid_lmode(2) == 2 && cfg_valid_lmode(3) == 0);   /* unknown -> equal sharing */
     CHECK(cfg_valid_ch_cur(0xFF) == 0 && cfg_valid_ch_cur(0) == 0 && cfg_valid_ch_cur(20) == 0 && cfg_valid_ch_cur(21) == 21 && cfg_valid_ch_cur(91) == 91 && cfg_valid_ch_cur(92) == 0);
     CHECK(cfg_valid_ch_off(0xFF) == 0 && cfg_valid_ch_off(0x40) == 0 && cfg_valid_ch_off(0) == 0 && cfg_valid_ch_off(5) == 5 && cfg_valid_ch_off(0x3F) == 0x3F);   /* erased flash: no port sits out */
@@ -260,13 +259,12 @@ static void t_buzz(void)
     buzz_play(PAT_DONE);
     buzz_run(2000, &hi, &ed, &on);
     CHECK(hi == 0 && ed == 0);
-    buzz_alarm(1); CHECK(buzz_alarm_level() == 1);   /* the steady alarm level is independent of the mute */
 
     buzz_reset();
     buzz_play(PAT_RAIL_ALARM);                 /* repeats until stopped */
     buzz_run(10000, &hi, &ed, &on);
     CHECK(buzz_busy());
-    buzz_stop();
+    buzz_play(PAT_NONE);
     CHECK(!buzz_busy() && buzz_tick() == 0);
 
     buzz_reset();
@@ -281,24 +279,26 @@ static void t_dbg(void)
     uint8_t k;
     memset(&dbg_view, 0, sizeof dbg_view);
     dbg_view.bandgap = 1073; dbg_view.vin = 768; dbg_view.rail = 3971; dbg_view.rail_duty = 187; dbg_view.adc[0] = 2345;
+    dbg_view.adc[ADC_VIN] = 766; dbg_view.adc[ADC_RAIL] = 3975; dbg_view.adc[4] = 3970; dbg_view.adc[9] = 22;     /* raw counts: P4 is ADC4 / ADC9 */
     dbg_view.v[3] = 3966; dbg_view.i[3] = 21; dbg_view.duty[3] = 345; dbg_view.state[3] = 2;
     dbg_view.volt = 1; dbg_view.iset = 21; dbg_view.tgt = 3958; dbg_view.setpoint = 3972;
     dbg_view.ms = 123456; dbg_view.fan = 1;
     CHECK(dbg_vcc_mv(1073) == 4543); CHECK(dbg_vcc_mv(976) == 4994); CHECK(dbg_vcc_mv(1219) == 3999); CHECK(dbg_vcc_mv(0) == 0);
     CHECK(!strncmp(dbg_text(1, 1), "BANDGAP 1073 counts", 19));
     CHECK(!strncmp(dbg_text(1, 2), "VCC 4.543V", 10));
-    CHECK(!strncmp(dbg_text(1, 3), "VIN  768  5.042V", 16));
+    CHECK(!strncmp(dbg_text(1, 3), "VIN  766  5.042V", 16));                            /* raw count, corrected volts */
+    CHECK(!strncmp(dbg_text(1, 4), "RAIL 3975  4.362V", 17));
     CHECK(!strncmp(dbg_text(1, 5), "RAIL PWM 187/400", 16));
     CHECK(!strncmp(dbg_text(1, 6), "ADC0 (THERM) 2345", 17));
     CHECK(!strncmp(dbg_text(1, 7), "FAN P0.7  ON", 12));
     CHECK(!strncmp(dbg_text(1, 9), "UPTIME 123 s", 12));
-    CHECK(!strncmp(dbg_text(2, 4), "P4 3966 4.357", 13));
-    CHECK(!strncmp(dbg_text(3, 4), "P4  21  308 D345 CHARGE", 23));
+    CHECK(!strncmp(dbg_text(2, 4), "P4 3970 4.357", 13));
+    CHECK(!strncmp(dbg_text(3, 4), "P4  22  308 D345 CHARGE", 23));
     CHECK(!strncmp(dbg_text(4, 1), "RUN 0  VOLT 1 4.35V", 19));
     CHECK(!strncmp(dbg_text(4, 2), "SET 21  300mA", 13));
     CHECK(!strncmp(dbg_text(4, 6), "PORT STATE 000200", 17));
     dbg_view.adc[10] = 1234; dbg_view.adc[15] = 1073;
-    CHECK(!strncmp(dbg_text(5, 4), "A9:   0 A10:1234 A11:   0", 25));
+    CHECK(!strncmp(dbg_text(5, 4), "A9:  22 A10:1234 A11:   0", 25));
     CHECK(!strncmp(dbg_text(5, 6), "A15:1073", 8));
     /* every row of every page: exactly DBG_COLS printable characters, NUL terminated */
     for (k = 0; k < DBG_PAGES * DBG_ROWS; k++) {

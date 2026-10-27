@@ -24,8 +24,8 @@ not measured directly). `src/board.h` is the single source of truth for pins.
 | Buzzer tone / fan-and-alarm level | P4.6 / P0.7 |
 | LCD | SDA P3.5, SCL P3.7, CS P4.1, DC P5.1, RST P5.0 |
 
-Switch pin polarity (I): **low** = charge path conducting, the current is set by the PWM duty; **high** = the discharge (bleed) path
-used by the storage modes. `P2` carries power-path switches, which is why the firmware avoids initialised XRAM and the medium memory model (see the README).
+Switch pin (V): **high** adds the bleed load, **low** removes it. It does not disconnect the charge path: with the PWM running, a high
+switch pin only lowers the net current into the cell. `P2` carries power-path switches, which is why the firmware avoids initialised XRAM and the medium memory model (see the README).
 
 ## ADC
 
@@ -38,20 +38,27 @@ used by the storage modes. `P2` carries power-path switches, which is why the fi
 | 15 | internal 1.19 V bandgap | gives VCC |
 | 0 | probably a board thermistor (I) | the fan is switched on below 1300 in storage modes and off above 1451 |
 
-Port current is read directly across a pair of 0.15 ohm resistors in parallel, 75 mohm per port (V). The firmware has no way to measure
-a bleed (discharge) current; the displayed bleed value is an estimate from the voltage.
+Port current is read directly across a pair of 0.15 ohm resistors in parallel, 75 mohm per port (V). The scale (1 A = 75 mV =
+68.25 counts) means there is no amplifier, so the resistor is on the low side, between the cell's negative terminal and ground (I).
+
+Each port has a bleed load: an 18 ohm resistor from the cell's positive terminal through a transistor (the switch pin) to ground (V).
+At 4.15 V that is about 0.23 A and 1 W. The bleed current returns to the cell through the sense resistor in the opposite direction, so the
+sensed value is the **net** current into the cell (charge minus bleed): with the PWM off and the bleed on, the pin sits about
+-17 mV below ground, which the ADC reads as 0. With both on, the reading drops by up to the bleed current and clamps at 0 when the
+charge current is lower. The firmware therefore cannot measure a bleed current; the displayed bleed value is an estimate from the voltage.
 
 ## Behaviour worth knowing
 
 * Rail PWM gain is about 1 mA per duty count at the port; the soft ramp of 1 count per 100 control passes takes minutes to reach 0.3 A.
 * The ADC reads high when VCC sags (the reference is VCC); the firmware watches the bandgap and stops below about 4.0 V.
 * A weak input (PC USB port) sags under load: use MAX IN AMPS and MIN IN VOLTS in the menu.
+* The global charge enable (P5.2) raises the voltage of an empty port by about 0.3 V (V); read port voltages with it on only when a cell is present.
 * Input current is **estimated** (rail voltage x sum of port currents / (90 % x input voltage)); the 90 % converter efficiency is a guess.
 
 ## Settings storage
 
-Settings use the chip's IAP (EEPROM area of the flash) at offsets 0x0200 (current), 0x0400 (mode), 0x0600 (buzzer), 0x0A00 (colour theme) and 0x0800
-(limits, magic 0xA6), one 512-byte sector each.
+Settings use the chip's IAP (EEPROM area of the flash): one 512-byte sector at offset 0x0800, a layout byte followed by the
+fields of `cfg_t` (`src/cfg.h`). A page without the current layout byte loads the defaults.
 
 ## Flashing
 

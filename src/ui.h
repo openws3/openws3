@@ -7,20 +7,17 @@
 typedef struct {
     uint8_t  run, volt, iset;
     uint16_t vin;                         /* filtered ADC7 */
-    uint16_t tgt;                         /* target voltage, port-voltage counts */
+    uint16_t tgt;                         /* target voltage, vu */
     uint8_t  state[NPORTS];               /* PS_* */
-    uint16_t v[NPORTS], i[NPORTS];        /* filtered counts */
-    uint8_t  alarm;                       /* UA_* banner in the input-voltage box */
+    uint16_t v[NPORTS], i[NPORTS];        /* filtered readings: vu / iu */
+    uint8_t  alarm;                       /* STOP_* reason shown in the input-voltage box, 0 = none */
     uint8_t  parked[NPORTS];              /* the user limits hold this port's output off */
     uint8_t  blink;                       /* toggles at ~1 Hz */
 } ui_state_t;
 
-enum { UA_NONE = 0, UA_RAIL, UA_VIN, UA_VCC, UA_VLIM };
-
 void ui_splash(void);
 /* full-screen message: two text lines (1x2 / 1x1) and up to two numbers appended on lines 3/4 */
 void ui_message(const char *title, const char *line2, uint8_t has_n1, uint16_t n1, uint8_t has_n2, uint16_t n2);
-void ui_choose(uint8_t dc);               /* "Power input / Please choose", DC or LIPO highlighted */
 void ui_main_init(void);                  /* draws the frame; elements fill in over the next calls */
 void ui_main_step(const ui_state_t *s);   /* refresh one element */
 

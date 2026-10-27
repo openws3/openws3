@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenWS3</title>
+<!--
+  OpenWS3 in the browser: a monitor and control panel for the charger (ports, start / stop, charge current and voltage), a firmware
+  updater, and, in the Advanced view, the limiter, the event log and developer mode, which switches every output by hand.
+  Open this file in Chrome or Edge (WebHID); no server, no install.  Windows and macOS need no driver; Linux needs read/write access
+  to /dev/hidraw* (a udev rule, shown on the page).  Protocol: USB.md (commands, telemetry pages 1 to 3).  The updater speaks the
+  chip's USB loader (the same frames as tools/isp.py).  `make` embeds build/fw.bin into build/openws3.html: see tools/bundle.py.
+-->
+<style>
+:root {
+  --bg: #f4f5f7; --card: #ffffff; --line: #dde0e6; --text: #1c2026; --dim: #6a717d;
+  --accent: #2563eb; --good: #15803d; --warn: #b45309; --bad: #c62828; --bad-bg: #fde8e8; --warn-bg: #fdf3e1;
+  --track: #e3e6eb; --spark: #2563eb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111317; --card: #1a1d23; --line: #2b2f37; --text: #e6e8ec; --dim: #8b929e;
+    --accent: #5b8def; --good: #4ade80; --warn: #fbbf24; --bad: #f87171; --bad-bg: #3a1c1c; --warn-bg: #3a2f17;
+    --track: #2b2f37; --spark: #5b8def;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111317; --card: #1a1d23; --line: #2b2f37; --text: #e6e8ec; --dim: #8b929e;
+  --accent: #5b8def; --good: #4ade80; --warn: #fbbf24; --bad: #f87171; --bad-bg: #3a1c1c; --warn-bg: #3a2f17;
+  --track: #2b2f37; --spark: #5b8def;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.num, input[type=number] { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 16px; margin: 0 12px 0 0; }
+#conn { color: var(--dim); margin-right: auto; }
+button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+main { max-width: 1180px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+#banner { display: none; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--warn); background: var(--warn-bg); }
+#banner.bad { border-color: var(--bad); background: var(--bad-bg); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 10px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 16px; }
+.kv div span { display: block; color: var(--dim); font-size: 12px; }
+.kv div b { font-size: 18px; font-weight: 600; }
+.kv div small { color: var(--dim); margin-left: 4px; }
+.ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.port { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card); }
+.port.cut { border-color: var(--bad); background: var(--bad-bg); }
+.port .top { display: flex; align-items: baseline; gap: 12px; }
+.port .id { font-weight: 700; font-size: 15px; width: 26px; }
+.port .v { font-size: 22px; font-weight: 600; }
+.port .i { font-size: 16px; }
+.port .meta { color: var(--dim); font-size: 12px; margin-left: auto; text-align: right; }
+.badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--bad); color: #fff; }
+canvas { width: 100%; height: 34px; display: block; margin: 6px 0; }
+.ctl { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.ctl label { color: var(--dim); font-size: 12px; min-width: 44px; }
+input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+input[type=number] { width: 72px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+.toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+.applied { color: var(--dim); font-size: 12px; }
+.applied.on { color: var(--good); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; }
+.seg button.on { background: var(--accent); color: #fff; }
+.toggles { display: flex; flex-wrap: wrap; gap: 18px; }
+.hint { color: var(--dim); font-size: 12px; margin-top: 8px; }
+.locked main .devonly { opacity: .55; pointer-events: none; }
+body:not(.mode-dev) .devonly, body.mode-dev .mononly { display: none !important; }
+body:not(.adv) .adv, body:not(.has-fw) .fwonly, body:not(.has-dev) .fwcard, body.has-dev .welcome { display: none !important; }
+.welcome p { margin: 0 0 10px; }
+.welcome details { margin-top: 10px; color: var(--dim); }
+.welcome .actions { margin-top: 0; }
+ol.steps { margin: 0 0 10px; padding-left: 22px; }
+ol.steps li { margin: 4px 0; }
+pre { margin: 8px 0 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; font-size: 12px; }
+select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+select:disabled { opacity: .45; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 14px; }
+.actions label { color: var(--dim); font-size: 12px; margin-right: 6px; }
+.big { font-size: 22px; font-weight: 600; }
+progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--accent); }
+#fwMsg { margin-top: 8px; }
+#fwMsg.bad { color: var(--bad); }
+.st { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: .03em; border: 1px solid currentColor; color: var(--dim); }
+.st.s2 { color: var(--accent); } .st.s4 { color: var(--good); } .st.s6 { color: var(--bad); } .st.s1, .st.s3 { color: var(--warn); } .st.s5 { color: var(--accent); }
+.lim { color: var(--dim); font-size: 12px; }
+#log { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; font-size: 13px; }
+#log li { padding: 3px 0; border-bottom: 1px solid var(--line); }
+#log li .num { color: var(--dim); margin-right: 10px; }
+@media (max-width: 720px) { .row2 { grid-template-columns: 1fr; } .ports { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>OpenWS3</h1>
+  <span id="conn">not connected</span>
+  <button id="bConnect" class="primary">Connect</button>
+  <span class="seg" id="view"><button id="bSimple">Simple</button><button id="bAdv">Advanced</button></span>
+  <button id="bEnter" class="adv fwonly mononly" disabled>Enter dev mode</button>
+  <button id="bLeave" class="devonly" disabled>Leave dev mode</button>
+  <button id="bBeep" class="devonly" disabled>Beep</button>
+  <button id="bOff" class="devonly danger" disabled title="Esc">ALL OFF</button>
+</header>
+<div id="banner"></div>
+<main>
+  <section class="card welcome">
+    <h2>Already running OpenWS3?</h2>
+    <p>Plug the charger in with USB-C, press <b>Connect</b> and pick <i>OpenWS3</i> in the list.</p>
+    <p id="noHid" class="badge" hidden>This browser cannot talk to USB devices: use Chrome, Edge or another Chromium browser.</p>
+  </section>
+  <section class="card welcome">
+    <h2>Install OpenWS3 on your charger</h2>
+    <p>This replaces the charger's current firmware with OpenWS3. Only the USB-C cable and this page are needed.</p>
+    <ol class="steps">
+      <li>Unplug the USB-C cable from the charger.</li>
+      <li>Press and <b>hold the left button</b> (the one for start / stop / current set).</li>
+      <li>Keep holding it and plug the USB-C cable in. The screen stays dark; you can let go.</li>
+      <li>Press the button below and pick the new entry in the list.</li>
+    </ol>
+    <div class="actions"><button id="bInstall" class="primary">Select the charger</button></div>
+    <p class="hint">Nothing is changed until you confirm on the next screen. If the list is empty, repeat steps 1 to 3 (hold the button
+      before plugging in, and use a data-capable cable).</p>
+    <details>
+      <summary>Linux: no device in the list?</summary>
+      <p>The browser needs access to the device. Once, as root, then replug the unit:</p>
+      <pre>echo 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="34bf", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/99-openws3.rules
+sudo udevadm control --reload-rules</pre>
+    </details>
+  </section>
+  <section class="card fwonly mononly">
+    <h2>Charger</h2>
+    <div class="kv" id="sum"></div>
+    <div class="actions">
+      <button id="bStart" class="primary" disabled>Start charging</button>
+      <button id="bStop" class="danger" disabled>Stop</button>
+      <span><label for="sI">Charge current</label><select id="sI" disabled></select></span>
+      <span><label for="sV">Target voltage</label><select id="sV" disabled></select></span>
+    </div>
+    <p class="hint">Current and voltage can be changed while the charger is stopped. The storage voltages leave a cell at about half
+      charge for long-term storage. Esc stops charging.</p>
+  </section>
+  <section class="card adv fwonly">
+    <h2>Supply and inputs</h2>
+    <div class="kv" id="inputs"></div>
+  </section>
+  <div class="row2 adv fwonly mononly">
+    <section class="card">
+      <h2>Charger</h2>
+      <div class="kv" id="charger"></div>
+    </section>
+    <section class="card">
+      <h2>Limits</h2>
+      <div class="kv" id="limits"></div>
+    </section>
+  </div>
+  <section class="card adv fwonly mononly">
+    <h2>Setpoints</h2>
+    <div class="kv" id="setpoints"></div>
+    <p class="hint">What the charger regulates to: the cell target voltage, the rail it holds for that target, the charge current
+      setting. Each port shows its own current setpoint while it charges (a storage charge steps it down near the end), the limiter's
+      cap and the current it is actually regulated to.</p>
+  </section>
+  <div class="row2 devonly fwonly">
+    <section class="card">
+      <h2>Rail</h2>
+      <div class="ctl">
+        <span class="seg"><button id="mPI" class="on">Regulated</button><button id="mRaw">Raw duty</button></span>
+        <span class="applied" id="aRail"></span>
+      </div>
+      <div class="ctl" id="cSet"><label>setpoint</label><input type="range" id="rSet" min="3000" max="3972"><input type="number" id="nSet" min="0" max="3972"><span class="num" id="vSet"></span></div>
+      <div class="ctl" id="cRaw" hidden><label>duty</label><input type="range" id="rRaw" min="0" max="400"><input type="number" id="nRaw" min="0" max="400"></div>
+      <p class="hint">Regulated: the firmware's PI loop holds the rail at the setpoint (vu, 1.0986 mV each, at most 3972 = 4.35 V). Raw duty: the
+        PWM as given; a higher duty means a lower rail, and only the rail over-voltage cut stops it going too high.</p>
+    </section>
+    <section class="card">
+      <h2>Enables</h2>
+      <div class="toggles" id="flags"></div>
+      <p class="hint">Input profile: switching it off can pull the input below its minimum (seen on a 5 V supply), which holds the
+        port outputs off. The fan also runs whenever the board is warm. The main power enable is not offered (it would cut the unit's own
+        supply). Port outputs stay off without the global enable.</p>
+    </section>
+  </div>
+  <section class="card fwonly">
+    <h2>Ports</h2>
+    <div class="ports" id="ports"></div>
+    <p class="hint mononly">Voltage and current of each port. The plot shows the current over the last 10 s.</p>
+    <p class="hint adv mononly">While charging, each port also shows its current setpoint, the limiter's cap and the current it is
+      regulated to.</p>
+    <p class="hint devonly">PWM 0..400 per port; BLEED switches the port to its discharge path. A port above 4.40 V or 2.8 A is cut by the
+      firmware until it is set to 0 and the bleed switch off. The plot shows the current over the last 10 s.</p>
+  </section>
+  <section class="card adv fwonly mononly">
+    <h2>Events</h2>
+    <ol id="log"></ol>
+  </section>
+  <section class="card fwcard">
+    <h2>Firmware</h2>
+    <p id="fwInfo" style="margin:0"></p>
+    <div class="actions" style="margin-top:10px">
+      <button id="bFlash" class="primary" disabled>Install firmware</button>
+      <button id="bFile" class="adv">Use another file…</button><input type="file" id="fFile" accept=".bin" hidden>
+      <button id="bLoader" hidden>Select the unit…</button>
+    </div>
+    <progress id="fwProg" max="100" value="0" hidden></progress>
+    <div id="fwMsg" class="hint"></div>
+    <p class="hint">A running OpenWS3 restarts into its loader by itself, takes the new firmware and starts again (not while charging).
+      Do not unplug the charger meanwhile. If an update is ever interrupted, hold the left button while plugging in USB-C and install again.</p>
+  </section>
+</main>
+<script>
+'use strict';
+const VID = 0x34bf, PID = 0x1004;                   // the firmware; the chip's loader has the same vendor id and another product id
+const BUNDLED = null;                                // { major, minor, build, dirty, built, size, sha256, data (base64) } in the file made by tools/bundle.py
+const V = 4.5 / 4096, A = 1 / 68.25;                 // readings -> volts / amps (vu, iu: src/adc.h)
+const BG_NOM = 1071;                                 // bandgap count at the calibration VCC: counts x BG_NOM / bandgap = readings
+const rd = (raw, bg) => bg ? raw * BG_NOM / bg : 0;
+const vinV = r => (r + 1) * 0.4 / 61;                // a VIN reading in volts (cal.c)
+const vminV = v => v <= 200 ? v * 0.05 : 10 + (v - 200) * 0.5;   // MIN IN VOLTS setting in volts (limits.h VMIN_MV)
+const DF = { GLOBAL: 1, FAN: 2, PROFILE: 4, BEEP: 8, RAW: 16 };
+const SCR_DEV = 14;
+const SEND_EVERY = 10;                               // telemetry reports (10 ms each) between commands: the firmware's watchdog is 0.5 s
+const HIST = 500;                                    // plot samples (page 3 every 20 ms: 10 s)
+const SESSION = 1 + Math.floor(Math.random() * 255);    // developer mode obeys only the host that entered it
+const STOP = { 1: 'input low', 2: 'VCC low', 3: 'rail', 4: 'user', 5: 'minimum input voltage' };
+const STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'FULL', 'BLEED', 'FAULT'];
+const STATE_TXT = ['Idle', 'Checking', 'Charging', 'Resting', 'Full', 'Discharging', 'Fault'];   // the simple view
+const VOLTS = ['4.20 V', '4.35 V', '3.80 V storage', '3.85 V storage'];
+const PHASE = { 1: 'waiting for the rail', 2: 'splash', 3: 'VCC check', 4: 'rail self-test', 5: 'input check', 7: 'running', 128: 'FATAL ERROR' };
+const LMODE = ['equal', 'CH1 first', 'high V first'];
+const P_NONE = 10000;                                // page 2: budget value meaning "no limit"
+
+let dev = null, kind = '', fw = null, busy = false, pickLoader = null, p1 = null, p2 = null, p3 = null, out = null;
+const events = [];                                   // the monitor's log, newest first
+let nrx = 0, lastRx = 0, sending = false, dirty = false, beep = 0, seq = 1, msg = '', reopening = false, leaving = false, entering = false;
+const hist = [...Array(6)].map(() => []);
+const $ = id => document.getElementById(id);
+
+/* ---- telemetry ---- */
+function parse(dv) {
+  const r = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+  if (r.length !== 64 || r[0] !== 0x57 || r[1] !== 0x33 || !r[2] || r[2] !== r[63]) return;
+  const u16 = i => (r[i] << 8) | r[i + 1];
+  const six = f => [0, 1, 2, 3, 4, 5].map(f);
+  if (r[3] === 1) {
+    const prev = p1;
+    p1 = { ms: (r[4] * 16777216) + (r[5] << 16) + (r[6] << 8) + r[7], run: r[8] & 1, volt: (r[8] >> 1) & 3, railHold: (r[8] >> 5) & 1,
+           strap: (r[8] >> 6) & 1, iset: r[9], ver: r[10], stop: r[11], alarm: r[12] & 15, screen: r[12] >> 4,
+           evSeq: r[13], evCode: r[14], evPort: r[15], cmdSeq: r[16], cmdRes: r[17], state: six(k => r[18 + k]), sw: r[24], phase: r[25],
+           duty: six(k => u16(26 + 2 * k)), v: six(k => u16(38 + 2 * k)), i: six(k => r[50 + k]),
+           rail: u16(56), vin: u16(58), bandgap: u16(60), railDuty: r[62] * 4 };
+    if (!inDev()) {
+      for (let k = 0; k < 6; k++) { hist[k].push(p1.i[k] * A); if (hist[k].length > HIST) hist[k].shift(); }
+      if (prev && prev.screen !== SCR_DEV) logChanges(prev, p1);
+    }
+  } else if (r[3] === 2) {
+    p2 = { ilim: r[8], vmin: r[9], vcut: r[10], lmode: r[11], budget: u16(12), estMa: u16(18), bcnt: u16(20),
+           cap: six(k => r[24 + k]), want: six(k => r[30 + k]), set: six(k => r[36 + k]), setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61] };
+  } else if (r[3] === 3) {
+    p3 = { v: [0, 1, 2, 3, 4, 5].map(k => u16(8 + 2 * k)), i: [0, 1, 2, 3, 4, 5].map(k => u16(20 + 2 * k)),
+           therm: u16(32), vin: u16(34), rail: u16(36), bandgap: u16(38), duty: [0, 1, 2, 3, 4, 5].map(k => u16(40 + 2 * k)),
+           railDuty: u16(52), sw: r[54], flags: r[55], b1: r[56] & 1, b2: (r[56] >> 1) & 1, strap: (r[56] >> 2) & 1,
+           watchdog: r[57] & 1, supplyStop: (r[57] >> 1) & 1, trip: r[58], setpoint: u16(59) };
+    for (let k = 0; k < 6; k++) { hist[k].push(rd(p3.i[k], p3.bandgap) * A); if (hist[k].length > HIST) hist[k].shift(); }
+    if (entering && inDev()) { entering = false; startOutputs(); }   // only after our own Enter: never take over another host's session
+  }
+}
+const inDev = () => p1 && p1.screen === SCR_DEV;
+
+function logChanges(a, b) {                          // normal mode: what changed between two page 1 reports
+  const add = text => { events.unshift({ ms: b.ms, text }); if (events.length > 200) events.pop(); };
+  if (a.run !== b.run) add(b.run ? 'charging started' : 'charging stopped');
+  for (let k = 0; k < 6; k++) if (a.state[k] !== b.state[k]) add(`P${k + 1}  ${STATE[a.state[k]]} → ${STATE[b.state[k]]}`);
+  if (a.evSeq !== b.evSeq) add(b.evCode === 1 ? `P${b.evPort + 1} full` : b.evCode === 2 ? `P${b.evPort + 1} FAULT` :
+                               b.evCode === 3 ? 'stopped: ' + (STOP[b.evPort] || b.evPort) : 'event ' + b.evCode);
+  if (a.phase !== b.phase) add('phase: ' + (PHASE[b.phase] || b.phase));
+}
+
+function onReport(e) {
+  lastRx = performance.now();
+  parse(e.data);
+  if (out && p1 && p1.cmdSeq === seq && p1.cmdRes !== 0) { out = null; msg = 'Another program took over developer mode.'; syncControls(); }
+  if (p1 && !inDev()) {
+    if (out && !leaving) msg = 'The unit left developer mode (both buttons held on the unit?).';
+    out = null; leaving = false; syncControls();
+  }
+  if (out && (dirty || ++nrx % SEND_EVERY === 0)) sendOutputs();   // driven by the telemetry, not a timer: background tabs keep it going
+}
+
+/* ---- commands ---- */
+async function sendRaw(bytes) {
+  const b = new Uint8Array(64); b.set(bytes);
+  await dev.sendReport(0, b);
+}
+function command(c, arg = 0) {                       // resolves with the result code once page 1 acknowledges it
+  seq = seq % 254 + 1;
+  const s = seq, t0 = performance.now();
+  return sendRaw([c, arg, s]).then(() => new Promise((ok, fail) => {
+    const tick = () => {
+      if (p1 && p1.cmdSeq === s) return ok(p1.cmdRes);
+      if (performance.now() - t0 > 2000) return fail(new Error('command ' + c + ' not acknowledged'));
+      setTimeout(tick, 20);
+    };
+    tick();
+  }));
+}
+async function sendOutputs() {
+  if (sending || !dev) return;
+  sending = true; dirty = false;
+  const rail = out.flags & DF.RAW ? out.raw : out.setpoint;
+  const b = [8, out.flags | (beep > 0 ? DF.BEEP : 0), seq, out.sw, rail >> 8, rail & 255];
+  for (const d of out.duty) b.push(d >> 8, d & 255);
+  b.push(SESSION);
+  if (beep > 0) beep--;
+  try { await sendRaw(b); } catch (e) { msg = 'send failed: ' + e.message; }
+  sending = false;
+}
+
+/* ---- the outputs we ask for ---- */
+function startOutputs() {                            // everything off, the rail where the firmware has it
+  out = { duty: [0, 0, 0, 0, 0, 0], sw: 0, flags: p3.flags & DF.PROFILE, setpoint: p3.setpoint, raw: p3.railDuty };   // the profile pin as it is: the input depends on it
+  msg = ''; syncControls();
+}
+function allOff() {
+  if (!out) return;
+  out.duty = [0, 0, 0, 0, 0, 0]; out.sw = 0; out.flags &= DF.RAW | DF.PROFILE; dirty = true; syncControls();
+}
+const clamp = (v, hi) => Math.max(0, Math.min(hi, Math.round(+v || 0)));
+
+/* ---- connection ---- */
+const verText = (major, minor, build, dirty) => `${major}.${minor} (build ${build.toString(16).padStart(8, '0')}${dirty ? '+' : ''})`;
+const installed = () => p1 && p1.ver && p2 && !inDev() ? verText(p1.ver >> 4, p1.ver & 15, p2.build, p2.dirty) : '';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function connect(d) {
+  dev = d; kind = d.productId === PID ? 'fw' : 'isp';
+  if (!dev.opened) await dev.open();
+  p1 = p2 = p3 = out = null; ispRx.length = 0;
+  dev.addEventListener('inputreport', kind === 'fw' ? onReport : ispOnReport);
+  lastRx = performance.now();
+  $('conn').textContent = 'connected: ' + (dev.productName || 'OpenWS3');
+  fwShow();
+}
+function disconnected() {
+  dev = null; kind = ''; p1 = p2 = p3 = out = null; syncControls(); fwShow();
+}
+async function reopen() {                            // the telemetry stopped (a long-lived handle can wedge after an OUT report)
+  if (reopening || !dev) return;
+  reopening = true;
+  try { await dev.close(); await dev.open(); lastRx = performance.now(); } catch (e) { msg = 'reconnect failed: ' + e.message; }
+  reopening = false;
+}
+async function waitFor(match, ms) {                  // a granted device that shows up within ms
+  for (const end = performance.now() + ms; performance.now() < end; await sleep(250)) {
+    const d = (await navigator.hid.getDevices()).find(match);
+    if (d) return d;
+  }
+}
+const isFw = d => d.vendorId === VID && d.productId === PID, isLoader = d => d.vendorId === VID && d.productId !== PID;
+$('bConnect').onclick = $('bInstall').onclick = async () => {
+  if (!('hid' in navigator)) { msg = 'This browser has no WebHID: use Chrome or Edge.'; return; }
+  try {
+    const [d] = await navigator.hid.requestDevice({ filters: [{ vendorId: VID }] });
+    if (d) await connect(d);
+  } catch (e) { msg = 'connect failed: ' + e.message; }
+};
+$('bEnter').onclick = async () => {
+  try {
+    leaving = false;
+    const res = await command(7, SESSION);
+    entering = res === 0;
+    msg = res === 0 ? '' : 'Refused: the unit is charging, or another program drives developer mode.';
+  } catch (e) { msg = e.message; }
+};
+$('bLeave').onclick = async () => { out = null; leaving = true; syncControls(); try { await command(9); } catch (e) { msg = e.message; leaving = false; } };
+$('bOff').onclick = allOff;
+$('bStart').onclick = async () => {
+  try { msg = await command(2) === 0 ? '' : 'Start refused: a supervisor stop is active (input, VCC or rail).'; } catch (e) { msg = e.message; }
+};
+$('bStop').onclick = async () => { try { await command(1); msg = ''; } catch (e) { msg = e.message; } };
+$('bBeep').onclick = () => { beep = 3; dirty = true; };
+addEventListener('keydown', e => { if (e.key === 'Escape') { if (inDev()) allOff(); else if (p1 && p1.run) command(1).catch(() => {}); } });
+addEventListener('pagehide', () => { if (dev && out) sendRaw([9, 0, 0]); });   // best effort; the watchdog covers the rest
+setInterval(() => { if (dev && kind === 'fw' && performance.now() - lastRx > 1500) reopen(); }, 500);
+if ('hid' in navigator) {
+  navigator.hid.addEventListener('disconnect', e => { if (e.device === dev) disconnected(); });
+  navigator.hid.getDevices().then(ds => { const d = ds.find(isFw) || ds.find(isLoader); if (d) connect(d); });
+} else $('noHid').hidden = false;
+
+/* ---- views ---- */
+let adv = false;
+try { adv = localStorage.getItem('openws3.view') === 'adv'; } catch (e) {}
+function setView(a) {
+  adv = a;
+  try { localStorage.setItem('openws3.view', a ? 'adv' : 'simple'); } catch (e) {}
+}
+$('bSimple').onclick = () => setView(false);
+$('bAdv').onclick = () => setView(true);
+
+/* ---- charge settings ---- */
+const selI = $('sI'), selV = $('sV');
+for (let n = 3; n <= 13; n++) selI.add(new Option((n / 10).toFixed(1) + ' A', 7 * n));
+VOLTS.forEach((t, n) => selV.add(new Option(t, n)));
+const setting = (sel, cmd) => sel.onchange = async () => {
+  try { msg = await command(cmd, +sel.value) === 0 ? '' : 'Refused: stop charging first.'; } catch (e) { msg = e.message; }
+};
+setting(selI, 3); setting(selV, 4);
+
+/* ---- firmware update: the chip's USB loader (frames as in tools/isp.py) ---- */
+const ispRx = [];                                    // loader reports not yet read
+let ispWake = null;
+function ispOnReport(e) {
+  ispRx.push(new Uint8Array(e.data.buffer.slice(e.data.byteOffset, e.data.byteOffset + e.data.byteLength)));
+  if (ispWake) ispWake();
+}
+function ispFrame(cmd, data = []) {                  // 46 B9 6A, length, cmd + data, 16-bit sum from the 6A on, 16
+  const body = [cmd, ...data], total = 3 + body.length + 2 + 1;
+  const sum = (0x6a + (total >> 8) + (total & 255) + body.reduce((a, b) => a + b, 0)) & 0xffff;
+  return Uint8Array.from([0x46, 0xb9, 0x6a, total >> 8, total & 255, ...body, sum >> 8, sum & 255, 0x16]);
+}
+async function ispSend(frame) {
+  ispRx.length = 0;
+  for (let i = 0; i < frame.length; i += 64) {
+    const r = new Uint8Array(64); r.set(frame.subarray(i, i + 64));
+    await dev.sendReport(0, r);
+  }
+}
+async function ispRecv(ms) {                         // [cmd, data] of the next loader frame, or [] on timeout
+  const end = performance.now() + ms;
+  let buf = new Uint8Array(0);
+  for (;;) {
+    while (ispRx.length) {
+      const r = ispRx.shift(), n = new Uint8Array(buf.length + r.length);
+      n.set(buf); n.set(r, buf.length); buf = n;
+      const j = buf.findIndex((x, i) => x === 0x46 && buf[i + 1] === 0xb9 && buf[i + 2] === 0x68);
+      if (j >= 0 && buf.length >= j + 5) {
+        const last = j + 5 + ((buf[j + 3] << 8 | buf[j + 4]) - 3);
+        if (buf.length >= last) { const body = buf.slice(j + 5, last - 3); return body.length ? [body[0], body.slice(1)] : []; }
+      }
+    }
+    const left = end - performance.now();
+    if (left <= 0) return [];
+    await new Promise(r => { ispWake = r; setTimeout(r, left); });
+    ispWake = null;
+  }
+}
+async function ispCmd(cmd, data, ms = 2000) { await ispSend(ispFrame(cmd, data)); return ispRecv(ms); }
+async function ispWrite(image, progress) {          // erase and program the whole image; the loader then starts the application
+  const blocks = [];
+  for (let i = 0; i < image.length; i += 128) { const b = new Uint8Array(128).fill(255); b.set(image.subarray(i, i + 128)); blocks.push(b); }
+  while (blocks.length > 1 && blocks[blocks.length - 1].every(x => x === 255)) blocks.pop();   // erased flash reads 0xFF already
+  let ok = false;
+  for (let n = 0; n < 10 && !ok; n++) { ok = (await ispCmd(0x00, [], 1000))[0] === 0x00; if (!ok) await sleep(500); }
+  if (!ok) throw new Error('the loader does not answer');
+  await ispCmd(0x01, [0, 0, 0, 0, 0, 0, 0x80]);
+  await ispCmd(0x05, [0, 0, 0x5a, 0xa5]);
+  await ispCmd(0x03, [0, 0, 0x5a, 0xa5]);
+  await sleep(300);
+  for (let i = 0; i < blocks.length; i++) {
+    const a = 128 * i, [c, d] = await ispCmd(i ? 0x12 : 0x32, [a >> 8, a & 255, 0x5a, 0xa5, ...blocks[i]]);
+    if (c !== 0x02 || !d || d[0] !== 0x54) throw new Error('the unit refused block ' + (i + 1) + ' of ' + blocks.length);
+    progress(100 * (i + 1) / blocks.length);
+  }
+  try { await ispSend(ispFrame(0xff, [1])); } catch (e) {}   // the unit resets: no answer to wait for
+}
+
+function fwCheck(b) {
+  if (!b.length || b.length > 65536 || b[0] !== 0x02) return 'This is not an OpenWS3 firmware image (.bin).';
+}
+function fwSet(name, data, meta = '') {
+  const bad = fwCheck(data);
+  if (bad) { fwStatus(bad, true); return; }
+  fw = { name, data, meta }; fwStatus(''); fwShow();
+}
+function fwStatus(text, bad) { $('fwMsg').textContent = text; $('fwMsg').className = 'hint' + (bad ? ' bad' : ''); }
+function fwShow() {
+  const used = fw ? fw.data.length - (() => { let n = 0; while (n < fw.data.length && fw.data[fw.data.length - 1 - n] === 255) n++; return n; })() : 0;
+  $('fwInfo').textContent = (kind === 'isp' ? 'The charger is ready to be programmed. ' : '') +
+    (kind === 'fw' && p1 ? 'Installed: ' + (installed() || (p1.ver ? '' : 'an earlier OpenWS3 that does not report its version')) +
+      (BUNDLED && p2 && p1.ver && p2.build === BUNDLED.build && p2.dirty === BUNDLED.dirty ? ', the same as this page' : '') + '. ' : '') +
+    (fw ? 'Firmware: ' + fw.name + ' (' + (used / 1024).toFixed(1) + ' KB)' + fw.meta + '.' : 'Choose the firmware file (.bin) to install.');
+  $('bFlash').disabled = busy || !fw || !dev || (kind === 'fw' && !!(p1 && p1.run));
+}
+setInterval(() => { if (!busy && kind === 'fw') fwShow(); }, 1000);   // the installed version arrives with the telemetry
+$('bFile').onclick = () => $('fFile').click();
+$('fFile').onchange = async () => {
+  const f = $('fFile').files[0];
+  if (f) fwSet(f.name, new Uint8Array(await f.arrayBuffer()));
+  $('fFile').value = '';
+};
+$('bLoader').onclick = async () => {
+  try {
+    const [d] = await navigator.hid.requestDevice({ filters: [{ vendorId: VID }], exclusionFilters: [{ vendorId: VID, productId: PID }] });
+    if (d && pickLoader) pickLoader(d);
+  } catch (e) { fwStatus('Could not open the unit: ' + e.message, true); }
+};
+$('bFlash').onclick = async () => {
+  if (busy || !fw) return;
+  if (kind === 'fw' && (!p1 || p1.run || inDev())) { fwStatus(p1 && p1.run ? 'Stop charging first.' : 'Leave developer mode first.', true); return; }
+  if (!confirm('Replace the firmware on the charger with ' + fw.name + '?' + (kind === 'isp' ? '\nThe current firmware will be erased.' : '') +
+               '\nDo not unplug the charger until it has restarted.')) return;
+  busy = true; fwShow();
+  const prog = $('fwProg');
+  try {
+    if (kind === 'fw') {                             // no button needed: the running firmware restarts into the loader
+      fwStatus('Restarting the unit into its loader…');
+      await sendRaw([6, 0, 0]).catch(() => {});
+      let d = await waitFor(isLoader, 8000);
+      if (!d) {
+        fwStatus('Press "Select the unit…" and pick the unit in the list.');
+        $('bLoader').hidden = false;
+        d = await new Promise(r => { pickLoader = r; });
+        $('bLoader').hidden = true; pickLoader = null;
+      }
+      await connect(d);
+    }
+    fwStatus('Writing…'); prog.hidden = false; prog.value = 0;
+    await ispWrite(fw.data, p => { prog.value = p; });
+    fwStatus('Done. The unit restarts…');
+    const d = await waitFor(isFw, 10000);
+    if (d) { await connect(d); fwStatus('Done: the unit runs the new firmware.'); }
+    else { disconnected(); fwStatus('Done. Press Connect to reconnect to the unit.'); }
+  } catch (e) { fwStatus('Update failed: ' + e.message + '. The unit can still be programmed: hold the left button while plugging in USB-C, then install again.', true); }
+  busy = false; prog.hidden = true; fwShow();
+};
+if (BUNDLED) fwSet('OpenWS3 ' + verText(BUNDLED.major, BUNDLED.minor, BUNDLED.build, BUNDLED.dirty), Uint8Array.from(atob(BUNDLED.data), c => c.charCodeAt(0)),
+                   ', built ' + BUNDLED.built + ', SHA-256 ' + BUNDLED.sha256.slice(0, 12));
+else $('bFile').classList.remove('adv');             // a page without an image: everyone chooses a file
+
+/* ---- controls ---- */
+const portEls = [];
+for (let k = 0; k < 6; k++) {
+  const el = document.createElement('div');
+  el.className = 'port';
+  el.innerHTML = `<div class="top"><span class="id">P${k + 1}</span><span class="v num">-</span><span class="i num">-</span>
+      <span class="meta num"></span></div><canvas></canvas>
+    <div class="lim adv mononly"></div>
+    <div class="ctl devonly"><label>PWM</label><input type="range" min="0" max="400" value="0"><input type="number" min="0" max="400" value="0"></div>
+    <div class="ctl devonly"><label class="toggle"><input type="checkbox"> bleed switch</label><span class="applied"></span></div>`;
+  $('ports').append(el);
+  const [range, num] = el.querySelectorAll('.ctl input:not([type=checkbox])');
+  const sw = el.querySelector('input[type=checkbox]');
+  const setDuty = v => { if (!out) return; out.duty[k] = clamp(v, 400); range.value = num.value = out.duty[k]; dirty = true; };
+  range.oninput = () => setDuty(range.value);
+  num.onchange = () => setDuty(num.value);
+  sw.onchange = () => { if (!out) return; out.sw = sw.checked ? out.sw | (1 << k) : out.sw & ~(1 << k); dirty = true; };
+  portEls.push({ el, range, num, sw, v: el.querySelector('.v'), i: el.querySelector('.i'), meta: el.querySelector('.meta'),
+                 canvas: el.querySelector('canvas'), applied: el.querySelector('.applied'), lim: el.querySelector('.lim') });
+}
+const FLAGS = [['GLOBAL', 'Global enable (P5.2)'], ['FAN', 'Fan (P0.7)'], ['PROFILE', 'Input profile (P5.3)']];
+const flagEls = FLAGS.map(([f, name]) => {
+  const w = document.createElement('div');
+  w.innerHTML = `<label class="toggle"><input type="checkbox"> ${name}</label> <span class="applied"></span>`;
+  $('flags').append(w);
+  const cb = w.querySelector('input');
+  cb.onchange = () => { if (!out) return; out.flags = cb.checked ? out.flags | DF[f] : out.flags & ~DF[f]; dirty = true; };
+  return { f, cb, applied: w.querySelector('.applied') };
+});
+function setMode(raw) {
+  if (!out) return;
+  if (raw && !(out.flags & DF.RAW) && p3) out.raw = p3.railDuty;   // raw starts where the regulator is: no jump
+  out.flags = raw ? out.flags | DF.RAW : out.flags & ~DF.RAW; dirty = true; syncControls();
+}
+$('mPI').onclick = () => setMode(false);
+$('mRaw').onclick = () => setMode(true);
+const setSet = v => { if (!out) return; out.setpoint = clamp(v, 3972); dirty = true; syncControls(); };
+const setRawDuty = v => { if (!out) return; out.raw = clamp(v, 400); dirty = true; syncControls(); };
+$('rSet').oninput = () => setSet($('rSet').value); $('nSet').onchange = () => setSet($('nSet').value);
+$('rRaw').oninput = () => setRawDuty($('rRaw').value); $('nRaw').onchange = () => setRawDuty($('nRaw').value);
+
+function syncControls() {                            // the controls show what we ask for
+  const o = out || { duty: [0, 0, 0, 0, 0, 0], sw: 0, flags: 0, setpoint: p3 ? p3.setpoint : 3836, raw: 0 };
+  portEls.forEach((p, k) => { p.range.value = p.num.value = o.duty[k]; p.sw.checked = !!(o.sw & (1 << k)); });
+  flagEls.forEach(x => { x.cb.checked = !!(o.flags & DF[x.f]); });
+  const raw = !!(o.flags & DF.RAW);
+  $('mPI').classList.toggle('on', !raw); $('mRaw').classList.toggle('on', raw);
+  $('cSet').hidden = raw; $('cRaw').hidden = !raw;
+  $('rSet').value = $('nSet').value = o.setpoint; $('vSet').textContent = (o.setpoint * V).toFixed(3) + ' V';
+  $('rRaw').value = $('nRaw').value = o.raw;
+}
+
+/* ---- display, 10 times a second ---- */
+function spark(c, data) {
+  const w = c.clientWidth, h = c.clientHeight, dpr = devicePixelRatio || 1;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  g.strokeStyle = css.getPropertyValue('--track'); g.beginPath(); g.moveTo(0, h - 0.5); g.lineTo(w, h - 0.5); g.stroke();
+  if (data.length < 2) return;
+  const top = Math.max(0.5, ...data);
+  g.strokeStyle = css.getPropertyValue('--spark'); g.lineWidth = 1.5; g.beginPath();
+  data.forEach((y, n) => { const x = w * (n + HIST - data.length) / (HIST - 1), yy = h - 2 - (h - 4) * y / top; n ? g.lineTo(x, yy) : g.moveTo(x, yy); });
+  g.stroke();
+}
+function render() {
+  const connected = !!dev && performance.now() - lastRx < 1500, live = connected && !!out && inDev();
+  document.body.classList.toggle('mode-dev', !!inDev());
+  document.body.classList.toggle('adv', adv || !!inDev());
+  document.body.classList.toggle('has-dev', !!dev);
+  document.body.classList.toggle('has-fw', !!dev && kind === 'fw');
+  $('bSimple').classList.toggle('on', !adv && !inDev()); $('bAdv').classList.toggle('on', adv || !!inDev());
+  $('bConnect').hidden = !!dev;
+  document.body.classList.toggle('locked', !live);
+  $('bEnter').disabled = !connected || inDev() || (p1 && p1.run); $('bLeave').disabled = !connected || !inDev();
+  $('bOff').disabled = $('bBeep').disabled = !live;
+  $('bStart').disabled = !connected || !p1 || p1.run || p1.phase !== 7; $('bStop').disabled = !connected || !p1 || !p1.run;
+  const idle = connected && p1 && !p1.run && p1.phase === 7 && !inDev();
+  selI.disabled = selV.disabled = !idle;
+  if (p1 && !inDev()) { if (document.activeElement !== selI) selI.value = p1.iset; if (document.activeElement !== selV) selV.value = p1.volt; }
+  if (dev && kind === 'isp') $('conn').textContent = 'unit in loader mode';
+  else if (dev && !connected) $('conn').textContent = 'connected, no telemetry';
+  else if (dev) $('conn').textContent = (inDev() ? 'developer mode' : p1 && p1.run ? 'normal mode (charging)' : 'normal mode') +
+                                        (p1 ? '  ·  up ' + (p1.ms / 1000).toFixed(0) + ' s' : '');
+
+  const warn = [];
+  if (msg) warn.push(msg);
+  if (live && p3.watchdog) warn.push('Watchdog: no command for 0.5 s, so the port outputs are off and the rail is back on its entry setpoint.');
+  if (live && p3.supplyStop) warn.push('Supply stop (' + (STOP[p1.stop] || 'input / VCC') + '): the port outputs are held off.');
+  if (live && p3.trip) warn.push('Port cut by the guard (over 4.40 V or 2.8 A): ' + [0, 1, 2, 3, 4, 5].filter(k => p3.trip >> k & 1).map(k => 'P' + (k + 1)).join(', ') + '. Set it to 0 and the bleed switch off to release it.');
+  if (inDev() && !out && connected) warn.push('Developer mode is driven by another program.');
+  const fatal = connected && p1 && p1.phase === 128;
+  if (fatal) warn.push('FATAL ERROR (rail over-voltage, or a failed start-up): everything is off until the power is cycled.');
+  else if (connected && p1 && !inDev() && p1.alarm) warn.push('Alarm: ' + (STOP[p1.alarm] || p1.alarm) + (p1.alarm === 3 ? ' out of regulation, charging paused' : ''));
+  $('banner').style.display = warn.length ? 'block' : 'none';
+  $('banner').className = fatal || (live && (p3.trip || p3.supplyStop || p3.watchdog)) ? 'bad' : '';
+  $('banner').innerHTML = warn.map(w => '<div>' + w + '</div>').join('');
+
+  if (kind === 'fw') $('bFlash').disabled = busy || !fw || !connected || !!(p1 && p1.run);
+  if (inDev()) renderDev(); else renderMonitor();
+}
+
+const item = (name, val, sub) => `<div><span>${name}</span><b class="num">${val}</b>${sub ? '<small class="num">' + sub + '</small>' : ''}</div>`;
+const amps = c => (c * A).toFixed(2) + ' A';
+
+function renderMonitor() {
+  const d = p1;
+  if (!d) return;
+  const vcc = d.bandgap ? 1.19 * 4096 / d.bandgap : 0;
+  $('sum').innerHTML =
+    `<div><span>Status</span><b class="big">${d.phase === 128 ? 'Fatal error' : d.phase !== 7 ? 'Starting…' : d.run ? (d.railHold ? 'Paused' : 'Charging') : 'Ready'}</b></div>` +
+    item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V') +
+    item('Ports charging', d.state.filter(x => x === 2).length + ' of 6');
+  $('inputs').innerHTML =
+    item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') +
+    item('Rail', (rd(d.rail, d.bandgap) * V).toFixed(3) + ' V', d.rail + ' cnt') +
+    item('Rail PWM', d.railDuty, '/ 400') +
+    item('VCC', vcc.toFixed(2) + ' V', 'bandgap ' + d.bandgap) +
+    (p2 ? item('Fan', p2.fan ? 'ON' : 'off') : '') +
+    item('Strap P3.4', d.strap);
+  $('charger').innerHTML =
+    item('State', d.run ? (d.railHold ? 'PAUSED' : 'CHARGING') : 'idle') +
+    item('Target', VOLTS[d.volt]) +
+    item('Phase', PHASE[d.phase] || d.phase) +
+    item('Last stop', d.stop ? STOP[d.stop] || d.stop : '-');
+  $('setpoints').innerHTML =
+    item('Cell target', p2 ? (p2.target * V).toFixed(3) + ' V' : VOLTS[d.volt], p2 ? p2.target + ' vu' : '') +
+    item('Rail setpoint', p2 ? (p2.setpoint * V).toFixed(3) + ' V' : '-', p2 ? p2.setpoint + ' vu' : '') +
+    item('Charge current', (d.iset * A).toFixed(2) + ' A', d.iset + ' iu') +
+    item('Rail now', (rd(d.rail, d.bandgap) * V).toFixed(3) + ' V', 'PWM ' + d.railDuty);
+  $('limits').innerHTML = !p2 ? '' :
+    item('Max input', p2.ilim ? (p2.ilim / 10).toFixed(1) + ' A' : 'off') +
+    item('Min input', p2.vmin ? vminV(p2.vmin).toFixed(2) + ' V' : 'off', p2.vmin ? (p2.vcut ? 'stop run' : 'limit') : '') +
+    item('Regulation', LMODE[p2.lmode] || p2.lmode) +
+    item('Est. input', (p2.estMa / 1000).toFixed(2) + ' A') +
+    item('Budget', p2.budget >= P_NONE ? 'none' : (p2.budget / 10).toFixed(1) + ' W', p2.bcnt ? '= ' + amps(p2.bcnt) : '');
+  portEls.forEach((p, k) => {
+    const st = d.state[k], sw = !!(d.sw >> k & 1);
+    p.el.classList.toggle('cut', st === 6);
+    p.v.textContent = (d.v[k] * V).toFixed(3) + ' V';
+    p.i.textContent = (d.i[k] * A).toFixed(3) + ' A';
+    p.meta.innerHTML = `<span class="st s${st}">${adv ? STATE[st] : STATE_TXT[st]}</span>` + (adv ? `<br>PWM ${d.duty[k]}${sw ? ' · bleed' : ''}` : '');
+    p.lim.textContent = st === 2 && p2 ? 'setpoint ' + amps(p2.want[k]) + ' · cap ' + (p2.cap[k] === 0 ? 'none' : p2.cap[k] === 1 ? 'PARKED' : amps(p2.cap[k])) +
+                                         ' · regulated to ' + amps(p2.set[k]) : 'setpoint - (not charging)';
+    spark(p.canvas, hist[k]);
+  });
+  $('log').innerHTML = events.slice(0, 100).map(e => `<li><span class="num">${(e.ms / 1000).toFixed(1)} s</span>${e.text}</li>`).join('') ||
+                       '<li class="lim">nothing yet: port state changes, finished and faulted ports and stops appear here</li>';
+}
+
+function renderDev() {
+  if (!p3) return;
+  const d = p3, vcc = d.bandgap ? 1.19 * 4096 / d.bandgap : 0;
+  $('inputs').innerHTML =
+    item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') +
+    item('Rail', (rd(d.rail, d.bandgap) * V).toFixed(3) + ' V', d.rail + ' cnt') +
+    item('Rail PWM', d.railDuty, '/ 400') +
+    item('Rail setpoint', (d.setpoint * V).toFixed(3) + ' V', d.setpoint) +
+    item('VCC', vcc.toFixed(2) + ' V', 'bandgap ' + d.bandgap) +
+    item('Thermistor', d.therm, 'ADC0') +
+    item('Button 1', d.b1 ? 'DOWN' : 'up') + item('Button 2', d.b2 ? 'DOWN' : 'up') + item('Strap P3.4', d.strap);
+  $('aRail').textContent = 'applied: ' + (d.flags & DF.RAW ? 'raw duty ' : 'regulated, duty ') + d.railDuty;
+  flagEls.forEach(x => { const on = !!(d.flags & DF[x.f]); x.applied.textContent = 'applied: ' + (on ? 'on' : 'off'); x.applied.classList.toggle('on', on); });
+  portEls.forEach((p, k) => {
+    const cut = !!(d.trip >> k & 1), sw = !!(d.sw >> k & 1);
+    p.el.classList.toggle('cut', cut);
+    p.v.textContent = (rd(d.v[k], d.bandgap) * V).toFixed(3) + ' V';
+    p.i.textContent = (rd(d.i[k], d.bandgap) * A).toFixed(3) + ' A';
+    p.meta.innerHTML = (cut ? '<span class="badge">CUT</span><br>' : '') + d.v[k] + ' / ' + d.i[k] + ' cnt<br>PWM ' + d.duty[k];
+    p.applied.textContent = 'applied: ' + (sw ? 'bleed' : 'charge path');
+    p.applied.classList.toggle('on', sw);
+    spark(p.canvas, hist[k]);
+  });
+}
+syncControls();
+setInterval(render, 100);
+</script>
+</body>
+</html>

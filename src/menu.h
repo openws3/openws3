@@ -19,8 +19,8 @@
 
 enum { MA_NONE = 0, MA_CHANGED, MA_LOCKED, MA_DIAG, MA_EXIT };
 
-void        menu_open(uint8_t run, uint8_t cur_max);     /* cur_max: highest current allowed now */
-void        menu_context(uint8_t run, uint8_t cur_max);  /* refresh run / cur_max while the menu is open */
+void        menu_open(uint8_t run);                      /* run: charging, which locks the voltage and current */
+void        menu_context(uint8_t run);                   /* refresh run while the menu is open */
 uint8_t     menu_event(uint8_t ev);                      /* an input.h event; returns MA_* */
 uint8_t     menu_editing(void);
 const char *menu_text(uint8_t row);                      /* the text of one row, ROW_COLS characters, valid until the next call */

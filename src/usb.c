@@ -87,7 +87,7 @@ static setup_t XD setup;
 static uint8_t XD ep0_stage;
 static uint16_t XD ep0_left;
 static const __code uint8_t * XD ep0_ptr;
-static uint8_t XD rx[8];
+static uint8_t XD rx[USB_CMD];
 static volatile uint8_t XD rx_pending, configured, start_stream;
 
 static uint8_t sie_read(uint8_t addr)
@@ -141,11 +141,11 @@ void usb_init(void)
 
 uint8_t usb_configured(void) { return configured; }
 
-uint8_t usb_cmd_get(uint8_t *cmd8)
+uint8_t usb_cmd_get(uint8_t *cmd)
 {
     uint8_t i, got = 0;
     IE2 &= (uint8_t)~0x80;
-    if (rx_pending) { for (i = 0; i < 8; i++) cmd8[i] = rx[i]; rx_pending = 0; got = 1; }
+    if (rx_pending) { for (i = 0; i < USB_CMD; i++) cmd[i] = rx[i]; rx_pending = 0; got = 1; }
     IE2 |= 0x80;
     return got;
 }
@@ -253,7 +253,7 @@ void usb_isr(void)
         if (csr & OUTSTSTL) sie_write(OUTCSR1, OUTCLRDT);
         if (csr & OUTOPRDY) {
             uint8_t n = sie_read(COUNT0);
-            for (i = 0; i < n; i++) { uint8_t b = sie_read(FIFO1); if (i < 8) rx[i] = b; }
+            for (i = 0; i < n; i++) { uint8_t b = sie_read(FIFO1); if (i < USB_CMD) rx[i] = b; }
             sie_write(OUTCSR1, 0);
             rx_pending = 1;
         }

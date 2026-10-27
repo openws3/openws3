@@ -7,38 +7,38 @@
  *                  less) and grows back slowly once the input is 0.1 V above the floor.  With vcut set the floor does not
  *                  regulate: the run is stopped instead (the caller shows why) after a second below it.
  *   P = the smaller of the two; the port current budget follows from it: P x 90 % / rail voltage
- * One setting, the regulation, decides how the budget is shared out over the charging ports:
- *   LM_EQUAL     every port gets the same share (a port that wants less frees the rest); if the share would be too small to
- *                drive, the highest-numbered ports are parked so that the others get a usable one
- *   LM_BY_CH     one by one: port 1 keeps its current longest, the highest port number is cut first
- *   LM_BY_VHIGH  one by one: the cell with the highest voltage keeps its current longest
+ * The ports may only grow into the budget, never past it.  Every pass (the gate):
+ *   - a port that wants more current (below its setting, duty not at the top) may raise its duty, by at most one count, only while
+ *     the measured port currents leave LIM_ROOM per rising port under the budget; the room goes to the ports in priority order
+ *   - above the budget, the lowest-priority port that draws current is brought down by about the excess
+ *   - a port that wants more but gets no room takes it from a lower-priority port the same way
+ * Budget is only handed out once it is free as measured, so a rising port cannot race a slow falling one.
+ * One setting, the regulation, is the priority order:
+ *   LM_EQUAL     the port with the lowest current first: the currents even out (a port that wants less leaves the rest)
+ *   LM_BY_CH     port 1 first, the highest port number is cut first
+ *   LM_BY_VHIGH  the cell with the highest voltage first
  * Input current is estimated, not measured: rail voltage x the sum of the measured port currents / (90 % x input voltage).
- * The sharing is a pure function of the budget and the ports' want, voltage and measured current: higher-priority ports reserve
- * what they really draw (so a port in its taper makes room for the next one).  The result is a cap per port:
- * 0 = none, LIM_PARK = parked (output off), else a current in counts (1/68.25 A).
  */
 #ifndef LIMITS_H
 #define LIMITS_H
 #include "compat.h"
-#include "board.h"
+#include "chg.h"
 
 enum { LM_EQUAL = 0, LM_BY_CH, LM_BY_VHIGH, LM_NMODES };
 enum { LT_NONE = 0, LT_VOLTAGE };
 
-#define LIM_PARK       1        /* cap value: the port is switched off until the budget allows its current again */
 #define LIM_P_BIG      10000    /* budget value meaning "no limit" (1000 W) */
-#define LIM_CAP_MIN    7        /* a share below this (0.1 A) is not worth driving: the port is parked instead */
+#define LIM_ROOM       3        /* iu (44 mA) under the budget per port that may rise this pass: what one duty count adds, with margin */
 
-/* settings ranges (stored in these units) */
+/* settings ranges (stored in these units); the steps between are in limits.c */
 #define ILIM_OFF       0
 #define ILIM_MIN       5        /* 0.5 A  (0.1 A units) */
-#define ILIM_KNEE      30       /* 0.1 A steps up to 3 A, 0.5 A above */
 #define ILIM_MAX       100      /* 10 A */
 #define VMIN_OFF       0
-#define VMIN_MIN       96       /* 4.80 V  (0.05 V units) */
-#define VMIN_FINE      100      /* 0.05 V steps up to 5.00 V, 0.1 V steps up to 6.00 V, 0.5 V above */
-#define VMIN_COARSE    120
-#define VMIN_MAX       250      /* 12.50 V */
+#define VMIN_MIN       96       /* 4.80 V: 0.05 V per unit up to VMIN_KNEE, 0.5 V per unit above (one byte reaches big packs) */
+#define VMIN_KNEE      200      /* 10.0 V */
+#define VMIN_MAX       230      /* 25.0 V: 6S at 3.3 V per cell fits, and the input ADC reads to about 26.9 V */
+#define VMIN_MV(v)     ((v) <= VMIN_KNEE ? (uint32_t)(v) * 50u : 10000u + ((uint32_t)(v) - VMIN_KNEE) * 500u)
 
 typedef struct {
     uint8_t ilim;               /* input current limit, 0.1 A units, 0 = off */
@@ -48,19 +48,23 @@ typedef struct {
 } lim_cfg_t;
 
 typedef struct {
-    uint16_t rail, vin;                     /* filtered ADC counts */
+    uint16_t rail, vin;                     /* filtered readings (adc.h) */
     uint8_t  charging[NPORTS];              /* the port is in the CHARGE state */
-    uint8_t  want[NPORTS];                  /* its working current before the limits, counts */
-    uint16_t v[NPORTS], i[NPORTS];          /* filtered port voltage / current, counts */
+    uint8_t  want[NPORTS];                  /* its working current before the limits, iu */
+    uint16_t v[NPORTS], i[NPORTS];          /* filtered port voltage (vu) / current (iu) */
+    uint8_t  up[NPORTS];                    /* the port wants more current (chg_out_t.up) */
 } lim_in_t;
 
 typedef struct {
-    uint8_t  cap[NPORTS];                   /* 0 none, LIM_PARK, else counts */
+    uint8_t  on;                            /* a limit is in force: the gate below applies */
+    uint8_t  rise;                          /* bit k: port k may raise its duty this pass */
+    uint8_t  cut;                           /* the port to bring down this pass, NPORTS = none ... */
+    uint8_t  excess;                        /* ... by about this much current, iu */
     uint8_t  trip;                          /* LT_VOLTAGE: the input was below the floor for a second and vcut is set: stop the run */
     uint16_t est_ma;                        /* estimated input current */
     uint16_t budget;                        /* the power budget, 0.1 W (diagnostics); LIM_P_BIG = no limit */
     uint16_t p_cur, p_vol;                  /* the two parts of it: from the current limit / from the voltage floor (LIM_P_BIG = not active) */
-    uint16_t bcnt;                          /* the budget as a total port current, counts; 0 = no limit active */
+    uint16_t bcnt;                          /* the budget as a total port current, iu; 0 = no limit active */
 } lim_out_t;
 
 /* The data goes through these globals, not parameters: direct RAM is full on this chip and function parameters live there. */
@@ -69,11 +73,11 @@ extern lim_in_t  XD lim_in;                 /* filled by the caller before lim_p
 extern lim_out_t XD lim_out;                /* the result */
 
 void lim_reset(void);                       /* at the start of a run, and whenever nothing is charging */
-void lim_pass(void);
+void lim_pass(void);                        /* every control pass: the budget every ~100 ms, the gate every pass */
 
-/* the values the menu steps through: 0 (off), then min .. knee in 0.1 steps, then 0.5 steps up to max; clamped, no wrap */
-uint8_t vmin_step(uint8_t v, uint8_t up);        /* the same for MIN IN VOLTS: off, VMIN_MIN .. VMIN_MAX in the steps above */
-uint8_t lim_step(uint8_t v, uint8_t up, uint8_t min, uint8_t knee, uint8_t max);
+/* the values the menu steps through: 0 (off), then min .. max in steps that grow with the value; clamped, no wrap */
+uint8_t ilim_step(uint8_t v, uint8_t up);        /* MAX IN AMPS: 0.5 .. 3.0 A by 0.1 A, then by 0.5 A */
+uint8_t vmin_step(uint8_t v, uint8_t up);        /* MIN IN VOLTS: 4.80 .. 5.00 V by 0.05 V, .. 6.00 V by 0.1 V, then by 0.5 V to 25 V */
 const char *lim_mode_name(uint8_t m);      /* REGULATION as shown: "EQUAL" ... (unknown -> "EQUAL") */
 
 #endif

@@ -8,8 +8,8 @@
 #include "chg.h"
 
 #include "check.h"
-#define IN(v) lim_step(v, 1, ILIM_MIN, ILIM_KNEE, ILIM_MAX)
-#define IP(v) lim_step(v, 0, ILIM_MIN, ILIM_KNEE, ILIM_MAX)
+#define IN(v) ilim_step(v, 1)
+#define IP(v) ilim_step(v, 0)
 #define VN(v) vmin_step(v, 1)
 #define VP(v) vmin_step(v, 0)
 
@@ -42,7 +42,7 @@ static void plant(void)
     uint8_t k;
     for (k = 0; k < NPORTS; k++) {
         uint8_t c = out.cap[k];
-        in.i[k] = !in.charging[k] ? 0 : c == LIM_PARK ? 0 : (c && c < in.want[k]) ? c : in.want[k];
+        in.i[k] = !in.charging[k] ? 0 : c == CAP_PARK ? 0 : (c && c < in.want[k]) ? c : in.want[k];
         if (taper[k] && in.i[k] > taper[k]) in.i[k] = taper[k];
     }
 }
@@ -50,11 +50,10 @@ static void plant(void)
 static void run(int passes) { while (passes--) { plant(); lim_pass(); } }
 
 /* how permissive a cap is: none > counts > parked */
-static int rank(uint8_t c) { return c == 0 ? 1000 : c == LIM_PARK ? -1 : c; }
+static int rank(uint8_t c) { return c == 0 ? 1000 : c == CAP_PARK ? -1 : c; }
 
 static void t_est(void)
 {
-    CHECK(LIM_PARK == CAP_PARK);                 /* the two modules agree on the parked marker */
     setup(3, 91);
     run(22);                                     /* one update: 3 x 1.33 A at 4.2 V from 12 V at 90 %: 1.56 A */
     CHECK(abs((int)out.est_ma - 1561) < 30);
@@ -71,7 +70,7 @@ static void t_equal(void)
     run(600);
     CHECK(out.budget == 120);
     CHECK(out.est_ma <= 1030 && out.est_ma >= 850);                         /* holds at the limit, not far below it */
-    for (k = 1; k < 4; k++) CHECK(abs((int)out.cap[k] - (int)out.cap[0]) <= 1 && out.cap[k] > LIM_PARK);   /* equal shares */
+    for (k = 1; k < 4; k++) CHECK(abs((int)out.cap[k] - (int)out.cap[0]) <= 1 && out.cap[k] > CAP_PARK);   /* equal shares */
     CHECK(out.cap[4] == 0 && out.cap[5] == 0);                              /* idle ports are untouched */
     cfg.ilim = 0;                                                           /* limit removed: caps vanish at the next update */
     run(60);
@@ -95,21 +94,21 @@ static void t_equal_few(void)
     cfg.ilim = 4; cfg.mode = LM_EQUAL;         /* 0.4 A at 5 V: 29 counts, 5.8 each for five ports: below the minimum of 7 */
     run(300);
     CHECK(out.bcnt >= 28 && out.bcnt <= 30);
-    for (k = 0; k < 4; k++) CHECK(out.cap[k] >= LIM_CAP_MIN && out.cap[k] != LIM_PARK);
-    CHECK(out.cap[4] == LIM_PARK);
+    for (k = 0; k < 4; k++) CHECK(out.cap[k] >= LIM_CAP_MIN && out.cap[k] != CAP_PARK);
+    CHECK(out.cap[4] == CAP_PARK);
     for (sum = 0, k = 0; k < NPORTS; k++) sum += in.i[k];
     CHECK(sum > 0 && sum <= out.bcnt);
     cfg.ilim = 5;                              /* 36 counts: 7.2 each would do for a running port, but not to restart the parked one */
     run(300);
-    CHECK(out.cap[4] == LIM_PARK && out.cap[3] != LIM_PARK);
+    CHECK(out.cap[4] == CAP_PARK && out.cap[3] != CAP_PARK);
     cfg.ilim = 10;                             /* 72 counts: 14.4 each: everybody runs, the parked port restarts */
     run(300);
-    for (k = 0; k < 5; k++) CHECK(out.cap[k] != LIM_PARK);
+    for (k = 0; k < 5; k++) CHECK(out.cap[k] != CAP_PARK);
     setup(3, 35);                              /* wants below the share do not count against it: 20 counts for port 1 only */
     in.vin = vin_raw(5040); in.want[0] = 6; in.want[1] = 6; in.want[2] = 35;
     cfg.ilim = 4; cfg.mode = LM_EQUAL;
     run(300);
-    CHECK(out.cap[0] == 0 && out.cap[1] == 0 && out.cap[2] != LIM_PARK);    /* the two small ports fit, the big one gets the rest */
+    CHECK(out.cap[0] == 0 && out.cap[1] == 0 && out.cap[2] != CAP_PARK);    /* the two small ports fit, the big one gets the rest */
 }
 
 static void t_follows_input(void)
@@ -175,18 +174,18 @@ static void t_taper(void)
     setup(3, 91);
     cfg.ilim = 10; cfg.mode = LM_BY_CH;                                     /* 1.0 A of input: about 1.9 ports */
     run(300);
-    CHECK(out.cap[0] == 0 && out.cap[2] == LIM_PARK);                       /* port 3 waits */
+    CHECK(out.cap[0] == 0 && out.cap[2] == CAP_PARK);                       /* port 3 waits */
     was = out.cap[2];
     for (n = 0; n < 4000; n++) {
         taper[0] = (uint8_t)(91 - n * 70 / 4000);                           /* port 1's current decays from 91 to 21 */
         plant(); lim_pass();
-        if (out.cap[2] != LIM_PARK) started = 1;
-        if (started && out.cap[2] == LIM_PARK && was != LIM_PARK) flips++;
+        if (out.cap[2] != CAP_PARK) started = 1;
+        if (started && out.cap[2] == CAP_PARK && was != CAP_PARK) flips++;
         was = out.cap[2];
     }
     CHECK(started);                                                         /* port 3 started once there was room */
     CHECK(flips == 0);                                                      /* and was not parked again */
-    CHECK(out.cap[1] == 0 || out.cap[1] > LIM_PARK);                        /* port 2 is not parked */
+    CHECK(out.cap[1] == 0 || out.cap[1] > CAP_PARK);                        /* port 2 is not parked */
     CHECK(out.est_ma <= 1650);                                              /* the limit still holds */
 }
 
@@ -237,13 +236,14 @@ static void t_both_and_steps(void)
     in.vin = vin_raw(9000);
     run(400);
     CHECK(out.budget <= 72);                                                /* 0.8 A x 9 V = 7.2 W from the current limit (or less from the floor) */
-    CHECK(out.cap[0] == 0 || out.cap[0] > LIM_PARK);
+    CHECK(out.cap[0] == 0 || out.cap[0] > CAP_PARK);
     CHECK(rank(out.cap[1]) <= rank(out.cap[0]));
 
     CHECK(IN(0) == 5 && IN(29) == 30 && IN(30) == 35 && IN(98) == 100 && IN(100) == 100);
     CHECK(IP(5) == 0 && IP(0) == 0 && IP(30) == 29 && IP(35) == 30 && IP(100) == 95);
-    CHECK(VN(0) == 96 && VN(99) == 100 && VN(100) == 102 && VN(118) == 120 && VN(120) == 130 && VN(250) == 250 && VN(245) == 250);
-    CHECK(VP(96) == 0 && VP(0) == 0 && VP(100) == 99 && VP(102) == 100 && VP(120) == 118 && VP(130) == 120 && VP(250) == 240);
+    CHECK(VN(0) == 96 && VN(99) == 100 && VN(100) == 102 && VN(118) == 120 && VN(120) == 130 && VN(190) == 200 && VN(200) == 201 && VN(229) == 230 && VN(230) == 230);
+    CHECK(VP(96) == 0 && VP(0) == 0 && VP(100) == 99 && VP(102) == 100 && VP(120) == 118 && VP(130) == 120 && VP(200) == 190 && VP(201) == 200 && VP(230) == 229);
+    CHECK(VMIN_MV(96) == 4800 && VMIN_MV(200) == 10000 && VMIN_MV(201) == 10500 && VMIN_MV(230) == 25000);   /* 0.5 V per step everywhere above 6 V */
 }
 
 int main(void)

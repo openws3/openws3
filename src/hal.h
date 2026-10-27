@@ -16,7 +16,6 @@ void     hal_sw(uint8_t port, uint8_t on);       /* per-port switch pin: 0 = cha
 void     hal_global(uint8_t on);                 /* P5.2 */
 void     hal_power(uint8_t on);                  /* P4.7 */
 void     hal_profile(uint8_t on);                /* P5.3 */
-void     hal_power_down(void);                   /* ports off, P5.2/P4.7/P5.3/P0.7 low, interrupts off, STOP mode; does not return */
 void     hal_reboot_isp(void);                   /* outputs off, then a software reset into the USB ISP loader; does not return */
 void     hal_all_off(void);                      /* every enable low, every duty 0, P5.2 low */
 
@@ -33,7 +32,7 @@ void     hal_delay_ms(uint16_t ms);              /* busy wait on the tick; inter
 
 void     hal_tick(void);                         /* called from the 0.5 ms interrupt (defined in main.c: the vector must live with main()) */
 void     hal_tone(uint8_t level);                /* P4.6 */
-void     hal_alarm(uint8_t level);               /* P0.7 */
+void     hal_fan(uint8_t on);                    /* P0.7 */
 uint8_t  hal_btn(uint8_t n);                     /* 1 = button 1 (P3.2) pressed, 2 = button 2 (P3.6); active low pins */
 uint8_t  hal_strap(void);                        /* P3.4 */
 

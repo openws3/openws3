@@ -4,24 +4,28 @@
 
 #define SLOW_EVERY 8
 #define BG_NOM     1071       /* bandgap count at the VCC the calibration was made at */
+#define FULL       4092       /* a raw mean this close to 4095 is at full scale: the input is beyond what the ADC measures */
 
-static uint16_t XD raw[NADC], filt[NADC];
-static uint16_t XD gain = 4096;                 /* 4096 * BG_NOM / bandgap */
+static uint16_t XD raw[NADC], filt[NADC];       /* raw: counts as converted; filt: readings (adc.h) */
+static uint16_t XD gain;                        /* 4096 * BG_NOM / bandgap (no initialiser: README build rule 1) */
 static uint8_t  XD slow_div;
 
-/* The mean of 2^sh samples, and a first-order filter on it (12-bit values: the sums fit 16 bits).  A conversion counts
- * against VCC, which sags when the input does under load: every voltage then reads high.  So the readings are scaled by
- * the bandgap, back to what they would be at BG_NOM.  Not the bandgap itself, nor the thermistor (its divider sits on VCC). */
+uint16_t adc_now(uint8_t ch)
+{
+    ch &= 0x0F;
+    if (ch == ADC_BANDGAP || ch == ADC_IIN) return raw[ch];
+    return (uint16_t)(((uint32_t)raw[ch] * gain + 2048) >> 12);
+}
+
+/* the mean of 2^sh samples (12-bit values: the sums fit 16 bits), and a first-order filter on the reading made from it */
 static void conv(uint8_t ch, uint8_t sh)
 {
     uint16_t s = 0;
     uint8_t k;
     for (k = 0; k < (uint8_t)(1u << sh); k++) s += hal_adc(ch);
-    s >>= sh;
-    if (ch == ADC_BANDGAP) { if (s) gain = (uint16_t)(((uint32_t)BG_NOM << 12) / s); }
-    else if (ch != ADC_IIN) s = (uint16_t)(((uint32_t)s * gain + 2048) >> 12);
-    raw[ch] = s;
-    filt[ch] = (filt[ch] + raw[ch] + 1) >> 1;
+    raw[ch] = s >> sh;
+    if (ch == ADC_BANDGAP && raw[ch]) gain = (uint16_t)(((uint32_t)BG_NOM << 12) / raw[ch]);
+    filt[ch] = (filt[ch] + adc_now(ch) + 1) >> 1;
 }
 
 void adc_scan_slow_now(void)
@@ -40,10 +44,12 @@ void adc_scan(void)
 void adc_prime(void)
 {
     uint8_t ch;
+    gain = 4096;
     adc_scan(); adc_scan_slow_now();
-    for (ch = 0; ch < NADC; ch++) filt[ch] = raw[ch];
+    for (ch = 0; ch < NADC; ch++) filt[ch] = adc_now(ch);
     adc_scan(); adc_scan_slow_now();
 }
 
 uint16_t adc_raw(uint8_t ch) { return raw[ch & 0x0F]; }
 uint16_t adc_get(uint8_t ch) { return filt[ch & 0x0F]; }
+uint8_t  adc_saturated(uint8_t ch) { return raw[ch & 0x0F] >= FULL; }

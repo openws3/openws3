@@ -5,14 +5,14 @@ uint16_t cal_port_mv(uint16_t raw)
     return (uint16_t)(((uint32_t)raw * 1125u) >> 10);          /* 4500/4096 */
 }
 
-uint16_t cal_mv_to_port(uint16_t mv)
-{
-    return (uint16_t)(((uint32_t)mv * 1024u + 562u) / 1125u);
-}
-
 uint16_t cal_port_ma(uint16_t raw)
 {
     return (uint16_t)(((uint32_t)raw * 4000u + 136u) / 273u);   /* 1000/68.25 */
+}
+
+uint16_t cal_ma_to_port(uint16_t ma)
+{
+    return (uint16_t)((uint32_t)ma * 273u / 4000u);
 }
 
 uint16_t cal_vin_mv(uint16_t raw)
