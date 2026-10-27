@@ -167,8 +167,8 @@ sudo udevadm control --reload-rules</pre>
     <h2>Setpoints</h2>
     <div class="kv" id="setpoints"></div>
     <p class="hint">What the charger regulates to: the cell target voltage, the rail it holds for that target, the charge current
-      setting. Each port shows its own current setpoint while it charges (a storage charge steps it down near the end), the limiter's
-      cap and the current it is actually regulated to.</p>
+      setting. Each port shows its own current setpoint while it charges (a storage charge steps it down near the end) and whether
+      the limiter holds it below that.</p>
   </section>
   <div class="row2 devonly fwonly">
     <section class="card">
@@ -194,8 +194,8 @@ sudo udevadm control --reload-rules</pre>
     <h2>Ports</h2>
     <div class="ports" id="ports"></div>
     <p class="hint mononly">Voltage and current of each port. The plot shows the current over the last 10 s.</p>
-    <p class="hint adv mononly">While charging, each port also shows its current setpoint, the limiter's cap and the current it is
-      regulated to.</p>
+    <p class="hint adv mononly">While charging, each port also shows its current setpoint and whether the limiter holds it below that
+      (waiting: no current until there is room).</p>
     <p class="hint devonly">PWM 0..400 per port; BLEED switches the port to its discharge path. A port above 4.40 V or 2.8 A is cut by the
       firmware until it is set to 0 and the bleed switch off. The plot shows the current over the last 10 s.</p>
   </section>
@@ -264,7 +264,7 @@ function parse(dv) {
     }
   } else if (r[3] === 2) {
     p2 = { ilim: r[8], vmin: r[9], vcut: r[10], lmode: r[11], budget: u16(12), estMa: u16(18), bcnt: u16(20),
-           cap: six(k => r[24 + k]), want: six(k => r[30 + k]), set: six(k => r[36 + k]), setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61] };
+           gate: six(k => r[24 + k]), want: six(k => r[30 + k]), setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61] };
   } else if (r[3] === 3) {
     p3 = { v: [0, 1, 2, 3, 4, 5].map(k => u16(8 + 2 * k)), i: [0, 1, 2, 3, 4, 5].map(k => u16(20 + 2 * k)),
            therm: u16(32), vin: u16(34), rail: u16(36), bandgap: u16(38), duty: [0, 1, 2, 3, 4, 5].map(k => u16(40 + 2 * k)),
@@ -678,8 +678,8 @@ function renderMonitor() {
     p.v.textContent = (d.v[k] * V).toFixed(3) + ' V';
     p.i.textContent = (d.i[k] * A).toFixed(3) + ' A';
     p.meta.innerHTML = `<span class="st s${st}">${adv ? STATE[st] : STATE_TXT[st]}</span>` + (adv ? `<br>PWM ${d.duty[k]}${sw ? ' · bleed' : ''}` : '');
-    p.lim.textContent = st === 2 && p2 ? 'setpoint ' + amps(p2.want[k]) + ' · cap ' + (p2.cap[k] === 0 ? 'none' : p2.cap[k] === 1 ? 'PARKED' : amps(p2.cap[k])) +
-                                         ' · regulated to ' + amps(p2.set[k]) : 'setpoint - (not charging)';
+    p.lim.textContent = st === 2 && p2 ? 'setpoint ' + amps(p2.want[k]) + ' · ' + ((p2.gate[k] & 3) === 2 ? 'limiter: waiting' : p2.gate[k] & 3 ? 'limiter: held' : 'not limited')
+                                       : 'setpoint - (not charging)';
     spark(p.canvas, hist[k]);
   });
   $('log').innerHTML = events.slice(0, 100).map(e => `<li><span class="num">${(e.ms / 1000).toFixed(1)} s</span>${e.text}</li>`).join('') ||

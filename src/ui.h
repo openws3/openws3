@@ -11,7 +11,7 @@ typedef struct {
     uint8_t  state[NPORTS];               /* PS_* */
     uint16_t v[NPORTS], i[NPORTS];        /* filtered readings: vu / iu */
     uint8_t  alarm;                       /* STOP_* reason shown in the input-voltage box, 0 = none */
-    uint8_t  parked[NPORTS];              /* the user limits hold this port's output off */
+    uint8_t  parked[NPORTS];              /* the user limits hold this port with no current (it waits for room) */
     uint8_t  blink;                       /* toggles at ~1 Hz */
 } ui_state_t;
 

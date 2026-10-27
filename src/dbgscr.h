@@ -24,8 +24,8 @@ typedef struct {
     uint16_t rail, rail_duty, vin, bandgap;  /* rail, vin: filtered readings; bandgap: counts */
     uint16_t tgt, setpoint;
     uint8_t  volt, iset, run, stop, alarm, strap, rail_hold, fan, usb;
-    uint8_t  ilim, vmin, vcut, lmode, cap[NPORTS];            /* user limits (limits.h) */
-    uint16_t est_ma, budget;
+    uint8_t  ilim, vmin, vcut, lmode, held[NPORTS];           /* user limits (limits.h); held: chg_out_t.held */
+    uint16_t est_ma, budget, bcnt;
 } dbg_view_t;
 
 /* VCC in mV from the bandgap count: the internal reference is nominally 1.19 V and the ADC is referenced to VCC */

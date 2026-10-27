@@ -70,17 +70,22 @@ The bottom row of the screen shows these cues in its corners. Values apply at on
 current is estimated as rail voltage x the sum of the measured port currents / (90 % x input voltage).
 The current limit sets the budget directly (limit x input voltage). With BELOW MIN on `LIMIT`, the voltage floor keeps a stored budget that shrinks
 while the input is below the floor (a weak source recovers when it is loaded less) and grows slowly once it is back 0.1 V above it; the smaller of the
-two budgets rules. With `STOP RUN` the floor does not regulate: charging stops when the input stays below it for a second. REGULATION decides how
-the budget is shared:
+two budgets rules. With `STOP RUN` the floor does not regulate: charging stops when the input stays below it for a second.
 
-| REGULATION | What it does |
+The ports only grow into the budget, never past it. Every control pass the measured port currents are compared with it: a port may raise its
+current a step only while there is room for that step, and the room goes to the ports in priority order. Above the budget (it shrinks when the
+input sags), the lowest-priority port is brought down; a higher-priority port that wants more takes its room from the lowest-priority one the
+same way. Room is handed out only once it is free as measured, so a newly connected cell cannot draw more before the others have given it up.
+REGULATION is the priority order:
+
+| REGULATION | Who gets the room first |
 |---|---|
-| EQUAL | every charging port gets the same share (a port that wants less frees the rest); if the share would be under 0.1 A, the highest-numbered ports wait so the others get a usable current |
-| CH1 FIRST | one by one: port 1 keeps its current longest, the highest port number is reduced first, down to switched off |
-| HIGH V FIRST | one by one: the cell with the highest voltage keeps its current longest |
+| EQUAL | the port with the lowest current: the currents even out (a port that wants less leaves the rest to the others) |
+| CH1 FIRST | port 1, then port 2 ...; the highest port number is reduced first, down to switched off |
+| HIGH V FIRST | the cell with the highest voltage |
 
-Higher-priority ports reserve what they really draw, so a port in its taper makes room for the next one. A port that is switched off by
-a limit shows `LIMIT` and restarts at the duty it had. The supervisor's input gate (about 4.6 V) still applies underneath.
+A port in its taper draws less than it is set to, and the others get what it does not use. A port the limits hold with no current shows
+`LIMIT` and starts as soon as there is room. The supervisor's input gate (about 4.6 V) still applies underneath.
 
 **Running from a LiPo pack:** nothing detects the pack or its cell count. Set MIN IN VOLTS to the pack's cut-off (about 3.3 V per
 cell: 6.6 V for 2S, 13.2 V for 4S, 19.8 V for 6S) with BELOW MIN on `STOP RUN`, so charging stops before the pack is
@@ -97,7 +102,7 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 | 3 port I | raw ADC count, mA (corrected for VCC), PWM duty, state, bleed switch |
 | 4 status | run, target voltage, current setting, targets, stop/alarm, strap, USB |
 | 5 ADC raw | all 16 channels |
-| 6 limits | estimated input current, the two limits and their modes, the budget, the cap on each port |
+| 6 limits | estimated input current, the two limits and their modes, the budget (as power and as total port current), which ports the limits hold (H) or keep waiting (W) |
 
 ## Using it
 
@@ -109,7 +114,7 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 | Both buttons, tap | open the menu |
 
 Header: set current, input voltage, target voltage (red while charging). Cells: port voltage, and below it the measured
-current while charging (`LIMIT` when a user limit holds the port off), or `TEST` / `REST` / `FULL` / `BLEED` / `ERR`; the dot shows the state.
+current while charging (`LIMIT` when a user limit keeps the port waiting with no current), or `TEST` / `REST` / `FULL` / `BLEED` / `ERR`; the dot shows the state.
 
 ## Layout
 

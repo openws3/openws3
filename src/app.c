@@ -83,7 +83,8 @@ static void tele_limits(uint8_t ph, uint32_t ms)
         put16(usb_tx2, 18, lim_out.est_ma); put16(usb_tx2, 20, lim_out.bcnt);
         usb_tx2[22] = lim_out.trip; usb_tx2[23] = (uint8_t)(run && !rail_hold);        /* the limiter ran this pass */
         for (k = 0; k < NPORTS; k++) {
-            usb_tx2[24 + k] = lim_out.cap[k]; usb_tx2[30 + k] = cout.want[k]; usb_tx2[36 + k] = cout.set[k];
+            usb_tx2[24 + k] = (uint8_t)(cout.held[k] | (cout.up[k] != 0) << 2 | ((cin.rise >> k) & 1) << 3 | (cin.cut == k) << 4);
+            usb_tx2[30 + k] = cout.want[k];
         }
         put16(usb_tx2, 42, sup_setpoint(settings.volt)); put16(usb_tx2, 44, sup_target(settings.volt));    /* vu */
         usb_tx2[51] = cout.any_active;
@@ -448,11 +449,11 @@ void app_pass(void)
     hal_fan(sout.fan);
     if (sout.stop == STOP_RAIL && !buzz_busy()) buzz_play(PAT_RAIL_ALARM);
 
-    /* ---- user limits (limits.h): per-port current caps, or a stop when a STOP-mode limit is exceeded ---- */
+    /* ---- user limits (limits.h): the gate on the port duties, or a stop when a STOP-mode limit is exceeded ---- */
     if (run && !rail_hold) {
         for (k = 0; k < NPORTS; k++) {
             lim_in.charging[k] = cout.state[k] == PS_CHARGE; lim_in.want[k] = cout.want[k];
-            lim_in.v[k] = cout.v[k]; lim_in.i[k] = cout.i[k];
+            lim_in.v[k] = cout.v[k]; lim_in.i[k] = cout.i[k]; lim_in.up[k] = cout.up[k];
         }
         lim_in.rail = adc_get(ADC_RAIL); lim_in.vin = adc_get(ADC_VIN);
         lim_pass();
@@ -460,7 +461,7 @@ void app_pass(void)
     } else {
         lim_reset();
     }
-    for (k = 0; k < NPORTS; k++) cin.cap[k] = lim_out.cap[k];
+    cin.lim = lim_out.on; cin.rise = lim_out.rise; cin.cut = lim_out.cut; cin.excess = lim_out.excess;
 
     /* ---- charge control ---- */
     for (k = 0; k < NPORTS; k++) { cin.v_now[k] = adc_now(port_v_ch(k)); cin.i_now[k] = adc_now(port_i_ch(k)); }
@@ -485,7 +486,7 @@ void app_pass(void)
     /* ---- display ---- */
     ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui;
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
-    for (k = 0; k < NPORTS; k++) { ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.state[k] == PS_CHARGE && !cout.set[k]); }
+    for (k = 0; k < NPORTS; k++) { ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.held[k] == 2); }
     if (screen && screen != SCR_MENU) {
         uint8_t n;
         dbg_view.ms = hal_ms();
@@ -500,7 +501,8 @@ void app_pass(void)
         dbg_view.strap = strap; dbg_view.rail_hold = rail_hold; dbg_view.fan = sout.fan; dbg_view.usb = usb_configured();
         dbg_view.ilim = lim_cfg.ilim; dbg_view.vmin = lim_cfg.vmin; dbg_view.vcut = lim_cfg.vcut; dbg_view.lmode = lim_cfg.mode;
         dbg_view.est_ma = lim_out.est_ma; dbg_view.budget = lim_out.budget;
-        for (n = 0; n < NPORTS; n++) dbg_view.cap[n] = cin.cap[n];
+        dbg_view.bcnt = lim_out.bcnt;
+        for (n = 0; n < NPORTS; n++) dbg_view.held[n] = cout.held[n];
         ui_text_row(text_row, dbg_text(screen, text_row), text_row == 0 ? th(R_INFO) : th(R_TEXT));       /* one row per pass */
         if (++text_row == DBG_ROWS) text_row = 0;
     } else if (screen) {

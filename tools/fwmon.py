@@ -47,7 +47,7 @@ def parse_limits(r):
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     return dict(lim=dict(
         ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(12), p_cur=u16(14), p_vol=u16(16), est_ma=u16(18), bcnt=u16(20),
-        trip=r[22], active=r[23], cap=list(r[24:30]), want=list(r[30:36]), set=list(r[36:42]), setpoint=u16(42), target=u16(44),
+        trip=r[22], active=r[23], gate=list(r[24:30]), want=list(r[30:36]), setpoint=u16(42), target=u16(44),
         any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(57) << 16) | u16(59), dirty=r[61]))
 
 
@@ -144,18 +144,17 @@ def fmt_limits(t):
     L = t.get('lim')
     if not L or not t['run']: return ''
     amps = lambda c: '%.2fA' % (c * A_PER_COUNT)
-    cap = lambda c: '-' if c == 0 else 'PARK' if c == 1 else amps(c)
+    gate = lambda g: ('waiting' if (g & 3) == 2 else 'held' if g & 3 else 'free') + (' wants more' if g & 4 else '') + \
+        (' rising' if g & 8 else '') + (' brought down' if g & 16 else '')
     watts = lambda p: 'none' if p >= P_NONE else '%.1fW' % (p / 10)
     out = '\n         limits  in %s  min %s  below-min %s  regulation %s  | %s' % (
         '%.1fA' % (L['ilim'] / 10) if L['ilim'] else 'off', '%.2fV' % vmin_volts(L['vmin']) if L['vmin'] else 'off',
         'STOP RUN' if L['vcut'] else 'LIMIT', LMODE[L['lmode']] if L['lmode'] < len(LMODE) else L['lmode'], 'evaluated' if L['active'] else 'idle')
     out += '\n         budget  %s (current %s, voltage %s) = %s over the ports (%d counts)  est input %.2fA  trip %d' % (
-        watts(L['budget']), watts(L['p_cur']), watts(L['p_vol']), amps(L['bcnt']) if L['bcnt'] else 'no cap', L['bcnt'], L['est_ma'] / 1000, L['trip'])
+        watts(L['budget']), watts(L['p_cur']), watts(L['p_vol']), amps(L['bcnt']) if L['bcnt'] else 'no limit', L['bcnt'], L['est_ma'] / 1000, L['trip'])
     ports = [k for k in range(6) if t['state'][k] == 2]
     if ports:
-        out += '\n         ports   ' + '  '.join('%d: want %s cap %s set %s' % (k + 1, amps(L['want'][k]), cap(L['cap'][k]), amps(L['set'][k])) for k in ports)
-        if L['lmode'] == 0:
-            out += '\n         share   %s per port over %d charging' % (amps(L['bcnt'] // len(ports)) if L['bcnt'] else '-', len(ports))
+        out += '\n         ports   ' + '  '.join('%d: set %s %s' % (k + 1, amps(L['want'][k]), gate(L['gate'][k])) for k in ports)
     out += '\n         setpoints  target %.3fV  rail %.3fV  sup stop=%s' % (
         L['target'] * V_PER_COUNT, L['setpoint'] * V_PER_COUNT, STOP.get(L['sup_stop'], L['sup_stop']))
     return out

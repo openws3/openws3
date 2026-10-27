@@ -55,7 +55,8 @@ static void gate(void)
         g_k = g_ord[g_a];
         if (!lim_in.charging[g_k]) continue;
         if (lim_in.up[g_k]) {
-            if (g_room >= LIM_ROOM) { lim_out.rise |= (uint8_t)(1u << g_k); g_room -= LIM_ROOM; }
+            g_t = (uint8_t)(LIM_ROOM + 3u * lim_in.up[g_k]);
+            if (g_room >= g_t) { lim_out.rise |= (uint8_t)(1u << g_k); g_room -= g_t; }
             else if (g_deny == NPORTS) g_deny = g_k;      /* the first port that wants more and gets no room */
         }
         if (lim_in.i[g_k] > DRAWS) g_slack = g_k;          /* the last port that draws something */

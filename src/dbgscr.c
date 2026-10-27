@@ -88,15 +88,13 @@ const char *dbg_text(uint8_t page, uint8_t row)
         case 3: rb_str("MIN IN "); if (dbg_view.vmin) { rb_v3(VMIN_MV(dbg_view.vmin)); rb_str(dbg_view.vcut ? "V STOP" : "V LIMIT"); } else rb_str("OFF"); break;
         case 4: rb_str("REG "); rb_str(lim_mode_name(dbg_view.lmode)); break;
         case 5: rb_str("BUDGET "); if (dbg_view.budget >= LIM_P_BIG) rb_str("NONE"); else { rb_num(dbg_view.budget / 10, 0); rb_ch('.'); rb_num(dbg_view.budget % 10, 0); rb_str(" W"); } break;
-        case 6: case 7:
-            rb_str(row == 6 ? "CAP P1-3 " : "CAP P4-6 ");
-            for (k = 0; k < 3; k++) {
-                uint8_t c = dbg_view.cap[(row - 6) * 3 + k];
-                if (!c) rb_str("-  "); else if (c == 1) rb_str("OFF "); else { rb_num(c, 0); rb_ch(' '); }
-            }
+        case 6: rb_str("PORTS MAX "); if (dbg_view.bcnt) { rb_num(cal_port_ma(dbg_view.bcnt), 0); rb_str(" mA"); } else rb_str("NONE"); break;
+        case 7:
+            rb_str("HELD ");
+            for (k = 0; k < NPORTS; k++) { rb_ch(dbg_view.held[k] == 2 ? 'W' : dbg_view.held[k] ? 'H' : '-'); rb_ch(' '); }
             break;
         case 8: rb_str("TRIP "); rb_num(dbg_view.stop == STOP_VLIM, 0); break;
-        case 9: rb_str("CAP - NONE  OFF PARKED"); break;
+        case 9: rb_str("H HELD  W WAITS"); break;
         }
         break;
     default:                                                      /* page 5 */

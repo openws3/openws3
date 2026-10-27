@@ -57,9 +57,9 @@ Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Eve
 | 20, 21 | the budget as a total port current, iu (1/68.25 A); 0 = no limit active |
 | 22 | trip: 1 = the minimum input voltage stops the run |
 | 23 | the limiter ran this pass (running and no rail hold) |
-| 24–29 | cap per port: 0 none, 1 parked (output off), else a current in iu |
-| 30–35 | the current each port wants before the limits, iu (charging ports only) |
-| 36–41 | the current each port is regulated to after the limits, iu (0: parked or not charging) |
+| 24–29 | the limiter on each port: bits 0–1 held (1 = below its setting, 2 = waiting, no current), bit 2 wants more current, bit 3 may raise its duty this pass, bit 4 brought down this pass |
+| 30–35 | the current each port is set to, iu (charging ports only) |
+| 36–41 | reserved (0) |
 | 42, 43 / 44, 45 | the rail setpoint and the cell target voltage of the chosen target, vu |
 | 46–50 | reserved (0) |
 | 51 | some port is charging or bleeding (global enable) |

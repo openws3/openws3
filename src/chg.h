@@ -22,8 +22,6 @@
 
 enum { PS_IDLE = 0, PS_PROBE, PS_CHARGE, PS_REST, PS_FULL, PS_BLEED, PS_FAULT };
 
-#define CAP_PARK  1           /* chg_in_t.cap value: hold the port's output off (it keeps its state and timers) */
-
 /* events (one-shot, per port) for the UI / buzzer */
 enum { CE_NONE = 0, CE_FULL = 1, CE_FAULT = 2 };
 
@@ -37,7 +35,11 @@ typedef struct {
     uint8_t  iset[NPORTS];       /* per-port current setting (iu) */
     uint8_t  run;                /* charging requested */
     uint8_t  en[NPORTS];         /* the port takes part in the run (0: it stays idle, its output off) */
-    uint8_t  cap[NPORTS];        /* per-port current cap from the user limits (limits.h): 0 = none, CAP_PARK = output off, else iu */
+    /* the user limits' gate (limits.h) */
+    uint8_t  lim;                /* a limit is in force: a duty rises at most one count per pass, and only on the ports in rise */
+    uint8_t  rise;               /* bit k: port k may raise its duty this pass */
+    uint8_t  cut;                /* the port to bring down this pass (NPORTS = none) ... */
+    uint8_t  excess;             /* ... by about this much current (iu) */
 } chg_in_t;
 
 typedef struct {
@@ -48,8 +50,11 @@ typedef struct {
     uint16_t v[NPORTS];          /* filtered voltage (vu) */
     uint16_t i[NPORTS];          /* filtered current (iu) */
     uint8_t  any_active;         /* some port is charging or bleeding (global enable P5.2 must be on) */
-    uint8_t  want[NPORTS];       /* CHARGE: the working current before the caps (iu), else 0 */
-    uint8_t  set[NPORTS];        /* CHARGE: the current regulated to, after the caps (iu, 0 = parked), else 0 */
+    uint8_t  want[NPORTS];       /* CHARGE: the working current (iu), else 0 */
+    uint8_t  up[NPORTS];         /* CHARGE, below the working current and the duty can still rise: about what one more count adds (iu,
+                                    at least 1); else 0 */
+    uint8_t  held[NPORTS];       /* CHARGE: the limits hold the port below its working current (now or within the last second):
+                                    1, or 2 = and it draws nothing (waiting); else 0 */
 } chg_out_t;
 
 void chg_init(void);

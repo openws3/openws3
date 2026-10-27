@@ -28,6 +28,8 @@
 #define I_OPEN          2       /* "no current": 29 mA, the offset of the sense input */
 #define I_STEP          7       /* storage current step-down (0.1 A) */
 #define I_FLOOR         15      /* ... until the setting is below this, then the rest test */
+#define T_HELD          222     /* the limits held the port within this many passes (1 s): its current says nothing about the cell */
+#define DUTY_MIN        2       /* the lowest duty while charging (1 is not used) */
 
 typedef struct {
     uint8_t  st;
@@ -39,8 +41,7 @@ typedef struct {
     uint16_t t_tail, t_open, t_stor, t_rest, t_full, t_probe, t_gone;
     uint8_t  t_over, oc;
     uint8_t  announced;          /* the FULL beep was given for this fill */
-    uint8_t  want, ieff;         /* for the limits: working current before the cap, the current actually regulated to (below iset: capped) */
-    uint16_t pduty;              /* the duty a parked port had: it restarts from there (the soft ramp is minutes long on this hardware) */
+    uint8_t  want, up, t_held;   /* for the limits: working current, chg_out_t.up, passes left of "held by the limits" */
 } port_t;
 
 static port_t XD P[NPORTS], W;
@@ -48,7 +49,7 @@ static port_t XD P[NPORTS], W;
 static void p_reset(port_t XD *p, uint8_t iset)
 {
     p->st = PS_IDLE; p->duty = 0; p->sw = 0;
-    p->want = p->ieff = 0; p->pduty = 0;
+    p->want = p->up = p->t_held = 0;
     p->iset = iset; p->ramp = 0; p->ramp_div = 0;
     p->t_tail = p->t_open = p->t_stor = p->t_rest = p->t_full = p->t_probe = 0;
     p->t_over = p->oc = 0;
@@ -76,17 +77,35 @@ void chg_cut(void)
 /* per-port constant-current regulator: soft ramp, then duty += (Iset - I) / 2 */
 static void cc(port_t XD *p, uint16_t S)
 {
-    if (p->duty == 0) p->ramp = 1;
+    if (p->duty == 0 && !p->t_held) p->ramp = 1;           /* held by the limits: no soft start, the gate paces the rise */
     if (p->ramp) {
-        if (p->duty == 0) p->duty = 2;
+        if (p->duty == 0) p->duty = DUTY_MIN;
         if (++p->ramp_div >= T_RAMP_STEP) { p->ramp_div = 0; p->duty++; }
         if (p->duty >= PWM_PERIOD) { p->duty = PWM_PERIOD; p->ramp = 0; }
-        if (p->i >= p->ieff) p->ramp = 0;
+        if (p->i >= p->iset) p->ramp = 0;
         if (p->v > S - RAMP_END_MARGIN) p->ramp = 0;
     } else {
-        p->duty = (uint16_t)ctl_port_step((int16_t)p->duty, (int16_t)p->ieff, (int16_t)p->i);
+        p->duty = (uint16_t)ctl_port_step((int16_t)p->duty, (int16_t)p->iset, (int16_t)p->i);
     }
-    if (p->duty == 1) p->duty = 2;
+    if (p->duty == 1) p->duty = DUTY_MIN;
+}
+
+/* the limits' gate on what cc() wants: a rise only when the port is let, one count at most (from off: to DUTY_MIN); the port named
+   comes down by about the excess (as if the current were proportional to the duty: a duty wound up in a taper comes down fast), from
+   DUTY_MIN to off */
+static void gate(const chg_in_t XD *in, uint8_t k, uint16_t d0)
+{
+    uint16_t c;
+    if (W.t_held) W.t_held--;
+    if (W.duty > d0) {
+        if (!(in->rise & (1u << k))) { W.duty = d0; W.t_held = T_HELD; W.ramp = 0; }
+        else if (W.duty > (d0 ? d0 + 1 : DUTY_MIN)) W.duty = d0 ? d0 + 1 : DUTY_MIN;
+    }
+    if (k == in->cut && W.duty) {
+        c = W.i ? (uint16_t)((uint32_t)W.duty * in->excess / (2u * W.i)) + 1 : W.duty;     /* half per pass: the reading lags */
+        W.duty = W.duty > c + DUTY_MIN ? W.duty - c : W.duty > DUTY_MIN ? DUTY_MIN : 0;
+        W.t_held = T_HELD; W.ramp = 0;
+    }
 }
 
 static void to_probe(port_t XD *p, uint8_t g) { p_reset(p, g); p->st = PS_PROBE; }
@@ -152,7 +171,7 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
     if (volt < VOLT_STORAGE) W.iset = g;              /* working current: the setting (storage keeps its step-downs until the next probe) */
 
     W.sw = 0;
-    W.want = 0;
+    W.want = 0; W.up = 0;
     switch (W.st) {
 
     case PS_PROBE:
@@ -163,23 +182,23 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
 
     case PS_CHARGE: {
         uint8_t over_rail = W.v > in->rail + RAIL_MARGIN;
-        W.want = W.iset; W.ieff = W.iset;                  /* the user limits may hold the current below the wanted one, or park the port */
-        if (in->cap[k] == CAP_PARK) W.ieff = 0;
-        else if (in->cap[k] && in->cap[k] < W.iset) W.ieff = in->cap[k];
+        uint16_t d0 = W.duty;
+        W.want = W.iset;
         /* current limit supervision: 2*Iset + 7 for 200 passes */
         if (W.i >= (uint16_t)(2u * g + 7u)) {
             if (++W.oc >= T_OC) { W.oc = 0; go_fault(&W, ev); break; }
         } else if (W.oc) W.oc--;
 
         /* a cell pulled while charging: the loop winds the duty up, the pin follows the rail and nothing flows, which looks like the end
-           of a taper.  A real cell past its soft ramp always draws something; look at the pin with the output off (the rest test).  A port held at a cap still draws that cap, only a parked one (output off) says nothing */
-        if (W.ieff && !W.ramp && W.i <= I_OPEN) {
+           of a taper.  A real cell past its soft ramp always draws something; look at the pin with the output off (the rest test).  A port
+           the limits hold down may draw nothing at all */
+        if (!W.t_held && !W.ramp && W.i <= I_OPEN) {
             if (++W.t_open >= T_OPEN) { W.t_open = 0; to_rest(&W); break; }
         } else W.t_open = 0;
 
         if (!over_rail) {
-            if (W.ieff < W.iset) {
-                /* throttled: the current says nothing about the cell, so the tail and step-down timers stand still */
+            if (W.t_held) {
+                /* held by the limits: the current says nothing about the cell, so the tail and step-down timers stand still */
             } else if (volt < VOLT_STORAGE) {
                 if (W.v < T - WIN_LO_FULL) W.t_tail = 0;
                 else if (W.i > I_TAIL) { if (W.t_tail) W.t_tail--; }
@@ -199,14 +218,11 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
             if (volt >= VOLT_STORAGE) { to_bleed(&W); break; }          /* a storage cell above the rail: far above its target */
             if (++W.t_over >= T_OVER && W.v > T + V_OVER) { W.t_over = 0; go_fault(&W, ev); break; }
         }
-        if (W.ieff) {
-            if (!W.duty && W.pduty) { W.duty = W.pduty; W.ramp = 0; }      /* released: carry on from where it was parked */
-            W.pduty = 0;
-            cc(&W, S);
-        } else {                                                                /* parked: output off */
-            if (W.duty) W.pduty = W.duty;
-            W.duty = 0; W.ramp = 1; W.ramp_div = 0;
-        }
+        cc(&W, S);
+        if (in->lim) gate(in, k, d0); else W.t_held = 0;
+        if (W.i + 1 >= W.iset || W.duty >= PWM_PERIOD) W.up = 0;
+        else if (!W.duty) W.up = DUTY_MIN;                                  /* off: unknown, the start is small */
+        else { uint16_t n = 1 + (W.i + W.duty / 2) / W.duty; W.up = n > 60 ? 60 : (uint8_t)n; }
         break;
     }
 
@@ -251,7 +267,8 @@ void chg_pass(const chg_in_t XD *in, chg_out_t XD *out)
         out->sw[k] = W.sw;
         out->state[k] = W.st;
         out->want[k] = W.want;
-        out->set[k] = W.st == PS_CHARGE ? W.ieff : 0;
+        out->up[k] = W.st == PS_CHARGE ? W.up : 0;
+        out->held[k] = W.st != PS_CHARGE || !W.t_held ? 0 : W.i <= I_OPEN ? 2 : 1;
         out->v[k] = W.v;
         out->i[k] = W.i;
         if (W.st == PS_CHARGE || W.st == PS_BLEED) out->any_active = 1;

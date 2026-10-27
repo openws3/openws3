@@ -244,30 +244,41 @@ static void t_sup(void)
     in.adc0 = 1500; sup_pass(&in, &o); CHECK(!o.fan);
 }
 
-/* the user limits (limits.h) hold a port's current below the wanted one, or park it, without disturbing its state machine */
-static void t_caps(void)
+/* the user limits' gate (limits.h): a rise only when let, one count per pass; a cut brings the port down; a held port keeps its state */
+static void t_gate(void)
 {
-    bench_t b;
+    bench_t b; int n, d, jump = 0;
     bench_init(&b, 0, 63); attach(&b, 0, 3.9, 4000, 0.1);        /* a big cell: the voltage barely moves during the test */
-    b.in.cap[0] = 28;
-    run(&b, 12000);
-    CHECK(b.out.state[0] == PS_CHARGE && abs((int)b.out.i[0] - 28) <= 3);                    /* regulated to the cap, not to 63 */
-    CHECK(b.out.want[0] == 63 && b.out.set[0] == 28);
-    b.in.cap[0] = CAP_PARK;
+    b.in.lim = 1; b.in.rise = 0; b.in.cut = NPORTS;
+    run(&b, 2000);
+    CHECK(b.out.state[0] == PS_CHARGE && b.out.duty[0] == 0 && b.out.held[0] == 2 && b.out.up[0]);   /* no room: it waits, output off */
+    b.in.rise = 0xFF;
+    for (n = 0, d = 0; n < 3000; n++) { step(&b); if (b.out.duty[0] > d + (d ? 1 : 2)) jump = 1; d = b.out.duty[0]; }
+    CHECK(!jump && abs((int)b.out.i[0] - 63) <= 3 && b.out.up[0] == 0);       /* up one count per pass, no soft ramp after a hold */
+    b.in.cut = 0; b.in.excess = 30;
+    step(&b);
+    CHECK(b.out.duty[0] < d && b.out.held[0] == 1);                              /* brought down */
+    b.in.cut = NPORTS; b.in.rise = 0;
     run(&b, 400);
-    CHECK(b.out.state[0] == PS_CHARGE && b.out.duty[0] == 0 && b.out.i[0] <= 1);             /* parked: output off, still CHARGE */
-    b.in.cap[0] = 0;
-    run(&b, 300);
-    CHECK(abs((int)b.out.i[0] - 63) <= 4 && b.out.set[0] == 63);                               /* released: back at the setting within a second, no minutes-long ramp */
+    CHECK(b.out.i[0] < 50 && b.out.state[0] == PS_CHARGE);                       /* and kept there */
+    b.in.rise = 0xFF;
+    run(&b, 400);
+    CHECK(abs((int)b.out.i[0] - 63) <= 3);                                       /* let go: back at the setting */
+    b.in.lim = 0;
+    step(&b);
+    CHECK(b.out.held[0] == 0);
+    for (n = 0; n < 30 && b.out.duty[0]; n++) { b.in.lim = 1; b.in.rise = 0; b.in.cut = 0; b.in.excess = 255; step(&b); }
+    CHECK(b.out.duty[0] == 0 && b.out.state[0] == PS_CHARGE);                    /* down to off, still CHARGE */
 
-    /* with the cap in force the tail timer stands still: a near-full reading and no current would otherwise end the charge */
+    /* a held port's tail timer stands still: a near-full reading and no current would otherwise end the charge; and it is not taken
+       for a pulled cell */
     bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
     run(&b, 100);
     CHECK(b.out.state[0] == PS_CHARGE);
-    b.ovr_v[0] = 3810; b.ovr_i[0] = 1; b.in.cap[0] = CAP_PARK;
+    b.ovr_v[0] = 3810; b.ovr_i[0] = 1; b.in.lim = 1; b.in.rise = 0; b.in.cut = NPORTS;
     run(&b, 9000);
     CHECK(b.out.state[0] == PS_CHARGE);
-    b.in.cap[0] = 0;                                                                          /* the same situation without the cap: rest test */
+    b.in.lim = 0;                                                                 /* the same situation without the limits: rest test */
     run(&b, 9000);
     CHECK(b.out.state[0] != PS_CHARGE);
 }
@@ -285,21 +296,22 @@ static void t_pulled(void)
     CHECK(b.out.state[0] == PS_IDLE && n > 400 && n < 800);                         /* about 2 s + the rest */
     CHECK(b.out.duty[0] == 0);
 
-    /* a cell is not mistaken for a pulled one while the soft ramp has not produced a current yet, nor when the limits park it */
+    /* a cell is not mistaken for a pulled one while the soft ramp has not produced a current yet, nor when the limits hold it off */
     bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
     run(&b, 1000);
     CHECK(b.out.state[0] == PS_CHARGE);
     bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
     run(&b, 4000);
-    b.in.cap[0] = CAP_PARK;
+    for (n = 0; n < 30 && b.out.duty[0]; n++) { b.in.lim = 1; b.in.rise = 0; b.in.cut = 0; b.in.excess = 255; step(&b); }
+    b.in.cut = NPORTS;
     run(&b, 2000);
     CHECK(b.out.state[0] == PS_CHARGE && b.out.duty[0] == 0);
 
-    /* a pulled cell is found also while a cap holds the current down */
+    /* a pulled cell is found also while the limits are in force */
     bench_init(&b, 0, 63); attach(&b, 0, 3.7, 4000, 0.1);
-    b.in.cap[0] = 28;
-    run(&b, 6000);
-    CHECK(b.out.state[0] == PS_CHARGE && b.out.set[0] == 28 && abs((int)b.out.i[0] - 28) <= 3);
+    b.in.lim = 1; b.in.rise = 0xFF; b.in.cut = NPORTS;
+    run(&b, 12000);
+    CHECK(b.out.state[0] == PS_CHARGE && abs((int)b.out.i[0] - 63) <= 3);
     b.present[0] = 0;
     for (n = 0; n < 2000 && b.out.state[0] != PS_IDLE; n++) { b.ovr_v[0] = b.out.duty[0] > 0 ? 3830 : 0; step(&b); }
     CHECK(b.out.state[0] == PS_IDLE && n < 800);
@@ -374,6 +386,6 @@ static void t_bleed(void)
 
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_caps(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed();
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed();
     return check_report("chg");
 }

@@ -9,7 +9,7 @@
  *   P = the smaller of the two; the port current budget follows from it: P x 90 % / rail voltage
  * The ports may only grow into the budget, never past it.  Every pass (the gate):
  *   - a port that wants more current (below its setting, duty not at the top) may raise its duty, by at most one count, only while
- *     the measured port currents leave LIM_ROOM per rising port under the budget; the room goes to the ports in priority order
+ *     the measured port currents leave room for that count under the budget (LIM_ROOM); the room goes to the ports in priority order
  *   - above the budget, the lowest-priority port that draws current is brought down by about the excess
  *   - a port that wants more but gets no room takes it from a lower-priority port the same way
  * Budget is only handed out once it is free as measured, so a rising port cannot race a slow falling one.
@@ -28,7 +28,8 @@ enum { LM_EQUAL = 0, LM_BY_CH, LM_BY_VHIGH, LM_NMODES };
 enum { LT_NONE = 0, LT_VOLTAGE };
 
 #define LIM_P_BIG      10000    /* budget value meaning "no limit" (1000 W) */
-#define LIM_ROOM       3        /* iu (44 mA) under the budget per port that may rise this pass: what one duty count adds, with margin */
+#define LIM_ROOM       3        /* iu (44 mA): a port may rise one duty count when this plus three times what the count adds is left
+                                   under the budget (the count itself, and the readings the gate works on lag the duty by about two) */
 
 /* settings ranges (stored in these units); the steps between are in limits.c */
 #define ILIM_OFF       0
@@ -52,7 +53,7 @@ typedef struct {
     uint8_t  charging[NPORTS];              /* the port is in the CHARGE state */
     uint8_t  want[NPORTS];                  /* its working current before the limits, iu */
     uint16_t v[NPORTS], i[NPORTS];          /* filtered port voltage (vu) / current (iu) */
-    uint8_t  up[NPORTS];                    /* the port wants more current (chg_out_t.up) */
+    uint8_t  up[NPORTS];                    /* the port wants more current: about what one duty count adds, iu; 0 = it does not (chg_out_t.up) */
 } lim_in_t;
 
 typedef struct {
