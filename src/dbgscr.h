@@ -26,6 +26,7 @@ typedef struct {
     uint8_t  volt, iset, run, stop, alarm, strap, rail_hold, fan, usb;
     uint8_t  ilim, vmin, vcut, lmode, held[NPORTS];           /* user limits (limits.h); held: chg_out_t.held */
     uint16_t est_ma, budget, bcnt;
+    uint8_t  stack;                                          /* bytes of stack never used since boot */
 } dbg_view_t;
 
 /* VCC in mV from the bandgap count: the internal reference is nominally 1.19 V and the ADC is referenced to VCC */

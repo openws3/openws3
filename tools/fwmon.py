@@ -9,6 +9,7 @@ Layout and commands: USB.md.
   fwmon.py start | stop | ping
   fwmon.py current 0.5             set the charge current (0.3 ... 1.3 A in 0.1 A steps; refused while charging)
   fwmon.py voltage 4.20            target voltage: 4.20, 4.35, 3.80 or 3.85 (V; the last two are storage); refused while charging
+  fwmon.py port 2 0.8              one port's current: auto (the global one), off, or 0.3 ... 1.3 A; refused while charging
 
 Driving the outputs by hand: tools/devtool.py.
 
@@ -47,7 +48,7 @@ def parse_limits(r):
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     return dict(lim=dict(
         ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(12), p_cur=u16(14), p_vol=u16(16), est_ma=u16(18), bcnt=u16(20),
-        trip=r[22], active=r[23], gate=list(r[24:30]), want=list(r[30:36]), setpoint=u16(42), target=u16(44),
+        trip=r[22], active=r[23], gate=list(r[24:30]), want=list(r[30:36]), pset=list(r[36:42]), stack=r[46], setpoint=u16(42), target=u16(44),
         any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(57) << 16) | u16(59), dirty=r[61]))
 
 
@@ -108,12 +109,12 @@ def snapshot():
     return t
 
 
-def command(cmd, arg=0, ack=True):
-    """send one command, wait for the acknowledgement in the telemetry; returns the result code"""
+def command(cmd, arg=0, ack=True, extra=b''):
+    """send one command (extra: bytes 3.. of the report), wait for the acknowledgement in the telemetry; returns the result code"""
     seq = int(time.time() * 10) % 255 + 1
     fd = find()
     try:
-        os.write(fd, bytes([0, cmd, arg, seq]) + bytes(61))
+        os.write(fd, bytes([0, cmd, arg, seq]) + bytes(extra) + bytes(61 - len(extra)))
         if not ack: return 0              # the device resets: nothing to wait for
         end = time.time() + 3
         while time.time() < end:
@@ -136,7 +137,18 @@ def fmt_status(t):
     if t['stop']: extra += '  stop=%s' % STOP.get(t['stop'], t['stop'])
     if t['alarm']: extra += '  alarm=%d' % t['alarm']
     if t['debug_page']: extra += '  screen=%s' % {15: 'menu', 14: 'developer mode'}.get(t['debug_page'], 'diag%d' % t['debug_page'])
-    return head + extra + ('\n         ' + cells if cells else '') + fmt_limits(t)
+    return head + extra + ('\n         ' + cells if cells else '') + fmt_psets(t) + fmt_limits(t)
+
+
+def pset_name(v):
+    return 'off' if v == 0 else 'auto' if v == 1 else '%.1fA' % (v / 70)
+
+
+def fmt_psets(t):
+    """each port's own value (page 2), when any port has one"""
+    L = t.get('lim')
+    if not L or t['phase'] != 7 or all(v == 1 for v in L['pset']): return ''          # zero before the run phase
+    return '\n         port settings  ' + '  '.join('%d: %s' % (k + 1, pset_name(v)) for k, v in enumerate(L['pset']))
 
 
 def fmt_limits(t):
@@ -223,12 +235,16 @@ def main():
     f = sub.add_parser('flash'); f.add_argument('file')
     c = sub.add_parser('current'); c.add_argument('amps', type=float)
     m = sub.add_parser('voltage'); m.add_argument('volts', choices=VOLTS)
+    p = sub.add_parser('port', help='one port\'s current: auto (the global one), off, or 0.3 .. 1.3 A')
+    p.add_argument('n', type=int, choices=range(1, 7)); p.add_argument('value')
     a = ap.parse_args()
 
     if a.cmd == 'status':
         t = snapshot()
         print(fmt_status(t))
-        if t['fw'] and 'lim' in t: print('firmware %d.%d build %08x%s' % (t['fw'] >> 4, t['fw'] & 15, t['lim']['build'], '+' if t['lim']['dirty'] else ''))
+        if t['fw'] and 'lim' in t:
+            print('firmware %d.%d build %08x%s' % (t['fw'] >> 4, t['fw'] & 15, t['lim']['build'], '+' if t['lim']['dirty'] else '') +
+                  ('  stack free %d bytes' % t['lim']['stack'] if t['phase'] == 7 else ''))
     elif a.cmd == 'watch': watch(a.n, a.raw)
     elif a.cmd == 'log': log(a.file, a.secs)
     elif a.cmd == 'flash': flash(a.file)
@@ -236,7 +252,12 @@ def main():
         code, arg = {'stop': (1, 0), 'start': (2, 0), 'ping': (5, 0), 'isp': (6, 0)}.get(a.cmd, (None, 0))
         if a.cmd == 'current': code, arg = 3, 7 * round(a.amps * 10)
         if a.cmd == 'voltage': code, arg = 4, VOLTS.index(a.volts)
-        res = command(code, arg, ack=a.cmd != 'isp')
+        extra = b''
+        if a.cmd == 'port':
+            v = {'off': 0, 'auto': 1}.get(a.value.lower())
+            if v is None: v = 7 * round(float(a.value.rstrip('aA')) * 10)
+            code, arg, extra = 10, a.n - 1, bytes([v])
+        res = command(code, arg, ack=a.cmd != 'isp', extra=extra)
         print(RESULT.get(res, res))
         sys.exit(0 if res == 0 else 1)
 

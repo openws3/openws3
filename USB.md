@@ -31,7 +31,7 @@ the supply: **vu** = 4.5 V / 4096 (1.0986 mV) for port voltages and the rail, **
 | 9 | current setting (iu: 21 = 0.3 A … 91 = 1.3 A, ×7 per 0.1 A) |
 | 10 | firmware release: major in the high nibble, minor in the low (`src/version.h`); 0 on firmware that predates it |
 | 11 | stop reason: 0 none, 1 input low, 2 VCC low, 3 rail, 4 user, 5 minimum input voltage (user setting) |
-| 12 | low nibble: alarm shown on the display, as a stop reason (byte 11: 1 input low, 2 VCC, 3 rail, 5 minimum input voltage); high nibble: screen open on the LCD (0 = main, 1..6 = diagnostics page, 14 = developer mode, 15 = menu) |
+| 12 | low nibble: alarm shown on the display, as a stop reason (byte 11: 1 input low, 2 VCC, 3 rail, 5 minimum input voltage); high nibble: screen open on the LCD (0 = main, 1..6 = diagnostics page, 13 = port settings, 14 = developer mode, 15 = menu) |
 | 13–15 | last event: sequence (increments), code (1 port full, 2 port fault, 3 stopped), port 0..5 (or the stop reason for code 3) |
 | 16, 17 | last command: its sequence number, result (0 ok, 1 refused, 2 unknown) |
 | 18–23 | port states 1..6: 0 idle, 1 probe, 2 charge, 3 rest, 4 full, 5 bleed, 6 fault |
@@ -59,9 +59,10 @@ Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Eve
 | 23 | the limiter ran this pass (running and no rail hold) |
 | 24–29 | the limiter on each port: bits 0–1 held (1 = below its setting, 2 = waiting, no current), bit 2 wants more current, bit 3 may raise its duty this pass, bit 4 brought down this pass |
 | 30–35 | the current each port is set to, iu (charging ports only) |
-| 36–41 | reserved (0) |
+| 36–41 | each port's value: 0 = off (sits the run out), 1 = auto (the global current), else its own current in iu (21, 28 … 91) |
 | 42, 43 / 44, 45 | the rail setpoint and the cell target voltage of the chosen target, vu |
-| 46–50 | reserved (0) |
+| 46 | stack bytes never used since boot (internal RAM; the margin left at the deepest point so far) |
+| 47–50 | reserved (0) |
 | 51 | some port is charging or bleeding (global enable) |
 | 52–56 | supervisor: stop reason, reserved (0), rail cut (fatal), rail alarm (stop reason 3), fan |
 | 57–60 | build id: the first 8 hex digits of the git commit the firmware was built from, 32 bit (the page is not sent in developer mode; use byte 10 of page 1 there) |
@@ -87,7 +88,7 @@ Sent instead of page 2 while developer mode is on (byte 12's high nibble = 14). 
 | 58 | bit k: port k+1 cut by the guard (above 4.40 V or 2.8 A); released by asking for duty 0 and switch low on it |
 | 59, 60 | rail setpoint in force, vu |
 
-The screen open on the LCD (menu or a diagnostics page) is in byte 12's high nibble. Stop reason 5 in byte 11 is the minimum input voltage (user setting).
+The screen open on the LCD (menu, port settings or a diagnostics page) is in byte 12's high nibble. Stop reason 5 in byte 11 is the minimum input voltage (user setting).
 
 ## Commands (OUT, byte 0 = command, 1 = argument, 2 = sequence echoed in telemetry byte 16)
 
@@ -102,6 +103,7 @@ The screen open on the LCD (menu or a diagnostics page) is in byte 12's high nib
 | 7 | session (1..255) | enter developer mode (`tools/devtool.py`): every port output off, the rail stays regulated at its setpoint, the input profile P5.3 stays as it is (the input depends on it), the LCD shows DEV MODE. Refused while running, and while another session is in control and still sending |
 | 8 | bytes 1, 3–18 (below) | developer mode: set the outputs. Must be repeated at least every 0.5 s. Refused outside developer mode or from another session |
 | 9 | – | leave developer mode: everything off, back to the main screen. Holding both buttons on the unit does the same |
+| 10 | port 0..5, value in byte 3 | set one port's value, as in page 2 bytes 36–41 (0 off, 1 auto, else a current step in iu), stored in EEPROM. Refused while running, while that port settings mode on the unit is editing, or if not a valid value |
 
 Command 8: byte 1 flags (b0 global enable, b1 fan, b2 profile, b3 beep (a 0→1 change beeps once), b4 rail on raw duty), byte 3 switch
 pins (bit k = port k+1 to the bleed path), bytes 4–5 the rail: a setpoint in vu (at most 3972 = 4.35 V) or, with b4, a raw duty

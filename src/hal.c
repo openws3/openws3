@@ -26,6 +26,7 @@ __sbit __at (0xCA) GLOBAL_EN;/* P5.2 */
 __sbit __at (0xC7) POWER_EN; /* P4.7 */
 __sbit __at (0xCB) PROFILE;  /* P5.3 */
 __sfr __at (0x87) PCON;
+__sfr __at (0x81) SP;
 __sbit __at (0xC6) TONE;     /* P4.6 */
 __sbit __at (0x87) FAN;      /* P0.7 */
 __sbit __at (0xB2) BTN1;     /* P3.2 */
@@ -74,6 +75,23 @@ static void pwm_init(void)
     XB(0xFEC0) |= 0x01; XB(0xFEE0) |= 0x01;                             /* CR1: counters on */
 }
 
+/* Stack use: the stack grows up from the end of the data in internal RAM to 0xFF.  Everything above the stack pointer is painted at
+ * boot; the painted bytes still left at the top are what the deepest call (with interrupts on top) has never reached. */
+#define STACK_PAINT 0xA5
+
+static void stack_paint(void)
+{
+    uint8_t a = (uint8_t)(SP + 1);
+    do { *(__idata uint8_t *)a = STACK_PAINT; } while (++a);
+}
+
+uint8_t hal_stack_free(void)
+{
+    uint8_t a = 0xFF, n = 0, sp = SP;
+    while (a > sp && *(__idata uint8_t *)a == STACK_PAINT) { a--; n++; }
+    return n;
+}
+
 void hal_init(void)
 {
     /* pin modes */
@@ -83,6 +101,7 @@ void hal_init(void)
 
     pwm_init();
     hal_all_off();
+    stack_paint();             /* interrupts are still off */
 
     XB(0xFEA8) = 0x3F;         /* ADC sample timing */
     ADCCFG = 0x2A;             /* right-aligned result, speed 0xA */

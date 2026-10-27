@@ -97,7 +97,7 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 
 | Page | Shows |
 |---|---|
-| 1 power | bandgap count and the VCC it implies, VIN, rail and its PWM, ADC0 (probably a thermistor), fan, strap, uptime |
+| 1 power | bandgap count and the VCC it implies, VIN, rail and its PWM, ADC0 (probably a thermistor), fan, strap, stack bytes never used since boot, uptime |
 | 2 port V | raw ADC count and voltage (corrected for VCC) per port |
 | 3 port I | raw ADC count, mA (corrected for VCC), PWM duty, state, bleed switch |
 | 4 status | run, target voltage, current setting, targets, stop/alarm, strap, USB |
@@ -111,10 +111,26 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 | Button 1, tap | current setting +0.1 A (0.3 … 1.3 A, wraps); ignored while charging. Taps are saved 3 s after the last one, or when charging starts |
 | Button 1, hold (0.35 s) | start / stop charging |
 | Button 2, tap | target voltage: 4.20 V → 4.35 V → 3.80 V storage → 3.85 V storage; ignored while charging |
+| Button 2, hold (0.5 s) | port settings (below) |
 | Both buttons, tap | open the menu |
 
-Header: set current, input voltage, target voltage (red while charging). Cells: port voltage, and below it the measured
-current while charging (`LIMIT` when a user limit keeps the port waiting with no current), or `TEST` / `REST` / `FULL` / `BLEED` / `ERR`; the dot shows the state.
+Header: set current (with a `*` when some port has its own current or is off), input voltage, target voltage (red while charging).
+Cells: port voltage, and below it the measured current while charging, for one second in four the current the port charges at
+(`>0.8A`), and `LIMIT` when a user limit keeps the port waiting with no current. An idle port shows the current it will charge at
+(`>0.5A`), or `OFF` (dimmed) if it sits the run out; otherwise `TEST` / `REST` / `FULL` / `BLEED` / `ERR`. The dot shows the state.
+
+**Port settings.** Each port can have its own current, or be left out of the run. Hold button 2 on the main screen: the cells
+show each port's value (`AUTO` = the set current in the header, `SET` = its own, `OFF`) and port 1 is framed.
+
+| Input | Selecting a port | Editing its value |
+|---|---|---|
+| Button 1 / 2, tap | previous / next port | value down / up: `OFF` < `AUTO` < 0.3 … 1.3 A (holding repeats) |
+| Both buttons, tap | edit this port | confirm |
+| Both buttons, hold | done (saves) | cancel (the old value comes back) |
+| Nothing for 10 s | done (saves) | cancel, done |
+
+While charging the values are shown but cannot be changed (`LOCKED`). Button 1 on the main screen still sets the current that the
+`AUTO` ports use.
 
 ## Layout
 
@@ -125,7 +141,7 @@ src/chg.c          per-port charge state machine (pure)           src/sup.c   ra
 src/limits.c       input current / voltage limits (pure)          src/menu.c  settings menu (pure), rowbuf.c text rows
 src/ctl.c          rail PI, cal.c units, fmt.c text, input_pure.c buttons, buzz_pure.c patterns, cfg*.c settings
 src/usb.c          USB HID monitor (telemetry + commands)         src/ui.c    screens
-src/dev.c          developer mode: outputs set by the host, guards
+src/dev.c          developer mode: outputs set by the host, guards  src/portset.c  port settings mode (pure)
 src/app.c          boot sequence, 4.5 ms control pass             src/font.c  GENERATED from tools/font5x7.txt
 test/              host tests (C)                                 tools/      fwmon.py (USB monitor / flasher), devtool.py, openws3.html (web tool), bundle.py, isp.py
 ```

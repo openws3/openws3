@@ -3,13 +3,13 @@
 #   make test     host unit tests (plain C, run on the PC)
 #   make clean
 SDCC   ?= sdcc
-SRCS    = src/main.c src/hal.c src/adc.c src/cal.c src/ctl.c src/fmt.c src/font.c src/lcd.c src/ui.c src/cfg.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c src/app.c src/ports.c src/usb.c src/dbgscr.c src/rowbuf.c src/limits.c src/menu.c src/theme.c src/dev.c
+SRCS    = src/main.c src/hal.c src/adc.c src/cal.c src/ctl.c src/fmt.c src/font.c src/lcd.c src/ui.c src/cfg.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c src/app.c src/ports.c src/usb.c src/dbgscr.c src/rowbuf.c src/limits.c src/menu.c src/portset.c src/theme.c src/dev.c
 # large model on purpose: locals live in XRAM, IRAM is left for the stack.  NOT medium: MOVX @Ri would use P2
 # (a power-path port on this board) as the high address byte.
 BUILD  ?= build
 CFLAGS  = -I$(BUILD) -mmcs51 --model-large --code-loc 0x0000 --xram-loc 0x0000 --xram-size 8192 --iram-size 256 --Werror
 HOSTCC ?= gcc
-PURE    = src/ports.c src/menu.c src/theme.c src/rowbuf.c src/limits.c src/dbgscr.c src/cal.c src/ctl.c src/fmt.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c
+PURE    = src/ports.c src/menu.c src/portset.c src/theme.c src/rowbuf.c src/limits.c src/dbgscr.c src/cal.c src/ctl.c src/fmt.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c
 
 all: $(BUILD)/fw.bin $(BUILD)/openws3.html
 

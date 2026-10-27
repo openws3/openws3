@@ -21,6 +21,7 @@
 #define UI_CELL_VY      2
 #define UI_CELL_IX      14       /* current text, 1x1 */
 #define UI_CELL_IY      19
+#define UI_FRAME        2        /* port settings mode: the frame round the selected cell */
 
 /* RGB565 */
 #define UI_C_BG         0x0000

@@ -9,6 +9,7 @@
 
 void     hal_init(void);                    /* port modes, PWM, ADC, 0.5 ms tick; interrupts stay off */
 void     hal_irq_on(void);
+uint8_t  hal_stack_free(void);              /* bytes at the top of the stack never used since boot (painted in hal_init) */
 
 void     hal_pwm(uint8_t port, uint16_t duty);   /* per-port current control, 0..PWM_PERIOD */
 void     hal_rail(uint16_t duty);                /* rail actuator (P3.3), 0..PWM_PERIOD */

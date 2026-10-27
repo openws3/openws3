@@ -193,7 +193,8 @@ sudo udevadm control --reload-rules</pre>
   <section class="card fwonly">
     <h2>Ports</h2>
     <div class="ports" id="ports"></div>
-    <p class="hint mononly">Voltage and current of each port. The plot shows the current over the last 10 s.</p>
+    <p class="hint mononly">Voltage and current of each port. The plot shows the current over the last 10 s. Each port's current:
+      auto follows the charge current setting, off leaves the port out of the run (not while charging).</p>
     <p class="hint adv mononly">While charging, each port also shows its current setpoint and whether the limiter holds it below that
       (waiting: no current until there is room).</p>
     <p class="hint devonly">PWM 0..400 per port; BLEED switches the port to its discharge path. A port above 4.40 V or 2.8 A is cut by the
@@ -264,7 +265,7 @@ function parse(dv) {
     }
   } else if (r[3] === 2) {
     p2 = { ilim: r[8], vmin: r[9], vcut: r[10], lmode: r[11], budget: u16(12), estMa: u16(18), bcnt: u16(20),
-           gate: six(k => r[24 + k]), want: six(k => r[30 + k]), setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61] };
+           gate: six(k => r[24 + k]), want: six(k => r[30 + k]), pset: six(k => r[36 + k]), stack: r[46], setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61] };
   } else if (r[3] === 3) {
     p3 = { v: [0, 1, 2, 3, 4, 5].map(k => u16(8 + 2 * k)), i: [0, 1, 2, 3, 4, 5].map(k => u16(20 + 2 * k)),
            therm: u16(32), vin: u16(34), rail: u16(36), bandgap: u16(38), duty: [0, 1, 2, 3, 4, 5].map(k => u16(40 + 2 * k)),
@@ -301,10 +302,10 @@ async function sendRaw(bytes) {
   const b = new Uint8Array(64); b.set(bytes);
   await dev.sendReport(0, b);
 }
-function command(c, arg = 0) {                       // resolves with the result code once page 1 acknowledges it
+function command(c, arg = 0, extra = []) {           // resolves with the result code once page 1 acknowledges it; extra: bytes 3..
   seq = seq % 254 + 1;
   const s = seq, t0 = performance.now();
-  return sendRaw([c, arg, s]).then(() => new Promise((ok, fail) => {
+  return sendRaw([c, arg, s, ...extra]).then(() => new Promise((ok, fail) => {
     const tick = () => {
       if (p1 && p1.cmdSeq === s) return ok(p1.cmdRes);
       if (performance.now() - t0 > 2000) return fail(new Error('command ' + c + ' not acknowledged'));
@@ -543,6 +544,7 @@ for (let k = 0; k < 6; k++) {
   el.innerHTML = `<div class="top"><span class="id">P${k + 1}</span><span class="v num">-</span><span class="i num">-</span>
       <span class="meta num"></span></div><canvas></canvas>
     <div class="lim adv mononly"></div>
+    <div class="ctl mononly"><label>current</label><select class="pset"></select></div>
     <div class="ctl devonly"><label>PWM</label><input type="range" min="0" max="400" value="0"><input type="number" min="0" max="400" value="0"></div>
     <div class="ctl devonly"><label class="toggle"><input type="checkbox"> bleed switch</label><span class="applied"></span></div>`;
   $('ports').append(el);
@@ -552,7 +554,13 @@ for (let k = 0; k < 6; k++) {
   range.oninput = () => setDuty(range.value);
   num.onchange = () => setDuty(num.value);
   sw.onchange = () => { if (!out) return; out.sw = sw.checked ? out.sw | (1 << k) : out.sw & ~(1 << k); dirty = true; };
-  portEls.push({ el, range, num, sw, v: el.querySelector('.v'), i: el.querySelector('.i'), meta: el.querySelector('.meta'),
+  const pset = el.querySelector('.pset');            // the port's own value: off, auto (the global current) or a current step
+  pset.add(new Option('off', 0)); pset.add(new Option('auto', 1));
+  for (let n = 3; n <= 13; n++) pset.add(new Option((n / 10).toFixed(1) + ' A', 7 * n));
+  pset.onchange = async () => {
+    try { msg = await command(10, k, [+pset.value]) === 0 ? '' : 'Refused: stop charging first.'; } catch (e) { msg = e.message; }
+  };
+  portEls.push({ el, range, num, sw, pset, v: el.querySelector('.v'), i: el.querySelector('.i'), meta: el.querySelector('.meta'),
                  canvas: el.querySelector('canvas'), applied: el.querySelector('.applied'), lim: el.querySelector('.lim') });
 }
 const FLAGS = [['GLOBAL', 'Global enable (P5.2)'], ['FAN', 'Fan (P0.7)'], ['PROFILE', 'Input profile (P5.3)']];
@@ -671,7 +679,8 @@ function renderMonitor() {
     item('Min input', p2.vmin ? vminV(p2.vmin).toFixed(2) + ' V' : 'off', p2.vmin ? (p2.vcut ? 'stop run' : 'limit') : '') +
     item('Regulation', LMODE[p2.lmode] || p2.lmode) +
     item('Est. input', (p2.estMa / 1000).toFixed(2) + ' A') +
-    item('Budget', p2.budget >= P_NONE ? 'none' : (p2.budget / 10).toFixed(1) + ' W', p2.bcnt ? '= ' + amps(p2.bcnt) : '');
+    item('Budget', p2.budget >= P_NONE ? 'none' : (p2.budget / 10).toFixed(1) + ' W', p2.bcnt ? '= ' + amps(p2.bcnt) : '') +
+    item('Stack free', p2.stack + ' bytes', 'never used since boot');
   portEls.forEach((p, k) => {
     const st = d.state[k], sw = !!(d.sw >> k & 1);
     p.el.classList.toggle('cut', st === 6);
@@ -680,6 +689,7 @@ function renderMonitor() {
     p.meta.innerHTML = `<span class="st s${st}">${adv ? STATE[st] : STATE_TXT[st]}</span>` + (adv ? `<br>PWM ${d.duty[k]}${sw ? ' · bleed' : ''}` : '');
     p.lim.textContent = st === 2 && p2 ? 'setpoint ' + amps(p2.want[k]) + ' · ' + ((p2.gate[k] & 3) === 2 ? 'limiter: waiting' : p2.gate[k] & 3 ? 'limiter: held' : 'not limited')
                                        : 'setpoint - (not charging)';
+    if (p2 && document.activeElement !== p.pset && +p.pset.value !== p2.pset[k]) p.pset.value = p2.pset[k];
     spark(p.canvas, hist[k]);
   });
   $('log').innerHTML = events.slice(0, 100).map(e => `<li><span class="num">${(e.ms / 1000).toFixed(1)} s</span>${e.text}</li>`).join('') ||

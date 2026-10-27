@@ -6,6 +6,7 @@
 #include "fmt.h"
 #include "chg.h"
 #include "dbgscr.h"
+#include "portset.h"
 
 #define NELEM (3 + NPORTS * 3)           /* 3 header boxes, then per port: voltage, status text, dot */
 
@@ -94,8 +95,19 @@ void ui_main_init(void)
         lcd_text(x + UI_BADGE_X + 2, y + 6, d, 1, 2, th(R_BG), th(R_BADGE0 + i));
         shown_dot[i] = 0xFF;
     }
-    for (i = 0; i < NELEM; i++) shown[i][0] = 0;
+    for (i = 0; i < NELEM; i++) shown[i][0] = shown[i][8] = 0;      /* [8]: the header boxes' run colour, just repainted plain */
     next_el = 0;
+}
+
+/* pad with spaces to n characters, so a shorter text overwrites the previous one */
+static void pad(char XD *t, uint8_t n) { uint8_t i = slen(t); while (i < n) t[i++] = ' '; t[i] = 0; }
+
+static void frame(uint8_t x, uint8_t y, uint16_t c)
+{
+    lcd_fill(x, y, UI_BOX_W, UI_FRAME, c);
+    lcd_fill(x, (uint8_t)(y + UI_CELL_H - UI_FRAME), UI_BOX_W, UI_FRAME, c);
+    lcd_fill(x, y, UI_FRAME, UI_CELL_H, c);
+    lcd_fill((uint8_t)(x + UI_BOX_W - UI_FRAME), y, UI_FRAME, UI_CELL_H, c);
 }
 
 static uint16_t status_color(uint8_t state)
@@ -109,43 +121,83 @@ static uint16_t status_color(uint8_t state)
     }
 }
 
-static void element(const ui_state_t *s, uint8_t e)
+static void header(const ui_state_t *s, uint8_t e, char XD *t) REENT
 {
-    static char XD t[8];                       /* external RAM: direct RAM is full */
-    if (e < 3) {
-        uint16_t col = th(R_TEXT), bg = s->run ? th(R_RUN) : th(R_BOX);
-        if (e == 0) fmt_a1(t, cal_set_to_ma(s->iset));
+    static const CODE char *const ALARM[] = { "", "VIN!", "VCC!", "RAIL!", "", "V LIMIT" };   /* by STOP_* */
+    uint16_t col = th(R_TEXT), bg = s->run ? th(R_RUN) : th(R_BOX);
+    if (s->ps) {                                     /* port settings: what this is, the port, what the keys do */
+        if (e == 0) scopy(t, "PORTS");
         else if (e == 1) {
-            static const CODE char *const ALARM[] = { "", "VIN!", "VCC!", "RAIL!", "", "V LIMIT" };   /* by STOP_* */
-            if (s->alarm) { scopy(t, ALARM[s->alarm]); col = th(R_WARN); }
-            else { fmt_v1(t, cal_vin_mv(s->vin)); col = th(R_VIN); }
-        } else fmt_v2(t, cal_port_mv(s->tgt));
-        /* the box colour changes with run state: repaint the box when it does */
-        if (shown[e][8] != (char)(s->run + 1)) { lcd_fill(box_x(e), UI_HDR_Y, UI_BOX_W, UI_HDR_H, bg); shown[e][0] = 0; shown[e][8] = (char)(s->run + 1); }
-        put(e, box_x(e) + UI_HDR_TX, UI_HDR_Y + UI_HDR_TY, 2, col, bg, t);
-    } else {
-        uint8_t k = e - 3, p = k / 3, part = k % 3;
-        uint8_t x = box_x(p % 3), y = cell_y(p);
+            if (s->locked) { scopy(t, "LOCKED"); col = th(R_WARN); }
+            else { scopy(t, "PORT "); t[5] = (char)('1' + s->sel); t[6] = 0; }
+        } else scopy(t, s->ps == 2 ? "- + OK" : "< > OK");
+    } else if (e == 0) {
+        fmt_a1(t, cal_set_to_ma(s->iset));
+        if (s->mixed) { uint8_t n = slen(t); t[n] = '*'; t[n + 1] = 0; }
+    } else if (e == 1) {
+        if (s->alarm) { scopy(t, ALARM[s->alarm]); col = th(R_WARN); }
+        else { fmt_v1(t, cal_vin_mv(s->vin)); col = th(R_VIN); }
+    } else fmt_v2(t, cal_port_mv(s->tgt));
+    pad(t, 7);
+    /* the box colour changes with run state: repaint the box when it does */
+    if (shown[e][8] != (char)(s->run + 1)) { lcd_fill(box_x(e), UI_HDR_Y, UI_BOX_W, UI_HDR_H, bg); shown[e][0] = 0; shown[e][8] = (char)(s->run + 1); }
+    put(e, box_x(e) + UI_HDR_TX, UI_HDR_Y + UI_HDR_TY, 2, col, bg, t);
+}
+
+/* "0.5A", the current a port charges at */
+static void amps1(char XD *t, uint8_t iu) { fmt_a1(t, cal_set_to_ma(iu)); }
+
+static void element(const ui_state_t *s, uint8_t e) REENT
+{
+    static char XD t[10];                      /* external RAM: direct RAM is full */
+    uint8_t k, p, part, x, y, st, off;
+    if (e < 3) { header(s, e, t); return; }
+    k = e - 3; p = k / 3; part = k % 3;
+    x = box_x(p % 3); y = cell_y(p);
+    st = s->state[p]; off = s->set[p] == PV_OFF;
+    if (s->ps) {                                     /* port settings: the value big, what kind of value small, a frame round the selection */
+        uint8_t edit = s->ps == 2 && p == s->sel;
         if (part == 0) {
-            fmt_v2(t, cal_port_mv(s->v[p]));
-            put(e, x + UI_CELL_VX, y + UI_CELL_VY, 2, th(R_VOLT), th(R_BOX), t);
+            if (off) scopy(t, "OFF"); else amps1(t, s->want[p]);
+            if (edit) { uint8_t n = slen(t), i; for (i = n; i > 0; i--) t[i] = t[i - 1]; t[0] = '<'; t[n + 1] = '>'; t[n + 2] = 0; }
+            pad(t, 6);
+            put(e, x + UI_CELL_VX, y + UI_CELL_VY, 2, edit ? th(R_WARN) : off ? th(R_DIM) : th(R_TEXT), th(R_BOX), t);
         } else if (part == 1) {
-            static const CODE char *const NAME[] = { "", "TEST", "", "REST", "FULL", "BLEED", "ERR" };   /* by PS_* */
-            uint8_t st = s->state[p], held = st == PS_CHARGE && s->parked[p];      /* held off by a user limit */
-            if (held) scopy(t, "LIMIT");
-            else if (st == PS_CHARGE) fmt_a2(t, cal_port_ma(s->i[p]));
-            else scopy(t, NAME[st]);
-            /* pad so a shorter text overwrites the previous one */
-            { uint8_t n = slen(t); while (n < 5) t[n++] = ' '; t[n] = 0; }
-            put(e, x + UI_CELL_IX, y + UI_CELL_IY, 1, held ? th(R_WARN) : status_color(st), th(R_BOX), t);
+            scopy(t, off ? "OFF" : s->set[p] == PV_AUTO ? "AUTO" : "SET");
+            pad(t, 5);
+            put(e, x + UI_CELL_IX, y + UI_CELL_IY, 1, off || s->set[p] == PV_AUTO ? th(R_DIM) : th(R_INFO), th(R_BOX), t);
         } else {
-            uint8_t st = s->state[p] & 7;
-            uint16_t c = th(R_DOT0 + st);
-            if (st == PS_FAULT && !s->blink) c = th(R_BOX);               /* errors blink */
-            if (shown_dot[p] != (uint8_t)(st | (c == th(R_BOX) ? 0x80 : 0))) {
-                shown_dot[p] = (uint8_t)(st | (c == th(R_BOX) ? 0x80 : 0));
-                lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, c);
+            uint8_t f = p != s->sel ? 0 : !edit ? 1 : s->blink ? 2 : 3;      /* none, selected, editing (blinks) */
+            if (shown_dot[p] != (uint8_t)(0x40 | f)) {
+                if ((shown_dot[p] & 0xC0) != 0x40) lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, th(R_BOX));   /* no dot here */
+                shown_dot[p] = (uint8_t)(0x40 | f);
+                frame(x, y, f == 1 ? th(R_INFO) : f == 2 ? th(R_WARN) : th(R_BOX));
             }
+        }
+        return;
+    }
+    if (part == 0) {
+        fmt_v2(t, cal_port_mv(s->v[p]));
+        put(e, x + UI_CELL_VX, y + UI_CELL_VY, 2, off ? th(R_DIM) : th(R_VOLT), th(R_BOX), t);
+    } else if (part == 1) {
+        /* charging: the measured current, 1 s in 4 the target; idle: the target; an OFF port says so; else the state */
+        static const CODE char *const NAME[] = { "", "TEST", "", "REST", "FULL", "BLEED", "ERR" };   /* by PS_* */
+        uint16_t col = status_color(st);
+        if (st == PS_IDLE && off) { scopy(t, "OFF"); col = th(R_DIM); }
+        else if ((st == PS_CHARGE && s->tphase) || st == PS_IDLE) { t[0] = '>'; amps1(t + 1, s->want[p]); col = th(R_INFO); }
+        else if (st == PS_CHARGE && s->parked[p]) { scopy(t, "LIMIT"); col = th(R_WARN); }      /* waiting for room under a user limit */
+        else if (st == PS_CHARGE) fmt_a2(t, cal_port_ma(s->i[p]));
+        else scopy(t, NAME[st]);
+        pad(t, 5);
+        put(e, x + UI_CELL_IX, y + UI_CELL_IY, 1, col, th(R_BOX), t);
+    } else {
+        uint16_t c;
+        st &= 7;
+        c = th(R_DOT0 + st);
+        if (st == PS_FAULT && !s->blink) c = th(R_BOX);               /* errors blink */
+        if (shown_dot[p] != (uint8_t)(st | (c == th(R_BOX) ? 0x80 : 0))) {
+            shown_dot[p] = (uint8_t)(st | (c == th(R_BOX) ? 0x80 : 0));
+            lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, c);
         }
     }
 }

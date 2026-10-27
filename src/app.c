@@ -20,6 +20,7 @@
 #include "menu.h"
 #include "limits.h"
 #include "dev.h"
+#include "portset.h"
 #include "version.h"
 #include "version_build.h"
 
@@ -39,8 +40,10 @@ static uint32_t XD save_at;                      /* ms: a main-screen change is 
 static int16_t  XD rail_duty;
 static uint16_t XD bg_ref;                     /* slow baseline of the bandgap count: a jump away from it = a supply glitch */
 static uint8_t  XD lcd_cnt;
-#define SCR_DEV  14                             /* screen: 0 = main, 1..DBG_PAGES = a diagnostics page, SCR_DEV = developer mode (dev.h), */
-#define SCR_MENU 15                             /* SCR_MENU = the menu (as USB byte 12 reports it) */
+static uint8_t  XD stack_free, stack_div;     /* the stack's never-used bytes, read about once a second */
+#define SCR_PORTS 13                            /* screen: 0 = main, 1..DBG_PAGES = a diagnostics page, SCR_PORTS = the port settings */
+#define SCR_DEV   14                            /* mode (portset.h, drawn on the main screen), SCR_DEV = developer mode (dev.h), */
+#define SCR_MENU  15                            /* SCR_MENU = the menu (as USB byte 12 reports it) */
 static uint8_t  XD screen, text_row;            /* text_row: the row of the menu / diagnostics drawn next */
 static uint32_t XD t_next;
 static chg_in_t  XD cin;
@@ -85,8 +88,10 @@ static void tele_limits(uint8_t ph, uint32_t ms)
         for (k = 0; k < NPORTS; k++) {
             usb_tx2[24 + k] = (uint8_t)(cout.held[k] | (cout.up[k] != 0) << 2 | ((cin.rise >> k) & 1) << 3 | (cin.cut == k) << 4);
             usb_tx2[30 + k] = cout.want[k];
+            usb_tx2[36 + k] = portset_get(k);
         }
         put16(usb_tx2, 42, sup_setpoint(settings.volt)); put16(usb_tx2, 44, sup_target(settings.volt));    /* vu */
+        usb_tx2[46] = stack_free;
         usb_tx2[51] = cout.any_active;
         usb_tx2[52] = sout.stop; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.stop == STOP_RAIL; usb_tx2[56] = sout.fan;
     }
@@ -260,6 +265,7 @@ void app_boot(void)
     run = 0; stop_reason = 0; alarm_ui = 0; screen = 0;
     lim_reset();
     chg_init();
+    stack_free = hal_stack_free();                   /* after the boot, which may go deepest; then about once a second */
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
@@ -327,6 +333,10 @@ static void usb_service(void)
         break;
     case 8: if (screen != SCR_DEV || !dev_set(c)) res = 1; break;                     /* developer mode: the outputs (the owner only) */
     case 9: if (screen == SCR_DEV) dev_leave(); break;                                 /* leave developer mode */
+    case 10:                                                                           /* one port's value (portset.h): byte 1 = port, */
+        if (run || c[1] >= NPORTS || !portset_valid(c[3]) || (screen == SCR_PORTS && portset_editing())) { res = 1; break; }   /* byte 3 */
+        portset_put(c[1], c[3]); cfg_save();
+        break;
     default: res = 2; break;
     }
     cmd_seq = c[2]; cmd_res = res;
@@ -356,6 +366,19 @@ static void menu_key(uint8_t ev)
     else if (a) buzz_play(PAT_KEY);
 }
 
+/* the port settings mode on the main screen: drawn over it, saved when it closes */
+static void ports_enter(void) { portset_open(run); screen = SCR_PORTS; ui_main_init(); }
+static void ports_leave(void) { cfg_save(); screen = 0; ui_main_init(); }
+
+static void ports_key(uint8_t ev)
+{
+    static uint8_t XD a;
+    a = portset_event(ev);
+    if (a == MA_LOCKED) buzz_play(PAT_ERROR);
+    else if (a == MA_EXIT) { ports_leave(); buzz_play(PAT_KEY); }
+    else if (a) buzz_play(PAT_KEY);
+}
+
 static void handle_buttons(void)
 {
     uint8_t ev;
@@ -363,6 +386,7 @@ static void handle_buttons(void)
     while ((ev = input_get()) != EV_NONE) {
         if (screen == SCR_DEV) { if (ev == EV_BACK) dev_leave(); continue; }     /* the buttons are only watched (page 3) */
         if (screen == SCR_MENU) { menu_key(ev); continue; }
+        if (screen == SCR_PORTS) { ports_key(ev); continue; }
         if (screen) {                                    /* diagnostics: right = next page, left = previous, BACK = the menu */
             if (ev == EV_B2) show((uint8_t)(screen % DBG_PAGES + 1));
             else if (ev == EV_B1) show((uint8_t)(screen == 1 ? DBG_PAGES : screen - 1));
@@ -382,6 +406,7 @@ static void handle_buttons(void)
             buzz_play(PAT_KEY);
             break;
         case EV_OK: menu_enter(); buzz_play(PAT_KEY); break;
+        case EV_B2_LONG: ports_enter(); buzz_play(PAT_KEY); break;
         case EV_B2:
             if (!run) {                                  /* no voltage change while charging */
                 settings.volt = (uint8_t)((settings.volt + 1) % NVOLTS);
@@ -402,10 +427,14 @@ void app_pass(void)
     if ((int32_t)(hal_ticks() - t_next) > 4 * PASS_TICKS) t_next = hal_ticks();       /* fell behind: do not burst */
 
     adc_scan();
+    if (!++stack_div) stack_free = hal_stack_free();
     handle_buttons();
     usb_service();
     if (save_at && (int32_t)(hal_ms() - save_at) >= 0) save_main();
-    if (screen && screen != SCR_DEV) {               /* menu values apply while they are edited; they are saved when the menu closes */
+    if (screen == SCR_PORTS) {
+        portset_context(run);
+        if (portset_pass() == MA_EXIT) ports_leave();                       /* 10 s without a key */
+    } else if (screen && screen != SCR_DEV) {        /* menu values apply while they are edited; they are saved when the menu closes */
         buzz_enable(settings.sound);
         if (settings.theme != th_get()) { th_set(settings.theme); show(screen); }   /* repaint the menu in the new colours */
         apply_limits();
@@ -486,8 +515,14 @@ void app_pass(void)
     /* ---- display ---- */
     ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui;
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
-    for (k = 0; k < NPORTS; k++) { ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.held[k] == 2); }
-    if (screen && screen != SCR_MENU) {
+    ui.tphase = (uint8_t)(((hal_ms() >> 10) & 3) == 3);
+    ui.ps = screen != SCR_PORTS ? 0 : portset_editing() ? 2 : 1; ui.sel = portset_port(); ui.locked = portset_locked(); ui.mixed = 0;
+    for (k = 0; k < NPORTS; k++) {
+        ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.held[k] == 2);
+        ui.set[k] = portset_get(k); ui.want[k] = cout.state[k] == PS_CHARGE ? cout.want[k] : ch_iset(k);
+        if (ui.set[k] != PV_AUTO) ui.mixed = 1;
+    }
+    if (screen && screen != SCR_MENU && screen != SCR_PORTS) {
         uint8_t n;
         dbg_view.ms = hal_ms();
         for (n = 0; n < NADC; n++) dbg_view.adc[n] = adc_raw(n);
@@ -498,14 +533,14 @@ void app_pass(void)
         dbg_view.rail = cin.rail; dbg_view.rail_duty = (uint16_t)rail_duty; dbg_view.vin = sin.vin; dbg_view.bandgap = sin.bandgap;
         dbg_view.tgt = cin.tgt; dbg_view.setpoint = cin.setpoint; dbg_view.volt = settings.volt; dbg_view.iset = settings.cur;
         dbg_view.run = run; dbg_view.stop = stop_reason; dbg_view.alarm = alarm_ui;
-        dbg_view.strap = strap; dbg_view.rail_hold = rail_hold; dbg_view.fan = sout.fan; dbg_view.usb = usb_configured();
+        dbg_view.strap = strap; dbg_view.stack = stack_free; dbg_view.rail_hold = rail_hold; dbg_view.fan = sout.fan; dbg_view.usb = usb_configured();
         dbg_view.ilim = lim_cfg.ilim; dbg_view.vmin = lim_cfg.vmin; dbg_view.vcut = lim_cfg.vcut; dbg_view.lmode = lim_cfg.mode;
         dbg_view.est_ma = lim_out.est_ma; dbg_view.budget = lim_out.budget;
         dbg_view.bcnt = lim_out.bcnt;
         for (n = 0; n < NPORTS; n++) dbg_view.held[n] = cout.held[n];
         ui_text_row(text_row, dbg_text(screen, text_row), text_row == 0 ? th(R_INFO) : th(R_TEXT));       /* one row per pass */
         if (++text_row == DBG_ROWS) text_row = 0;
-    } else if (screen) {
+    } else if (screen == SCR_MENU) {
         static const char * XD t;
         t = menu_text(text_row);
         ui_text_row(text_row, t, t[0] == '>' ? th(R_GOOD) : t[0] == '*' ? th(R_WARN) : text_row == 0 ? th(R_INFO) : text_row == MENU_ROWS - 1 ? th(R_DIM) : th(R_TEXT));

@@ -39,7 +39,7 @@ const char *dbg_text(uint8_t page, uint8_t row)
         case 5: rb_str("RAIL PWM "); rb_num(dbg_view.rail_duty, 3); rb_str("/400"); break;
         case 6: rb_str("ADC0 (THERM) "); rb_num(dbg_view.adc[0], 4); break;
         case 7: rb_str("FAN P0.7  "); rb_str(dbg_view.fan ? "ON" : "off"); break;
-        case 8: rb_str("STRAP P3.4 "); rb_num(dbg_view.strap, 0); break;
+        case 8: rb_str("STRAP "); rb_num(dbg_view.strap, 0); rb_str("  STACK FREE "); rb_num(dbg_view.stack, 0); break;
         case 9: rb_str("UPTIME "); rb_num(dbg_view.ms / 1000, 0); rb_str(" s"); break;
         }
         break;
