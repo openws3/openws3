@@ -13,7 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }      # the build id comes from git
-      - run: sudo apt-get update && sudo apt-get install -y sdcc
+      - name: SDCC 4.6.0     # the release the firmware is built and tested with; the distribution's package is older and generates a different image
+        run: |
+          curl -fsSL -o sdcc.tar.bz2 https://sourceforge.net/projects/sdcc/files/sdcc-linux-amd64/4.6.0/sdcc-4.6.0-amd64-unknown-linux2.5.tar.bz2/download
+          echo "f6b929c62ed3082a26087885e0f1f9bf41878602ef1f57e40b11b4a01bf4f366  sdcc.tar.bz2" | sha256sum -c -
+          tar xjf sdcc.tar.bz2 -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/sdcc-4.6.0/bin" >> "$GITHUB_PATH"
       - run: make
       - run: mkdir site && cp build/openws3.html site/index.html
       - uses: actions/upload-pages-artifact@v3
