@@ -36,6 +36,7 @@ enum { LT_NONE = 0, LT_VOLTAGE };
 #define ILIM_MIN       5        /* 0.5 A  (0.1 A units) */
 #define ILIM_MAX       100      /* 10 A */
 #define VMIN_OFF       0
+#define VMIN_DEFAULT   98       /* 4.90 V: what an erased settings page gives */
 #define VMIN_MIN       96       /* 4.80 V: 0.05 V per unit up to VMIN_KNEE, 0.5 V per unit above (one byte reaches big packs) */
 #define VMIN_KNEE      200      /* 10.0 V */
 #define VMIN_MAX       230      /* 25.0 V: 6S at 3.3 V per cell fits, and the input ADC reads to about 26.9 V */

@@ -214,8 +214,8 @@ static void t_cfg(void)
 {
     CHECK(cfg_valid_current(0xFF) == 21);          /* erased flash */
     CHECK(cfg_valid_ilim(0xFF) == 0 && cfg_valid_ilim(4) == 0 && cfg_valid_ilim(5) == 5 && cfg_valid_ilim(100) == 100 && cfg_valid_ilim(101) == 0);
-    CHECK(cfg_valid_vmin(0xFF) == 0 && cfg_valid_vmin(95) == 0 && cfg_valid_vmin(96) == 96 && cfg_valid_vmin(230) == 230 && cfg_valid_vmin(231) == 0);
-    CHECK(cfg_valid_lmode(0xFF) == 0 && cfg_valid_lmode(2) == 2 && cfg_valid_lmode(3) == 0);   /* unknown -> equal sharing */
+    CHECK(cfg_valid_vmin(0xFF) == 98 && cfg_valid_vmin(0) == 0 && cfg_valid_vmin(95) == 98 && cfg_valid_vmin(96) == 96 && cfg_valid_vmin(230) == 230 && cfg_valid_vmin(231) == 98);
+    CHECK(cfg_valid_lmode(0xFF) == LM_BY_CH && cfg_valid_lmode(0) == 0 && cfg_valid_lmode(2) == 2 && cfg_valid_lmode(3) == LM_BY_CH);   /* unknown -> port 1 first */
     CHECK(cfg_valid_ch_cur(0xFF) == 0 && cfg_valid_ch_cur(0) == 0 && cfg_valid_ch_cur(20) == 0 && cfg_valid_ch_cur(21) == 21 && cfg_valid_ch_cur(91) == 91 && cfg_valid_ch_cur(92) == 0);
     CHECK(cfg_valid_ch_off(0xFF) == 0 && cfg_valid_ch_off(0x40) == 0 && cfg_valid_ch_off(0) == 0 && cfg_valid_ch_off(5) == 5 && cfg_valid_ch_off(0x3F) == 0x3F);   /* erased flash: no port sits out */
     CHECK(cfg_valid_current(20) == 21);
@@ -227,7 +227,7 @@ static void t_cfg(void)
     CHECK(cfg_valid_buzzer(0) == 0); CHECK(cfg_valid_buzzer(1) == 1);
     memset(&settings, 0xFF, sizeof settings); cfg_validate();                     /* erased page: the defaults */
     CHECK(settings.cur == 21 && settings.volt == 0 && settings.sound == 1 && settings.theme == TH_CLASSIC);
-    CHECK(settings.ilim == 0 && settings.vmin == 0 && settings.vcut == 0 && settings.lmode == LM_EQUAL);
+    CHECK(settings.ilim == 0 && settings.vmin == 98 && settings.vcut == 0 && settings.lmode == LM_BY_CH);
     CHECK(settings.ch_cur[0] == 0 && settings.ch_cur[NPORTS - 1] == 0 && settings.ch_off == 0);
 }
 
