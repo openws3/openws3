@@ -20,6 +20,7 @@
 #define T_OC            200     /* over-current persistence */
 #define T_OVER          100     /* over-voltage persistence */
 #define T_FULL_OUT      500     /* FULL: outside the hold window this long -> test again (below) or bleed (above) */
+#define T_BLEED_SETTLE  8       /* BLEED: the reading has settled under the bleed load after this many passes */
 #define T_REMOVED       6       /* V < 1.00 V this long = cell removed */
 #define I_OPEN          2       /* "no current": 29 mA, the offset of the sense input */
 #define T_HELD          222     /* the limits held the port within this many passes (1 s): its current says nothing about the cell */
@@ -30,6 +31,8 @@ typedef struct {
     uint16_t duty;
     uint8_t  sw;
     uint16_t v, i;
+    uint16_t v_rest;             /* BLEED: the resting voltage it started from */
+    uint8_t  t_bleed, drop;      /* BLEED: passes so far; how far the bleed load pulls the reading below the resting voltage (vu) */
     uint8_t  iset;               /* working current setting */
     uint8_t  ramp, ramp_div;
     uint16_t t_tail, t_open, t_rest, t_full, t_probe, t_gone;
@@ -104,7 +107,7 @@ static void gate(const chg_in_t XD *in, uint8_t k, uint16_t d0)
 
 static void to_probe(port_t XD *p, uint8_t g) { p_reset(p, g); p->st = PS_PROBE; }
 static void to_rest(port_t XD *p)   { p->st = PS_REST; p->t_rest = 0; p->duty = 0; }
-static void to_bleed(port_t XD *p)  { p->st = PS_BLEED; p->duty = 0; }
+static void to_bleed(port_t XD *p)  { p->st = PS_BLEED; p->duty = 0; p->v_rest = p->v; p->t_bleed = p->drop = 0; }
 
 /* returns 1 if the cell is inside the FULL window used at probe/rest time */
 static uint8_t in_full_window(uint16_t v, uint16_t T) { return v >= T - WIN_LO && v < T + WIN_HI; }
@@ -217,7 +220,12 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
     case PS_BLEED:
         W.duty = 0;
         if (W.v >= V_FAULT) { go_fault(&W, ev); break; }
-        if (W.v <= T) { to_rest(&W); break; }          /* down to the target under the bleed load: the rest test decides */
+        /* the load pulls the reading below the cell's own voltage by the series drop, and the cell springs back when it ends: measure
+           the drop once the reading has settled and end the bleed when the cell itself is down to the target, so the rest test finds
+           it in the window and does not bleed again */
+        if (W.t_bleed < T_BLEED_SETTLE) {
+            if (++W.t_bleed == T_BLEED_SETTLE && W.v_rest > W.v) W.drop = W.v_rest - W.v > 255 ? 255 : (uint8_t)(W.v_rest - W.v);
+        } else if (W.v + W.drop <= T) { to_rest(&W); break; }
         W.sw = 1;                                       /* bleeding: switch high, PWM off */
         break;
 

@@ -389,8 +389,30 @@ static void t_bleed(void)
     run(&b, 20000); CHECK(b.out.state[0] == PS_FULL && b.out.sw[0] == 0);           /* and it stays there */
 }
 
+/* bleed with a series resistance: the bleed load pulls the reading far below the cell's own voltage, and the rest test must still end
+   in FULL, not bleed again and again */
+static void t_bleed_series(void)
+{
+    static const double R[] = { 0.05, 0.10, 0.25, 0.50 };
+    int n;
+    for (n = 0; n < 4; n++) {
+        bench_t b; int k, enters = 0, full_at = -1, prev = PS_IDLE;
+        bench_init(&b, 2, 21);
+        attach(&b, 0, 3.95, 20, R[n]);
+        for (k = 0; k < 200000; k++) {
+            step(&b);
+            if (b.out.state[0] == PS_BLEED && prev != PS_BLEED) enters++;
+            if (b.out.state[0] == PS_FULL && full_at < 0) full_at = k;
+            prev = b.out.state[0];
+        }
+        CHECK(full_at > 0 && enters <= 3);
+        CHECK(b.out.state[0] == PS_FULL);
+        CHECK(ocv(&b.cell[0]) > 3.80 && ocv(&b.cell[0]) < 3.87);
+    }
+}
+
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed();
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series();
     return check_report("chg");
 }
