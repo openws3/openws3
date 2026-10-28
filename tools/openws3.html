@@ -35,6 +35,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 syst
 .num, input[type=number] { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
 header h1 { font-size: 16px; margin: 0 12px 0 0; }
+header a.guide { color: var(--dim); text-decoration: none; padding: 6px 4px; }
+header a.guide:hover { color: var(--accent); text-decoration: underline; }
 #conn { color: var(--dim); margin-right: auto; }
 button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--accent); }
@@ -78,6 +80,15 @@ input[type=number] { width: 72px; padding: 4px 6px; border: 1px solid var(--line
 body:not(.mode-dev) .devonly, body.mode-dev .mononly { display: none !important; }
 body:not(.adv) .adv, body:not(.has-fw) .fwonly, body:not(.has-dev) .fwcard, body.has-dev .welcome { display: none !important; }
 .welcome p { margin: 0 0 10px; }
+.notice { border-color: var(--warn); background: var(--warn-bg); }
+.notice h2 { color: var(--text); }
+.notice p { margin: 0 0 8px; }
+.notice ul { margin: 0; padding-left: 20px; }
+.notice li { margin: 3px 0; }
+.notice a { color: var(--accent); }
+.check { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--warn); border-radius: 8px; background: var(--warn-bg); }
+.check p { margin: 0 0 6px; }
+.check p:last-child { margin: 0; }
 .welcome details { margin-top: 10px; color: var(--dim); }
 .welcome .actions { margin-top: 0; }
 ol.steps { margin: 0 0 10px; padding-left: 22px; }
@@ -104,6 +115,7 @@ progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--acce
 <header>
   <h1>OpenWS3</h1>
   <span id="conn">not connected</span>
+  <a class="guide" href="https://github.com/openws3/openws3/blob/main/GUIDE.md" target="_blank" rel="noopener">User guide</a>
   <button id="bConnect" class="primary">Connect</button>
   <span class="seg" id="view"><button id="bSimple">Simple</button><button id="bAdv">Advanced</button></span>
   <button id="bEnter" class="adv fwonly mononly" disabled>Enter dev mode</button>
@@ -113,6 +125,17 @@ progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--acce
 </header>
 <div id="banner"></div>
 <main>
+  <section class="card notice">
+    <h2>Experimental beta firmware</h2>
+    <p>OpenWS3 is early software. Parts of it have had little or no hardware testing: full charge cycles, all six ports at once and
+      higher input voltages. You are charging lithium cells with it, at your own risk.</p>
+    <ul>
+      <li><b>Supervise the charger</b> the whole time it charges. Never leave it charging unattended or overnight.</li>
+      <li>Start with <b>one cell and a low current</b>, and check that the cell and the charger stay cool.</li>
+      <li>Charge only cells in good condition, and pick the target voltage for the cell: 4.35 V is for high-voltage (HV) cells only.</li>
+      <li>It is made for the <b>WhoopStor V3</b> charger only. See the <a href="https://github.com/openws3/openws3/blob/main/GUIDE.md" target="_blank" rel="noopener">user guide</a> for how to use it.</li>
+    </ul>
+  </section>
   <section class="card welcome">
     <h2>Already running OpenWS3?</h2>
     <p>Plug the charger in with USB-C, press <b>Connect</b> and pick <i>OpenWS3</i> in the list.</p>
@@ -120,7 +143,13 @@ progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--acce
   </section>
   <section class="card welcome">
     <h2>Install OpenWS3 on your charger</h2>
-    <p>This replaces the charger's current firmware with OpenWS3. Only the USB-C cable and this page are needed.</p>
+    <div class="check">
+      <p><b>Before you install, check that this charger is a WhoopStor V3</b> (six ports, a 160 x 80 colour screen, two buttons, USB-C).
+        OpenWS3 is written for that board. On another charger, or another hardware revision, it can drive the power stage wrongly.
+        If you are not sure, do not install it.</p>
+      <p>Installing replaces the firmware now on the charger, and this page does not keep a copy of it. The manufacturer's firmware can be put back later with the vendor's update package. Take all cells out of the charger first.</p>
+    </div>
+    <p>Only the USB-C cable and this page are needed.</p>
     <ol class="steps">
       <li>Unplug the USB-C cable from the charger.</li>
       <li>Press and <b>hold the left button</b> (the one for start / stop / current set).</li>
@@ -507,6 +536,7 @@ $('bFlash').onclick = async () => {
   if (busy || !fw) return;
   if (kind === 'fw' && (!p1 || p1.run || inDev())) { fwStatus(p1 && p1.run ? 'Stop charging first.' : 'Leave developer mode first.', true); return; }
   if (!confirm('Replace the firmware on the charger with ' + fw.name + '?' + (kind === 'isp' ? '\nThe current firmware will be erased.' : '') +
+               '\nOpenWS3 is experimental and is made for the WhoopStor V3 only: continue only if this is one.' +
                '\nDo not unplug the charger until it has restarted.')) return;
   busy = true; fwShow();
   const prog = $('fwProg');
