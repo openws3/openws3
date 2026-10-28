@@ -222,6 +222,7 @@ static void t_cfg(void)
     CHECK(cfg_valid_current(21) == 21);
     CHECK(cfg_valid_current(91) == 91);
     CHECK(cfg_valid_current(92) == 21);
+    CHECK(cfg_valid_current(22) == 21 && cfg_valid_current(28) == 28 && cfg_valid_ch_cur(22) == 0);       /* only the steps */
     CHECK(cfg_valid_volt(0xFF) == 0); CHECK(cfg_valid_volt(3) == 3); CHECK(cfg_valid_volt(4) == 0);
     CHECK(cfg_valid_buzzer(0xFF) == 1);            /* erased = buzzer on */
     CHECK(cfg_valid_buzzer(0) == 0); CHECK(cfg_valid_buzzer(1) == 1);
@@ -281,7 +282,7 @@ static void t_dbg(void)
     dbg_view.bandgap = 1073; dbg_view.vin = 768; dbg_view.rail = 3971; dbg_view.rail_duty = 187; dbg_view.adc[0] = 2345;
     dbg_view.adc[ADC_VIN] = 766; dbg_view.adc[ADC_RAIL] = 3975; dbg_view.adc[4] = 3970; dbg_view.adc[9] = 22;     /* raw counts: P4 is ADC4 / ADC9 */
     dbg_view.v[3] = 3966; dbg_view.i[3] = 21; dbg_view.duty[3] = 345; dbg_view.state[3] = 2;
-    dbg_view.volt = 1; dbg_view.iset = 21; dbg_view.tgt = 3958; dbg_view.setpoint = 3972;
+    settings.volt = 1; settings.cur = 21;
     dbg_view.ms = 123456; dbg_view.fan = 1;
     CHECK(dbg_vcc_mv(1073) == 4543); CHECK(dbg_vcc_mv(976) == 4994); CHECK(dbg_vcc_mv(1219) == 3999); CHECK(dbg_vcc_mv(0) == 0);
     CHECK(!strncmp(dbg_text(1, 1), "BANDGAP 1073 counts", 19));

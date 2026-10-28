@@ -22,12 +22,10 @@ typedef struct {
     uint16_t duty[NPORTS];
     uint8_t  state[NPORTS], sw[NPORTS];
     uint16_t rail, rail_duty, vin, bandgap;  /* rail, vin: filtered readings; bandgap: counts */
-    uint16_t tgt, setpoint;
-    uint8_t  volt, iset, run, stop, alarm, strap, rail_hold, fan, usb;
-    uint8_t  ilim, vmin, vcut, lmode, held[NPORTS];           /* user limits (limits.h); held: chg_out_t.held */
-    uint16_t est_ma, budget, bcnt;
+    uint8_t  run, stop, alarm, strap, rail_hold, fan, usb;
+    uint8_t  held[NPORTS];                                   /* chg_out_t.held */
     uint8_t  stack;                                          /* bytes of stack never used since boot */
-} dbg_view_t;
+} dbg_view_t;   /* the settings, limits and targets are read where they live: settings, lim_cfg, lim_out, sup_target() */
 
 /* VCC in mV from the bandgap count: the internal reference is nominally 1.19 V and the ADC is referenced to VCC */
 uint16_t dbg_vcc_mv(uint16_t bandgap);

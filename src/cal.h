@@ -26,6 +26,7 @@ uint16_t cal_vin_mv(uint16_t raw);
 #define CUR_MIN              21
 #define CUR_MAX              91
 uint16_t cal_set_to_ma(uint8_t units);          /* 21 -> 300 mA */
+uint8_t  cal_cur_valid(uint8_t units);          /* a setting the steps can reach: 21, 28 ... 91 */
 uint8_t  cal_ma_step_up(uint8_t units);         /* +0.1 A, wraps to CUR_MIN after CUR_MAX */
 
 #endif

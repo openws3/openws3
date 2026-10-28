@@ -14,7 +14,7 @@
 
 /* ADC channels (internal mux).  Per-port channels are in the tables below.
  * ADC1..6 sense port VOLTAGE and ADC 12,14,13,9,10,11 sense port CURRENT. */
-#define ADC_IIN      0              /* P1.0  (name is historical) most likely a board thermistor (the debug screen shows it): the fan is switched on below 1300 at the storage voltages and off above 1451 */
+#define ADC_IIN      0              /* P1.0  (name is historical) most likely a board thermistor (the debug screen shows it): the fan is switched on below 1300 and off above 1451 */
 #define ADC_VIN      7              /* P1.7  input voltage (divider ratio unverified) */
 #define ADC_RAIL     8              /* P0.0  common rail, regulated to the setpoint of the target voltage by PWM7 */
 #define ADC_BANDGAP  15             /* internal 1.19 V reference -> VCC */

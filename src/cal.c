@@ -26,6 +26,11 @@ uint16_t cal_set_to_ma(uint8_t units)
     return (uint16_t)((uint32_t)units * 100u / CUR_UNITS_PER_100MA);
 }
 
+uint8_t cal_cur_valid(uint8_t units)
+{
+    return units >= CUR_MIN && units <= CUR_MAX && (units - CUR_MIN) % CUR_UNITS_PER_100MA == 0;
+}
+
 uint8_t cal_ma_step_up(uint8_t units)
 {
     uint16_t n = (uint16_t)units + CUR_UNITS_PER_100MA;

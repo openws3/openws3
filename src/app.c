@@ -26,10 +26,8 @@
 
 #define RAIL_UP          3185     /* vu (3.5 V): wait for the rail before starting the display */
 #define RAIL_UP_TIMEOUT  10000    /* ms */
-#define SELFTEST_LO1     3388     /* phase 1 (servo to 3458) must land in [3388, 3528) */
-#define SELFTEST_HI1     3528
-#define SELFTEST_LO2     3878     /* phase 2 (servo to 3958) must land in [3878, 4037) */
-#define SELFTEST_HI2     4037
+#define SELFTEST_TOL1    70       /* phase 1 (servo to the 3.80 V target) must land within this many counts of it ... */
+#define SELFTEST_TOL2    80       /* ... phase 2 (servo to the 4.35 V target) within this many */
 #define VCC_OK_MIN       976      /* bandgap count: VCC <= 5.0 V (it never starts above that) */
 #define BG_GLITCH        15       /* bandgap counts (~1.4 % of VCC) off the baseline: treat as a supply glitch */
 #define LCD_RECONFIG_PASSES 222   /* ~1 s */
@@ -172,6 +170,8 @@ static void fatal(const char *title, const char *line2, uint8_t has_n, uint16_t 
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
+static uint8_t within(uint16_t r, uint16_t t, uint16_t tol) { return r + tol >= t && r < t + tol; }
+
 static uint8_t selftest(uint16_t *r1, uint16_t *r2)
 {
     uint8_t ph, n;
@@ -186,7 +186,7 @@ static uint8_t selftest(uint16_t *r1, uint16_t *r2)
         }
         if (ph == 0) *r1 = adc_get(ADC_RAIL); else *r2 = adc_get(ADC_RAIL);
     }
-    return *r1 >= SELFTEST_LO1 && *r1 < SELFTEST_HI1 && *r2 >= SELFTEST_LO2 && *r2 < SELFTEST_HI2;
+    return within(*r1, sup_target(VOLT_3_80), SELFTEST_TOL1) && within(*r2, sup_target(VOLT_4_35), SELFTEST_TOL2);
 }
 
 void app_boot(void)
@@ -319,7 +319,7 @@ static void usb_service(void)
     case 1: if (run) stop_run(STOP_USER); break;                                       /* stop (always allowed) */
     case 2: res = screen != SCR_DEV && start_run() ? 0 : 1; break;                    /* start (not in developer mode) */
     case 3:                                                                            /* set current (units), not while running */
-        if (run || c[1] < CUR_MIN || c[1] > CUR_MAX || (c[1] - CUR_MIN) % CUR_UNITS_PER_100MA) { res = 1; break; }
+        if (run || !cal_cur_valid(c[1])) { res = 1; break; }
         settings.cur = c[1]; cfg_save();
         break;
     case 4:                                                                            /* set the target voltage, not while running */
@@ -532,12 +532,8 @@ void app_pass(void)
             dbg_view.state[n] = cout.state[n]; dbg_view.sw[n] = cout.sw[n];
         }
         dbg_view.rail = cin.rail; dbg_view.rail_duty = (uint16_t)rail_duty; dbg_view.vin = sin.vin; dbg_view.bandgap = sin.bandgap;
-        dbg_view.tgt = cin.tgt; dbg_view.setpoint = cin.setpoint; dbg_view.volt = settings.volt; dbg_view.iset = settings.cur;
         dbg_view.run = run; dbg_view.stop = stop_reason; dbg_view.alarm = alarm_ui;
         dbg_view.strap = strap; dbg_view.stack = stack_free; dbg_view.rail_hold = rail_hold; dbg_view.fan = sout.fan; dbg_view.usb = usb_configured();
-        dbg_view.ilim = lim_cfg.ilim; dbg_view.vmin = lim_cfg.vmin; dbg_view.vcut = lim_cfg.vcut; dbg_view.lmode = lim_cfg.mode;
-        dbg_view.est_ma = lim_out.est_ma; dbg_view.budget = lim_out.budget;
-        dbg_view.bcnt = lim_out.bcnt;
         for (n = 0; n < NPORTS; n++) dbg_view.held[n] = cout.held[n];
         ui_text_row(text_row, dbg_text(screen, text_row), text_row == 0 ? th(R_INFO) : th(R_TEXT));       /* one row per pass */
         if (++text_row == DBG_ROWS) text_row = 0;

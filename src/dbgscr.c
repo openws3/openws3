@@ -2,6 +2,7 @@
 #include "cal.h"
 #include "rowbuf.h"
 #include "limits.h"
+#include "cfg.h"
 #include "sup.h"
 #include "ports.h"
 
@@ -70,9 +71,9 @@ const char *dbg_text(uint8_t page, uint8_t row)
     case 4:
         switch (row) {
         case 0: rb_str("STATUS"); break;
-        case 1: rb_str("RUN "); rb_num(dbg_view.run, 0); rb_str("  VOLT "); rb_num(dbg_view.volt, 0); rb_ch(' '); rb_str(sup_volt_name(dbg_view.volt)); break;
-        case 2: rb_str("SET "); rb_num(dbg_view.iset, 0); rb_str("  "); rb_num(cal_set_to_ma(dbg_view.iset), 0); rb_str("mA"); break;
-        case 3: rb_str("TGT "); rb_num(dbg_view.tgt, 0); rb_str("  RAIL SET "); rb_num(dbg_view.setpoint, 0); break;
+        case 1: rb_str("RUN "); rb_num(dbg_view.run, 0); rb_str("  VOLT "); rb_num(settings.volt, 0); rb_ch(' '); rb_str(sup_volt_name(settings.volt)); break;
+        case 2: rb_str("SET "); rb_num(settings.cur, 0); rb_str("  "); rb_num(cal_set_to_ma(settings.cur), 0); rb_str("mA"); break;
+        case 3: rb_str("TGT "); rb_num(sup_target(settings.volt), 0); rb_str("  RAIL SET "); rb_num(sup_setpoint(settings.volt), 0); break;
         case 4: rb_str("STOP "); rb_num(dbg_view.stop, 0); rb_str(" ALARM "); rb_num(dbg_view.alarm, 0); rb_str(" HOLD "); rb_num(dbg_view.rail_hold, 0); break;
         case 5: rb_str("STRAP "); rb_num(dbg_view.strap, 0); rb_str("  FAN "); rb_num(dbg_view.fan, 0); break;
         case 6: rb_str("PORT STATE "); for (k = 0; k < NPORTS; k++) rb_num(dbg_view.state[k], 0); break;
@@ -83,12 +84,12 @@ const char *dbg_text(uint8_t page, uint8_t row)
     case 6:
         switch (row) {
         case 0: rb_str("LIMITS"); break;
-        case 1: rb_str("EST INPUT "); rb_num(dbg_view.est_ma, 5); rb_str(" mA"); break;
-        case 2: rb_str("MAX IN "); if (dbg_view.ilim) { rb_num(dbg_view.ilim / 10, 0); rb_ch('.'); rb_num(dbg_view.ilim % 10, 0); rb_str("A"); } else rb_str("OFF"); break;
-        case 3: rb_str("MIN IN "); if (dbg_view.vmin) { rb_v3(VMIN_MV(dbg_view.vmin)); rb_str(dbg_view.vcut ? "V STOP" : "V LIMIT"); } else rb_str("OFF"); break;
-        case 4: rb_str("REG "); rb_str(lim_mode_name(dbg_view.lmode)); break;
-        case 5: rb_str("BUDGET "); if (dbg_view.budget >= LIM_P_BIG) rb_str("NONE"); else { rb_num(dbg_view.budget / 10, 0); rb_ch('.'); rb_num(dbg_view.budget % 10, 0); rb_str(" W"); } break;
-        case 6: rb_str("PORTS MAX "); if (dbg_view.bcnt) { rb_num(cal_port_ma(dbg_view.bcnt), 0); rb_str(" mA"); } else rb_str("NONE"); break;
+        case 1: rb_str("EST INPUT "); rb_num(lim_out.est_ma, 5); rb_str(" mA"); break;
+        case 2: rb_str("MAX IN "); if (lim_cfg.ilim) { rb_num(lim_cfg.ilim / 10, 0); rb_ch('.'); rb_num(lim_cfg.ilim % 10, 0); rb_str("A"); } else rb_str("OFF"); break;
+        case 3: rb_str("MIN IN "); if (lim_cfg.vmin) { rb_v3(VMIN_MV(lim_cfg.vmin)); rb_str(lim_cfg.vcut ? "V STOP" : "V LIMIT"); } else rb_str("OFF"); break;
+        case 4: rb_str("REG "); rb_str(lim_mode_name(lim_cfg.mode)); break;
+        case 5: rb_str("BUDGET "); if (lim_out.budget >= LIM_P_BIG) rb_str("NONE"); else { rb_num(lim_out.budget / 10, 0); rb_ch('.'); rb_num(lim_out.budget % 10, 0); rb_str(" W"); } break;
+        case 6: rb_str("PORTS MAX "); if (lim_out.bcnt) { rb_num(cal_port_ma(lim_out.bcnt), 0); rb_str(" mA"); } else rb_str("NONE"); break;
         case 7:
             rb_str("HELD ");
             for (k = 0; k < NPORTS; k++) { rb_ch(dbg_view.held[k] == 2 ? 'W' : dbg_view.held[k] ? 'H' : '-'); rb_ch(' '); }

@@ -36,7 +36,7 @@ switch pin only lowers the net current into the cell. `P2` carries power-path sw
 | 7 | input voltage | about 6.6 mV per count, ~26.9 V full scale (I, needs a sweep) |
 | 8 | common rail | same scale as the port voltages |
 | 15 | internal 1.19 V bandgap | gives VCC |
-| 0 | probably a board thermistor (I) | the fan is switched on below 1300 in storage modes and off above 1451 |
+| 0 | probably a board thermistor (I) | the fan is switched on below 1300 and off above 1451 |
 
 Port current is read directly across a pair of 0.15 ohm resistors in parallel, 75 mohm per port (V). The scale (1 A = 75 mV =
 68.25 counts) means there is no amplifier, so the resistor is on the low side, between the cell's negative terminal and ground (I).

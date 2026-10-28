@@ -20,7 +20,7 @@ uint8_t portset_get(uint8_t k)
 
 uint8_t portset_valid(uint8_t v)
 {
-    return v == PV_OFF || v == PV_AUTO || (v >= CUR_MIN && v <= CUR_MAX && (v - CUR_MIN) % CUR_UNITS_PER_100MA == 0);
+    return v == PV_OFF || v == PV_AUTO || cal_cur_valid(v);
 }
 
 void portset_put(uint8_t k, uint8_t v)
