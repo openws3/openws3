@@ -7,6 +7,8 @@
 #include "chg.h"
 #include "dbgscr.h"
 #include "portset.h"
+#include "version.h"
+#include "version_build.h"
 
 #define NELEM (3 + NPORTS * 3)           /* 3 header boxes, then per port: voltage, status text, dot */
 
@@ -51,6 +53,14 @@ static void centered(uint8_t y, const char *text, uint8_t sx, uint8_t sy, uint16
     lcd_text(w >= LCD_PX_W ? 0 : (uint8_t)((LCD_PX_W - w) / 2), y, text, sx, sy, fg, bg);
 }
 
+#define STR_(x) #x
+#define STR(x)  STR_(x)
+#if FW_PRE
+#define FW_STAGE "-BETA." STR(FW_PRE)
+#else
+#define FW_STAGE ""
+#endif
+
 void ui_splash(void)
 {
     lcd_fill(0, 0, LCD_PX_W, LCD_PX_H, th(R_BG));
@@ -58,6 +68,7 @@ void ui_splash(void)
     lcd_fill(0, 63, LCD_PX_W, 3, th(R_BAD));
     centered(24, "OPENWS3", 2, 2, th(R_TEXT), th(R_BG));
     centered(44, "OPEN FW FOR WHOOPSTOR V3", 1, 1, th(R_INFO), th(R_BG));
+    centered(54, "V" STR(FW_MAJOR) "." STR(FW_MINOR) FW_STAGE " " FW_BUILD_STR, 1, 1, th(R_DIM), th(R_BG));
 }
 
 void ui_message(const char *title, const char *line2, uint8_t has_n1, uint16_t n1, uint8_t has_n2, uint16_t n2)

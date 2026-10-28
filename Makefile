@@ -22,11 +22,11 @@ $(BUILD)/flags: FORCE
 # the build id (git commit, and whether the tree has changes) for the USB telemetry; rewritten only when it changes
 $(BUILD)/version_build.h: FORCE
 	@mkdir -p $(BUILD)
-	@printf '#define FW_BUILD 0x%sUL\n#define FW_DIRTY %d\n' "$$(git rev-parse --short=8 HEAD 2>/dev/null || echo 00000000)" \
-	    "$$(git diff --quiet HEAD 2>/dev/null && echo 0 || echo 1)" > $@.new
+	@h=$$(git rev-parse --short=8 HEAD 2>/dev/null || echo 00000000); d=$$(git diff --quiet HEAD 2>/dev/null && echo 0 || echo 1); \
+	    printf '#define FW_BUILD 0x%sUL\n#define FW_DIRTY %d\n#define FW_BUILD_STR "%s%s"\n' $$h $$d "$$(echo $$h | tr a-f A-F)" "$$([ $$d = 1 ] && echo -DIRTY)" > $@.new
 	@cmp -s $@.new $@ && rm $@.new || mv $@.new $@
 
-$(BUILD)/app.rel: $(BUILD)/version_build.h
+$(BUILD)/app.rel $(BUILD)/ui.rel: $(BUILD)/version_build.h
 
 $(BUILD)/%.rel: src/%.c $(wildcard src/*.h) $(BUILD)/flags
 	@mkdir -p $(BUILD)

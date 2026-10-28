@@ -221,7 +221,7 @@ sudo udevadm control --reload-rules</pre>
 <script>
 'use strict';
 const VID = 0x34bf, PID = 0x1004;                   // the firmware; the chip's loader has the same vendor id and another product id
-const BUNDLED = null;                                // { major, minor, build, dirty, built, size, sha256, data (base64) } in the file made by tools/bundle.py
+const BUNDLED = null;                                // { major, minor, pre, build, dirty, built, size, sha256, data (base64) } in the file made by tools/bundle.py
 const V = 4.5 / 4096, A = 1 / 68.25;                 // readings -> volts / amps (vu, iu: src/adc.h)
 const BG_NOM = 1071;                                 // bandgap count at the calibration VCC: counts x BG_NOM / bandgap = readings
 const rd = (raw, bg) => bg ? raw * BG_NOM / bg : 0;
@@ -265,7 +265,7 @@ function parse(dv) {
     }
   } else if (r[3] === 2) {
     p2 = { ilim: r[8], vmin: r[9], vcut: r[10], lmode: r[11], budget: u16(12), estMa: u16(18), bcnt: u16(20),
-           gate: six(k => r[24 + k]), want: six(k => r[30 + k]), pset: six(k => r[36 + k]), stack: r[46], setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61] };
+           gate: six(k => r[24 + k]), want: six(k => r[30 + k]), pset: six(k => r[36 + k]), stack: r[46], setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61], pre: r[47] };
   } else if (r[3] === 3) {
     p3 = { v: [0, 1, 2, 3, 4, 5].map(k => u16(8 + 2 * k)), i: [0, 1, 2, 3, 4, 5].map(k => u16(20 + 2 * k)),
            therm: u16(32), vin: u16(34), rail: u16(36), bandgap: u16(38), duty: [0, 1, 2, 3, 4, 5].map(k => u16(40 + 2 * k)),
@@ -338,8 +338,8 @@ function allOff() {
 const clamp = (v, hi) => Math.max(0, Math.min(hi, Math.round(+v || 0)));
 
 /* ---- connection ---- */
-const verText = (major, minor, build, dirty) => `${major}.${minor} (build ${build.toString(16).padStart(8, '0')}${dirty ? '+' : ''})`;
-const installed = () => p1 && p1.ver && p2 && !inDev() ? verText(p1.ver >> 4, p1.ver & 15, p2.build, p2.dirty) : '';
+const verText = (major, minor, pre, build, dirty) => `${major}.${minor}${pre ? '-beta.' + pre : ''} (build ${build.toString(16).padStart(8, '0')}${dirty ? '+' : ''})`;
+const installed = () => p1 && p1.ver && p2 && !inDev() ? verText(p1.ver >> 4, p1.ver & 15, p2.pre, p2.build, p2.dirty) : '';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function connect(d) {
   dev = d; kind = d.productId === PID ? 'fw' : 'isp';
@@ -532,7 +532,7 @@ $('bFlash').onclick = async () => {
   } catch (e) { fwStatus('Update failed: ' + e.message + '. The unit can still be programmed: hold the left button while plugging in USB-C, then install again.', true); }
   busy = false; prog.hidden = true; fwShow();
 };
-if (BUNDLED) fwSet('OpenWS3 ' + verText(BUNDLED.major, BUNDLED.minor, BUNDLED.build, BUNDLED.dirty), Uint8Array.from(atob(BUNDLED.data), c => c.charCodeAt(0)),
+if (BUNDLED) fwSet('OpenWS3 ' + verText(BUNDLED.major, BUNDLED.minor, BUNDLED.pre, BUNDLED.build, BUNDLED.dirty), Uint8Array.from(atob(BUNDLED.data), c => c.charCodeAt(0)),
                    ', built ' + BUNDLED.built + ', SHA-256 ' + BUNDLED.sha256.slice(0, 12));
 else $('bFile').classList.remove('adv');             // a page without an image: everyone chooses a file
 

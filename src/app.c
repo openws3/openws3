@@ -92,6 +92,7 @@ static void tele_limits(uint8_t ph, uint32_t ms)
         }
         put16(usb_tx2, 42, sup_setpoint(settings.volt)); put16(usb_tx2, 44, sup_target(settings.volt));    /* vu */
         usb_tx2[46] = stack_free;
+        usb_tx2[47] = FW_PRE;
         usb_tx2[51] = cout.any_active;
         usb_tx2[52] = sout.stop; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.stop == STOP_RAIL; usb_tx2[56] = sout.fan;
     }

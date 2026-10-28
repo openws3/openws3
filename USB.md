@@ -62,7 +62,8 @@ Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Eve
 | 36–41 | each port's value: 0 = off (sits the run out), 1 = auto (the global current), else its own current in iu (21, 28 … 91) |
 | 42, 43 / 44, 45 | the rail setpoint and the cell target voltage of the chosen target, vu |
 | 46 | stack bytes never used since boot (internal RAM; the margin left at the deepest point so far) |
-| 47–50 | reserved (0) |
+| 47 | pre-release: the beta number of the firmware release (`src/version.h`), 0 for a final release or firmware that predates it |
+| 48–50 | reserved (0) |
 | 51 | some port is charging or bleeding (global enable) |
 | 52–56 | supervisor: stop reason, reserved (0), rail cut (fatal), rail alarm (stop reason 3), fan |
 | 57–60 | build id: the first 8 hex digits of the git commit the firmware was built from, 32 bit (the page is not sent in developer mode; use byte 10 of page 1 there) |

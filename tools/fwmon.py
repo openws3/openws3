@@ -49,7 +49,7 @@ def parse_limits(r):
     return dict(lim=dict(
         ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(12), p_cur=u16(14), p_vol=u16(16), est_ma=u16(18), bcnt=u16(20),
         trip=r[22], active=r[23], gate=list(r[24:30]), want=list(r[30:36]), pset=list(r[36:42]), stack=r[46], setpoint=u16(42), target=u16(44),
-        any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(57) << 16) | u16(59), dirty=r[61]))
+        any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(57) << 16) | u16(59), dirty=r[61], pre=r[47]))
 
 
 def parse_dev(r):
@@ -243,7 +243,7 @@ def main():
         t = snapshot()
         print(fmt_status(t))
         if t['fw'] and 'lim' in t:
-            print('firmware %d.%d build %08x%s' % (t['fw'] >> 4, t['fw'] & 15, t['lim']['build'], '+' if t['lim']['dirty'] else '') +
+            print('firmware %d.%d%s build %08x%s' % (t['fw'] >> 4, t['fw'] & 15, '-beta.%d' % t['lim']['pre'] if t['lim']['pre'] else '', t['lim']['build'], '+' if t['lim']['dirty'] else '') +
                   ('  stack free %d bytes' % t['lim']['stack'] if t['phase'] == 7 else ''))
     elif a.cmd == 'watch': watch(a.n, a.raw)
     elif a.cmd == 'log': log(a.file, a.secs)

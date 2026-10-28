@@ -14,10 +14,10 @@ fw, page, out = sys.argv[1:4]
 num = lambda path, name: int(re.search(r'#define %s\s+(\w+)' % name, open(path).read()).group(1).rstrip('UL'), 0)
 build_h = os.path.join(os.path.dirname(fw), 'version_build.h')
 image = open(fw, 'rb').read().rstrip(b'\xff')      # the flash padding is not part of the image
-meta = dict(major=num('src/version.h', 'FW_MAJOR'), minor=num('src/version.h', 'FW_MINOR'), build=num(build_h, 'FW_BUILD'),
+meta = dict(major=num('src/version.h', 'FW_MAJOR'), minor=num('src/version.h', 'FW_MINOR'), pre=num('src/version.h', 'FW_PRE'), build=num(build_h, 'FW_BUILD'),
             dirty=num(build_h, 'FW_DIRTY'), built=datetime.date.today().isoformat(), size=len(image), sha256=hashlib.sha256(image).hexdigest())
 html = open(page).read()
 stub = 'const BUNDLED = null;'
 assert html.count(stub) == 1, 'placeholder not found in ' + page
 open(out, 'w').write(html.replace(stub, 'const BUNDLED = %s;' % json.dumps(dict(meta, data=base64.b64encode(open(fw, 'rb').read()).decode()))))
-print('%s: OpenWS3 %d.%d build %08x%s, %d bytes' % (out, meta['major'], meta['minor'], meta['build'], '+' if meta['dirty'] else '', meta['size']))
+print('%s: OpenWS3 %d.%d%s build %08x%s, %d bytes' % (out, meta['major'], meta['minor'], '-beta.%d' % meta['pre'] if meta['pre'] else '', meta['build'], '+' if meta['dirty'] else '', meta['size']))
