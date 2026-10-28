@@ -4,7 +4,7 @@ How to use a WhoopStor V3 charger running OpenWS3: reading the screen, starting 
 All pictures are what the unit's 160 x 80 screen shows; they are drawn by the firmware's own screen code (`make screens`).
 
 > **This firmware is early.** You are charging lithium cells with software that has had little hardware testing. Stay with the
-> charger, start with one cell and a low current, and use it at your own risk. See `README.md` for the status and for how to install it.
+> charger and use it at your own risk. See `README.md` for the status and for how to install it.
 
 ## Contents
 

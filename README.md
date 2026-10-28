@@ -7,7 +7,7 @@ storage-voltage bleed, input / rail / VCC supervision, a colour LCD UI with a se
 
 > **Status: early.** It runs on a real unit (display, buttons, menu, USB monitor, limits, charging at low current from a 5 V supply).
 > The full charge cycle to termination, all six ports and higher input voltages have had little or no hardware testing.
-> **You are charging lithium cells with unproven firmware. Supervise it, start with one cell and a current limit, and use it at your own risk.**
+> **You are charging lithium cells with unproven firmware. Supervise it and use it at your own risk.**
 > It replaces the manufacturer's firmware: flashing is possible only through the chip's ISP loader and there is no vendor support afterwards.
 > See `HARDWARE.md` for what is known about the board and what is still assumed.
 
