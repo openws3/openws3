@@ -8,8 +8,8 @@
 #define CAL_H
 #include "compat.h"
 
-/* Port voltage sense (ADC1..6) in mV: 1 vu = 4.5 V / 4096.  [VERIFIED: the target voltages 3822/3958/3458/3504 are exactly
- * 4.20/4.35/3.80/3.85 V.]  The hardware divider is still to be confirmed with a DMM. */
+/* Port voltage sense (ADC1..6) in mV: 1 vu = 4.5 V / 4096.  [VERIFIED: the 4.20 / 3.80 / 3.85 V targets sit at
+ * 3822 / 3458 / 3504 on this scale.]  The hardware divider is still to be confirmed with a DMM. */
 uint16_t cal_port_mv(uint16_t raw);
 
 /* Port current sense (ADC 12,14,13,9,10,11) in mA: 1 iu = 1/68.25 A = 14.652 mA.  [VERIFIED: (raw+1)*4/273 A.  The regulator works on

@@ -7,8 +7,8 @@
  * Per port the state is:
  *   IDLE    no cell (V < 1.00 V) or not running                         duty 0, switch low
  *   PROBE   output off, settle, classify the cell                        duty 0, switch low
- *   CHARGE  constant current with soft ramp; ends in the rest test: after the tail (full voltages), at the step-down floor (storage),
- *           or with no current at all for 2 s (a pulled cell)
+ *   CHARGE  constant current with soft ramp; ends in the rest test: after the tail (the rail sits just above the target, so it holds the
+ *           cell there and the current tapers), or with no current at all for 2 s (a pulled cell)
  *   REST    output off for ~1 s, then the rest voltage decides like a probe (an empty port reads below 1 V and is released)
  *   FULL    cell inside the target window; watched: below it for 2 s = test again, above it = bleed
  *   BLEED   cell above the target: switch HIGH (discharge path) down to the target, then the rest test
@@ -31,7 +31,6 @@ typedef struct {
     uint16_t rail;               /* filtered rail reading */
     uint16_t tgt;                /* target voltage T (vu) */
     uint16_t setpoint;           /* rail setpoint S of that voltage */
-    uint8_t  volt;               /* the target voltage: 0..3, sup.h VOLT_* */
     uint8_t  iset[NPORTS];       /* per-port current setting (iu) */
     uint8_t  run;                /* charging requested */
     uint8_t  en[NPORTS];         /* the port takes part in the run (0: it stays idle, its output off) */

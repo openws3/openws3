@@ -10,13 +10,12 @@
  * setting and the input limits (MAX IN AMPS, MIN IN VOLTS; from a LiPo pack, MIN IN VOLTS on STOP RUN is its low-voltage cut). */
 #define VIN_MIN       700
 
-/* the four target voltages the user chooses between: rail setpoint S and port-voltage target T (vu).  The first two are full
- * charges, the last two storage charges (they end differently, see chg.c) */
+/* the four target voltages the user chooses between (the last two are for storage): the port-voltage target T and the rail
+ * setpoint S, in vu.  The rail is held just above the target and is what holds a cell there, see chg.c */
 enum { VOLT_4_20 = 0, VOLT_4_35, VOLT_3_80, VOLT_3_85 };
-#define VOLT_STORAGE VOLT_3_80      /* from here on: storage voltages */
 #define NVOLTS 4
-uint16_t sup_target(uint8_t volt);      /* 3822 / 3958 / 3458 / 3504  = 4.20 / 4.35 / 3.80 / 3.85 V */
-uint16_t sup_setpoint(uint8_t volt);    /* 3836 / 3972 / 3803 / 3940 */
+uint16_t sup_target(uint8_t volt);
+uint16_t sup_setpoint(uint8_t volt);
 const char *sup_volt_name(uint8_t volt);   /* "4.20V" ... "3.85V STOR" */
 
 typedef struct {

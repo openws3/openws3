@@ -496,7 +496,7 @@ void app_pass(void)
     /* ---- charge control ---- */
     for (k = 0; k < NPORTS; k++) { cin.v_now[k] = adc_now(port_v_ch(k)); cin.i_now[k] = adc_now(port_i_ch(k)); }
     cin.rail = adc_get(ADC_RAIL);
-    cin.tgt = sup_target(settings.volt); cin.setpoint = sup_setpoint(settings.volt); cin.volt = settings.volt; cin.run = run;
+    cin.tgt = sup_target(settings.volt); cin.setpoint = sup_setpoint(settings.volt); cin.run = run;
     for (k = 0; k < NPORTS; k++) { cin.iset[k] = ch_iset(k); cin.en[k] = !(settings.ch_off & (1u << k)); }
     if (rail_hold) { outputs_off(); chg_cut(); }
     else chg_pass(&cin, &cout);

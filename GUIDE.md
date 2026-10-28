@@ -97,7 +97,7 @@ The choice is saved a few seconds after your last tap.
 |---|---|
 | 4.20 V | a normal full charge |
 | 4.35 V | a full charge for high-voltage (HV) cells only. Never use it on a cell that is not rated for 4.35 V |
-| 3.80 V storage, 3.85 V storage | storage charge: the current steps down as the cell nears the target, for cells you will not use for a while |
+| 3.80 V storage, 3.85 V storage | storage charge: the same as a full charge, but to a lower voltage, for cells you will not use for a while |
 
 A cell that is **above** the target is discharged down to it (`BLEED`), whichever target you chose.
 Check the target before you insert a cell that you want to keep full.

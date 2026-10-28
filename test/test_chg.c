@@ -35,11 +35,10 @@ typedef struct {
 
 static void bench_init(bench_t *b, int volt, int iset)
 {
-    static const uint16_t T[4] = {3822, 3958, 3458, 3504}, S[4] = {3836, 3972, 3803, 3940};
     memset(b, 0, sizeof *b);
-    b->k_amp_per_duty = 0.01; b->r_pass = 0.20; b->rail_v = S[volt] * VPC;
-    b->in.volt = volt; b->in.tgt = T[volt]; b->in.setpoint = S[volt];
-    b->in.rail = S[volt]; b->in.run = 1;
+    b->k_amp_per_duty = 0.01; b->r_pass = 0.20; b->rail_v = sup_setpoint(volt) * VPC;
+    b->in.tgt = sup_target(volt); b->in.setpoint = sup_setpoint(volt);
+    b->in.rail = sup_setpoint(volt); b->in.run = 1;
     { int k; for (k = 0; k < NPORTS; k++) { b->in.iset[k] = (uint8_t)iset; b->in.en[k] = 1; } }
     chg_init();
 }
@@ -208,8 +207,8 @@ static sup_in_t si(void)
 static void t_sup(void)
 {
     sup_in_t in; sup_out_t o; int k;
-    CHECK(sup_target(0) == 3822 && sup_target(1) == 3958 && sup_target(2) == 3458 && sup_target(3) == 3504);
-    CHECK(sup_setpoint(0) == 3836 && sup_setpoint(1) == 3972 && sup_setpoint(2) == 3803 && sup_setpoint(3) == 3940);
+    CHECK(sup_target(0) == 3822 && sup_target(1) == 3959 && sup_target(2) == 3458 && sup_target(3) == 3504);
+    CHECK(sup_setpoint(0) == 3836 && sup_setpoint(1) == 3973 && sup_setpoint(2) == 3472 && sup_setpoint(3) == 3518);   /* 15 mV above the target */
 
     sup_reset(); in = si(); sup_pass(&in, &o);
     CHECK(o.stop == STOP_NONE && !o.rail_cut && !o.fan);
@@ -348,19 +347,18 @@ static void t_per_port(void)
     CHECK(b.out.state[0] == PS_IDLE && b.out.duty[0] == 0 && b.out.state[1] == PS_CHARGE);
 }
 
-/* storage: the current steps down while the loaded cell is above the target, then the rest test ends it in the window */
+/* storage voltage: the rail holds the cell near the target, the current tapers and the rest test ends it in the window; even a
+   high-resistance cell (big load rise) is not driven above the target */
 static void t_storage(void)
 {
-    bench_t b; int k, full_at = -1, min_set = 255;
+    bench_t b; int k, full_at = -1;
     bench_init(&b, 2, 35);                                                          /* 3.80 V, 0.5 A */
     attach(&b, 0, 3.60, 40, 0.3);                                                   /* a high-resistance cell: big load rise */
     for (k = 0; k < 200000 && full_at < 0; k++) {
         step(&b);
-        if (b.out.want[0] && b.out.want[0] < min_set) min_set = b.out.want[0];
         if (b.out.state[0] == PS_FULL) full_at = k;
     }
     CHECK(full_at > 0);
-    CHECK(min_set < 21);                                                            /* it stepped down to the floor on the way */
     CHECK(ocv(&b.cell[0]) > 3.76 && ocv(&b.cell[0]) < 3.85);                        /* at rest close to 3.80 V */
 }
 

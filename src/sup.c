@@ -1,8 +1,10 @@
 #include "sup.h"
 #include "cal.h"
 
-static const CODE uint16_t TGT[NVOLTS] = { 3822, 3958, 3458, 3504 };
-static const CODE uint16_t SET[NVOLTS] = { 3836, 3972, 3803, 3940 };
+#define VU(mv)           ((uint16_t)((mv) * 4096UL / 4500))     /* mV -> vu (1 vu = 4.5 V / 4096) */
+#define RAIL_ABOVE_TARGET 14     /* the rail setpoint is 15 mV above the cell target */
+
+static const CODE uint16_t TGT[NVOLTS] = { VU(4200), VU(4350), VU(3800), VU(3850) };
 
 #define VCC_STOP         1219    /* bandgap count: VCC <= 4.0 V */
 #define RAIL_BAND_LO     35
@@ -14,7 +16,7 @@ static const CODE uint16_t SET[NVOLTS] = { 3836, 3972, 3803, 3940 };
 #define ADC0_COOL        1451    /* ... until it is back above this */
 
 uint16_t sup_target(uint8_t volt)   { return TGT[volt < NVOLTS ? volt : 0]; }
-uint16_t sup_setpoint(uint8_t volt) { return SET[volt < NVOLTS ? volt : 0]; }
+uint16_t sup_setpoint(uint8_t volt) { return sup_target(volt) + RAIL_ABOVE_TARGET; }
 const char *sup_volt_name(uint8_t volt)
 {
     static const char *const NAME[NVOLTS] = { "4.20V", "4.35V", "3.80V STOR", "3.85V STOR" };

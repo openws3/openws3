@@ -40,7 +40,7 @@ static void setup(uint8_t n, uint8_t iset)
     memset(&cin, 0, sizeof cin); memset(&cout, 0, sizeof cout);
     lim_reset(); chg_init();
     lim_in.rail = RAIL; lim_in.vin = vin_raw(12000);
-    cin.tgt = 3822; cin.setpoint = RAIL; cin.rail = RAIL; cin.volt = 0; cin.run = 1;
+    cin.tgt = 3822; cin.setpoint = RAIL; cin.rail = RAIL; cin.run = 1;
     for (k = 0; k < NPORTS; k++) {
         cin.iset[k] = iset; cin.en[k] = 1;
         present[k] = k < n; gain[k] = 2.0; taper[k] = 0; cellv[k] = 3368;     /* 3.70 V */
