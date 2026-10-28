@@ -52,7 +52,7 @@ The unit shows its logo and beeps twice, then the main screen. It needs an input
 | Box | Shows |
 |---|---|
 | left | the charge current each port gets (`0.3A`). A `*` after it means some port has its own current or is switched off |
-| middle | the input voltage (`5.0V`). When the unit stops on its own, the reason replaces it, see [When something is wrong](#when-something-is-wrong) |
+| middle | the input voltage (`5.00V`). When the unit stops on its own, the reason replaces it, see [When something is wrong](#when-something-is-wrong) |
 | right | the target voltage the cells are charged to (`4.20V`) |
 
 The boxes turn red while charging.

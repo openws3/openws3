@@ -112,6 +112,8 @@ static void t_fmt(void)
     CHECK(!strcmp((fmt_v2(b, 4204), b), "4.20V"));
     CHECK(!strcmp((fmt_v2(b, 4205), b), "4.21V"));   /* round half up */
     CHECK(!strcmp((fmt_v2(b, 65535), b), "9.99V"));   /* clamps, never overruns */
+    CHECK(!strcmp((fmt_vin(b, 5000), b), "5.00V") && !strcmp((fmt_vin(b, 19680), b), "19.68V") && !strcmp((fmt_vin(b, 9996), b), "10.00V"));
+    CHECK(fmt_vin(b, 65535) == 6 && !strcmp(b, "65.54V"));
     CHECK(!strcmp((fmt_v1(b, 19680), b), "19.7V"));
     CHECK(!strcmp((fmt_v1(b, 5000), b), "5.0V"));
     CHECK(!strcmp((fmt_v1(b, 65535), b), "65.5V"));   /* near uint16 max: must not wrap (int is 16-bit on target) */
