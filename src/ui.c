@@ -13,8 +13,9 @@
 #define NELEM (3 + NPORTS * 3)           /* 3 header boxes, then per port: voltage, status text, dot */
 #define NBOX  (3 + NPORTS)               /* the 3 header boxes, then the port cells */
 
-/* What the screen shows, so that only changes are drawn.  An element is its text (or, for a dot, a mark that it is drawn) and its
- * colour; a box is its colour.  Repainting a box wipes its elements, which box_draw() marks as not drawn. */
+/* What the screen shows, so that only changes are drawn.  An element is its text and colour (a dot or frame has no text: it is
+ * its colour and a mark that it is drawn); a box is its colour.  Repainting a box wipes its elements, which box_draw() marks as
+ * not drawn.  Marking an element not drawn (shown[e][0] = 0) is how anything is made to repaint. */
 static char    XD shown[NELEM][8];
 static uint16_t XD shown_fg[NELEM];
 static uint16_t XD box_bg[NBOX];
@@ -84,18 +85,25 @@ void ui_message(const char *title, const char *line2, uint8_t has_n1, uint16_t n
     if (has_n2) { fmt_u(b, n2); centered(60, b, 1, 1, th(R_DIM), th(R_BG)); }
 }
 
-static void put(uint8_t e, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
+/* The one rule for text: draw `s` (at most `max` characters) at x,y in fg on bg, only the characters that differ from `was`, the text
+ * the screen shows in the colour *was_fg; a new colour redraws it all.  Then `was` holds `s`. */
+static void show(char XD *was, uint16_t XD *was_fg, uint8_t max, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
 {
     uint8_t i, n = slen(s);
-    if (n > 7) n = 7;
-    if (shown_fg[e] != fg) { shown_fg[e] = fg; shown[e][0] = 0; }     /* a new colour redraws it all */
-    if (!diff(shown[e], s, n)) return;
+    if (n > max) n = max;
+    if (*was_fg != fg) { *was_fg = fg; was[0] = 0; }
+    if (!diff(was, s, n)) return;
     draw_span(x, y, sy, s, fg, bg);
-    for (i = 0; i < n; i++) shown[e][i] = s[i];
-    shown[e][n] = 0;
+    for (i = 0; i < n; i++) was[i] = s[i];
+    was[n] = 0;
 }
 
-/* a coloured square (a dot, a frame) is drawn again only when its colour changed or it was wiped */
+static void put(uint8_t e, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
+{
+    show(shown[e], &shown_fg[e], 7, x, y, sy, fg, bg, s);
+}
+
+/* the same for a coloured square (a dot, a frame): true when it has to be drawn, in colour c */
 static uint8_t changed(uint8_t e, uint16_t c)
 {
     if (shown[e][0] && shown_fg[e] == c) return 0;
@@ -179,11 +187,16 @@ static void header(const ui_state_t *s, uint8_t e, char XD *t) REENT
 /* "0.5A", the current a port charges at */
 static void amps1(char XD *t, uint8_t iu) { fmt_a1(t, cal_set_to_ma(iu)); }
 
+/* where the two text fields of a port cell sit, by part: the voltage (1x2), the line under it (1x1) */
+static const CODE struct { uint8_t dx, dy, sy; } FLD[2] = { { UI_CELL_VX, UI_CELL_VY, 2 }, { UI_CELL_IX, UI_CELL_IY, 1 } };
+
+/* One element of the screen: each branch decides the text t, its colour fg and the box colour bg, and the one put() at the end
+ * draws it.  A dot or frame is not text: it is drawn by its branch, which returns. */
 static void element(const ui_state_t *s, uint8_t e) REENT
 {
     static char XD t[10];                      /* external RAM: direct RAM is full */
     uint8_t k, p, part, x, y, st, off, full;
-    uint16_t bg;
+    uint16_t fg, bg;
     if (e < 3) { header(s, e, t); return; }
     k = e - 3; p = k / 3; part = k % 3;
     x = box_x(p % 3); y = cell_y(p);
@@ -197,39 +210,38 @@ static void element(const ui_state_t *s, uint8_t e) REENT
             if (off) scopy(t, "OFF"); else amps1(t, s->want[p]);
             if (edit) { uint8_t n = slen(t), i; for (i = n; i > 0; i--) t[i] = t[i - 1]; t[0] = '<'; t[n + 1] = '>'; t[n + 2] = 0; }
             pad(t, 6);
-            put(e, x + UI_CELL_VX, y + UI_CELL_VY, 2, edit ? th(R_WARN) : off ? th(R_DIM) : th(R_TEXT), bg, t);
+            fg = edit ? th(R_WARN) : off ? th(R_DIM) : th(R_TEXT);
         } else if (part == 1) {
             scopy(t, off ? "OFF" : s->set[p] == PV_AUTO ? "AUTO" : "SET");
             pad(t, 5);
-            put(e, x + UI_CELL_IX, y + UI_CELL_IY, 1, off || s->set[p] == PV_AUTO ? th(R_DIM) : th(R_INFO), bg, t);
+            fg = off || s->set[p] == PV_AUTO ? th(R_DIM) : th(R_INFO);
         } else {
             uint8_t f = p != s->sel ? 0 : !edit ? 1 : s->blink ? 2 : 3;      /* none, selected, editing (blinks) */
             uint16_t fc = f == 1 ? th(R_INFO) : f == 2 ? th(R_WARN) : th(R_BOX);
             if (changed(e, fc)) frame(x, y, fc);
+            return;
         }
-        return;
-    }
-    if (part == 0) {
+    } else if (part == 0) {
         fmt_v2(t, cal_port_mv(s->v[p]));
-        put(e, x + UI_CELL_VX, y + UI_CELL_VY, 2, off ? th(R_DIM) : full ? th(R_FULLTX) : th(R_VOLT), bg, t);
+        fg = off ? th(R_DIM) : full ? th(R_FULLTX) : th(R_VOLT);
     } else if (part == 1) {
         /* charging: the measured current, 1 s in 4 the target; idle: the target; an OFF port says so; else the state */
         static const CODE char *const NAME[] = { "", "TEST", "", "REST", "FULL", "BLEED", "ERR" };   /* by PS_* */
-        uint16_t col = status_color(st);
-        if (st == PS_IDLE && off) { scopy(t, "OFF"); col = th(R_DIM); }
-        else if ((st == PS_CHARGE && s->tphase) || st == PS_IDLE) { t[0] = '>'; amps1(t + 1, s->want[p]); col = th(R_INFO); }
-        else if (st == PS_CHARGE && s->parked[p]) { scopy(t, "LIMIT"); col = th(R_WARN); }      /* waiting for room under a user limit */
+        fg = status_color(st);
+        if (st == PS_IDLE && off) { scopy(t, "OFF"); fg = th(R_DIM); }
+        else if ((st == PS_CHARGE && s->tphase) || st == PS_IDLE) { t[0] = '>'; amps1(t + 1, s->want[p]); fg = th(R_INFO); }
+        else if (st == PS_CHARGE && s->parked[p]) { scopy(t, "LIMIT"); fg = th(R_WARN); }      /* waiting for room under a user limit */
         else if (st == PS_CHARGE) fmt_a2(t, cal_port_ma(s->i[p]));
         else scopy(t, NAME[st]);
         pad(t, 5);
-        put(e, x + UI_CELL_IX, y + UI_CELL_IY, 1, col, bg, t);
     } else {
-        uint16_t c;
         st &= 7;
-        c = th(R_DOT0 + st);
-        if (st == PS_FAULT && !s->blink) c = bg;               /* errors blink */
-        if (changed(e, c)) lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, c);
+        fg = th(R_DOT0 + st);
+        if (st == PS_FAULT && !s->blink) fg = bg;              /* errors blink */
+        if (changed(e, fg)) lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, fg);
+        return;
     }
+    put(e, x + FLD[part].dx, y + FLD[part].dy, FLD[part].sy, fg, bg, t);
 }
 
 static char XD dbg_shown[DBG_ROWS][DBG_COLS + 1];
@@ -237,23 +249,15 @@ static uint16_t XD dbg_col[DBG_ROWS];
 
 void ui_text_enter(void)
 {
-    uint8_t r, i;
+    uint8_t r;
     lcd_fill(0, 0, LCD_PX_W, LCD_PX_H, th(R_BG));
-    for (r = 0; r < DBG_ROWS; r++) for (i = 0; i <= DBG_COLS; i++) dbg_shown[r][i] = 0;   /* the whole row: a stale tail would count as drawn */
+    for (r = 0; r < DBG_ROWS; r++) dbg_shown[r][0] = 0;
 }
 
-/* a different colour redraws the whole row */
 void ui_text_row(uint8_t row, const char *text, uint16_t color)
 {
-    uint8_t n, i;
     if (row >= DBG_ROWS) return;
-    if (dbg_col[row] != color) { dbg_col[row] = color; for (i = 0; i <= DBG_COLS; i++) dbg_shown[row][i] = 0; }
-    n = slen(text);
-    if (n > DBG_COLS) n = DBG_COLS;
-    if (!diff(dbg_shown[row], text, n)) return;
-    draw_span(0, (uint8_t)(row * 8), 1, text, color, th(R_BG));
-    for (i = 0; i < n; i++) dbg_shown[row][i] = text[i];
-    dbg_shown[row][n] = 0;
+    show(dbg_shown[row], &dbg_col[row], DBG_COLS, 0, (uint8_t)(row * 8), 1, color, th(R_BG), text);
 }
 
 /* Every REFRESH_EVERY-th step the element is redrawn even if it did not change: a glitch that corrupted a few pixels would
