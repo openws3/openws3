@@ -70,7 +70,7 @@ The line under the voltage and the small square in the corner give the port stat
 | `0.60A` | red | charging, at the measured current |
 | `LIMIT` | red | charging is wanted but an [input limit](#running-from-a-weak-supply-the-limits) holds this port until there is room |
 | `REST` | orange | output off for a moment; the cell voltage is read to decide what to do next |
-| `FULL` | green | the cell is at the target voltage; the port keeps watching it |
+| `FULL` | white; the whole cell is tinted green | the cell is at the target voltage; the port keeps watching it |
 | `BLEED` | blue | the cell is above the target, so the port discharges it down to the target |
 | `ERR` | magenta, blinking | over-voltage or over-current on that port; it stays off until you remove the cell or stop the run |
 
@@ -233,7 +233,8 @@ The unit itself stays on and draws a little current: unplug it from the pack whe
 ## Themes
 
 The theme changes colours only, never behaviour, and applies at once. In every theme the same colours mean the same kind of thing
-(red/orange for charging and warnings, green for good, blue for bleed).
+(red/orange for charging and warnings, green for good, blue for bleed). A full cell is tinted in every theme, so it shows from
+across the room (green; in `AMBER` a brighter amber).
 
 | CLASSIC | CALM |
 |---|---|
