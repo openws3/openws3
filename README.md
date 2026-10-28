@@ -11,6 +11,8 @@ storage-voltage bleed, input / rail / VCC supervision, a colour LCD UI with a se
 > It replaces the manufacturer's firmware: flashing is possible only through the chip's ISP loader and there is no vendor support afterwards.
 > See `HARDWARE.md` for what is known about the board and what is still assumed.
 
+**Using the charger?** Read `GUIDE.md`: the buttons, the screens (with pictures), every setting and the defaults.
+
 ## Build, test, flash
 
 ```bash
@@ -143,7 +145,7 @@ src/ctl.c          rail PI, cal.c units, fmt.c text, input_pure.c buttons, buzz_
 src/usb.c          USB HID monitor (telemetry + commands)         src/ui.c    screens
 src/dev.c          developer mode: outputs set by the host, guards  src/portset.c  port settings mode (pure)
 src/app.c          boot sequence, 4.5 ms control pass             src/font.c  GENERATED from tools/font5x7.txt
-test/              host tests (C)                                 tools/      fwmon.py (USB monitor / flasher), devtool.py, openws3.html (web tool), bundle.py, isp.py
+test/              host tests (C)                                 tools/      fwmon.py (USB monitor / flasher), devtool.py, openws3.html (web tool), bundle.py, isp.py, render_screens.* (the pictures in GUIDE.md)
 ```
 
 "Pure" files have no hardware access and are what the host tests compile.

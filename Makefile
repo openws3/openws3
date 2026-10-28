@@ -1,6 +1,7 @@
 # OpenWS3: open firmware for the WhoopStor V3.
 #   make          build build/fw.bin (SDCC >= 4.x, mcs51) and build/openws3.html, the web tool with the firmware inside
 #   make test     host unit tests (plain C, run on the PC)
+#   make screens  render the screens of the user guide into docs/screens (host build of the real screen code)
 #   make clean
 SDCC   ?= sdcc
 SRCS    = src/main.c src/hal.c src/adc.c src/cal.c src/ctl.c src/fmt.c src/font.c src/lcd.c src/ui.c src/cfg.c src/cfg_pure.c src/input_pure.c src/buzz_pure.c src/chg.c src/sup.c src/app.c src/ports.c src/usb.c src/dbgscr.c src/rowbuf.c src/limits.c src/menu.c src/portset.c src/theme.c src/dev.c
@@ -54,7 +55,14 @@ TESTS   = $(patsubst test/%.c,$(BUILD)/%,$(wildcard test/test_*.c))
 test: $(TESTS)
 	@for t in $(TESTS); do ./$$t || exit 1; done
 
+$(BUILD)/render_screens: tools/render_screens.c src/ui.c src/font.c $(PURE) $(wildcard src/*.h) $(BUILD)/version_build.h
+	@mkdir -p $(BUILD)
+	$(HOSTCC) -std=c99 -Wall -Wextra -Werror -Isrc -I$(BUILD) -D__code= -o $@ tools/render_screens.c src/ui.c src/font.c $(PURE) -lm
+
+screens: $(BUILD)/render_screens
+	python3 tools/render_screens.py $< docs/screens
+
 clean:
 	rm -rf build
-.PHONY: all test clean FORCE
+.PHONY: all test screens clean FORCE
 FORCE:
