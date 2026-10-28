@@ -19,7 +19,8 @@
 #define T_TAIL          8000    /* full voltages: V>=T-20 and I<=5 for this long -> rest test (36 s) */
 #define T_OPEN          450     /* CHARGE, past the soft ramp, no current at all for this long -> rest test (2 s) */
 #define T_REST          230     /* output off while resting */
-#define T_RAMP_STEP     100     /* soft start: +1 duty per this many passes */
+#define T_RAMP_STEP     100     /* soft start: a step every this many passes ... */
+#define RAMP_GROW       8       /* ... of 1 + duty / 8 counts: a cell close to the rail needs many counts per amp, so the step follows the duty */
 #define T_OC            200     /* over-current persistence */
 #define T_OVER          100     /* over-voltage persistence */
 #define T_STOR_STEP     500     /* storage: V>=T+35 this long -> the current one step down (2.2 s) */
@@ -74,13 +75,13 @@ void chg_cut(void)
     for (k = 0; k < NPORTS; k++) { P[k].duty = 0; P[k].ramp = 1; P[k].ramp_div = 0; }
 }
 
-/* per-port constant-current regulator: soft ramp, then duty += (Iset - I) / 2 */
+/* per-port constant-current regulator: soft ramp (about 1/8 of the way to the setting per step, whatever the cell), then duty += (Iset - I) / 2 */
 static void cc(port_t XD *p, uint16_t S)
 {
     if (p->duty == 0 && !p->t_held) p->ramp = 1;           /* held by the limits: no soft start, the gate paces the rise */
     if (p->ramp) {
         if (p->duty == 0) p->duty = DUTY_MIN;
-        if (++p->ramp_div >= T_RAMP_STEP) { p->ramp_div = 0; p->duty++; }
+        if (++p->ramp_div >= T_RAMP_STEP) { p->ramp_div = 0; p->duty += 1 + p->duty / RAMP_GROW; }
         if (p->duty >= PWM_PERIOD) { p->duty = PWM_PERIOD; p->ramp = 0; }
         if (p->i >= p->iset) p->ramp = 0;
         if (p->v > S - RAMP_END_MARGIN) p->ramp = 0;
@@ -220,7 +221,7 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev) REENT
         }
         cc(&W, S);
         if (in->lim) gate(in, k, d0); else W.t_held = 0;
-        if (W.i + 1 >= W.iset || W.duty >= PWM_PERIOD) W.up = 0;
+        if (W.i + 2 >= W.iset || W.duty >= PWM_PERIOD) W.up = 0;           /* within a reading's noise of the setting: it has what it wants */
         else if (!W.duty) W.up = DUTY_MIN;                                  /* off: unknown, the start is small */
         else { uint16_t n = 1 + (W.i + W.duty / 2) / W.duty; W.up = n > 60 ? 60 : (uint8_t)n; }
         break;

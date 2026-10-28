@@ -111,8 +111,15 @@ static void t_cc(void)
     /* the highest setting too, from a low cell */
     bench_init(&b, 0, 91);
     attach(&b, 0, 3.6, 400, 0.1);
-    run(&b, 16000);                                             /* the soft ramp needs ~13000 passes to get there */
+    run(&b, 16000);                                             /* the soft ramp gets there well before this */
     CHECK(abs((int)b.out.i[0] - 91) <= 3);
+    /* a cell close to the rail gives little current per duty count (here a tenth of the others): the soft start grows with the duty and
+       gets there in seconds, not minutes, and does not overshoot */
+    bench_init(&b, 0, 21);
+    b.k_amp_per_duty = 0.0015;
+    attach(&b, 0, 4.1, 400, 0.1);
+    { int n, top = 0; for (n = 0; n < 6000; n++) { step(&b); if (b.out.i[0] > top) top = b.out.i[0]; }
+      CHECK(abs((int)b.out.i[0] - 21) <= 2); CHECK(top <= 21 + 6); }
 }
 
 static void t_classify(void)

@@ -139,6 +139,24 @@ static void t_by_channel(void)
     CHECK(over <= LIM_ROOM);
 }
 
+/* a port that wants more but cannot yet have the margin a rise needs waits, and no port behind it goes ahead meanwhile */
+static void t_wait_in_line(void)
+{
+    uint8_t k;
+    setup(3, 91);
+    cfg.ilim = 15; cfg.mode = LM_BY_CH;
+    lim_in.charging[0] = lim_in.charging[1] = lim_in.charging[2] = 1;
+    lim_in.up[1] = 4; lim_in.up[2] = 1;                                     /* ports 2 and 3 want more: a count adds about 4 and 1 iu */
+    for (k = 0; k < 3; k++) lim_in.i[k] = 20;
+    lim_pass();
+    for (k = 0; k < 3; k++) lim_in.i[k] = (uint16_t)((out.bcnt - 10) / 3);  /* 10 iu of room: port 3 would fit (3 + 3), port 2 needs 3 + 12 */
+    lim_pass();
+    CHECK(!(out.rise & 2) && !(out.rise & 4));
+    lim_in.up[1] = 0;                                                       /* port 2 no longer waits: port 3 may go */
+    lim_pass();
+    CHECK(out.rise & 4);
+}
+
 static void t_by_voltage(void)
 {
     setup(4, 91);
@@ -264,6 +282,6 @@ static void t_both_and_steps(void)
 
 int main(void)
 {
-    t_est(); t_equal(); t_equal_few(); t_follows_input(); t_by_channel(); t_by_voltage(); t_hotplug(); t_cut(); t_taper(); t_vmin(); t_vmin_recover(); t_both_and_steps();
+    t_est(); t_equal(); t_equal_few(); t_follows_input(); t_by_channel(); t_wait_in_line(); t_by_voltage(); t_hotplug(); t_cut(); t_taper(); t_vmin(); t_vmin_recover(); t_both_and_steps();
     return check_report("limits");
 }
