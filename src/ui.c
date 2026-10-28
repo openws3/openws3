@@ -11,10 +11,13 @@
 #include "version_build.h"
 
 #define NELEM (3 + NPORTS * 3)           /* 3 header boxes, then per port: voltage, status text, dot */
+#define NBOX  (3 + NPORTS)               /* the 3 header boxes, then the port cells */
 
-static char    XD shown[NELEM][9];
+/* What the screen shows, so that only changes are drawn.  An element is its text (or, for a dot, a mark that it is drawn) and its
+ * colour; a box is its colour.  Repainting a box wipes its elements, which box_draw() marks as not drawn. */
+static char    XD shown[NELEM][8];
 static uint16_t XD shown_fg[NELEM];
-static uint8_t XD shown_dot[NPORTS];
+static uint16_t XD box_bg[NBOX];
 static uint8_t XD next_el;
 
 static uint8_t box_x(uint8_t i)  { return UI_BOX_X0 + i * UI_BOX_PITCH; }
@@ -92,21 +95,40 @@ static void put(uint8_t e, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16
     shown[e][n] = 0;
 }
 
+/* a coloured square (a dot, a frame) is drawn again only when its colour changed or it was wiped */
+static uint8_t changed(uint8_t e, uint16_t c)
+{
+    if (shown[e][0] && shown_fg[e] == c) return 0;
+    shown[e][0] = 1; shown_fg[e] = c;
+    return 1;
+}
+
+/* box b (a header box, or port b - 3) painted in bg, its elements marked as wiped */
+static void box_draw(uint8_t b, uint16_t bg)
+{
+    uint8_t p, x, y, k;
+    char d[2];
+    box_bg[b] = bg;
+    if (b < 3) {
+        lcd_fill(box_x(b), UI_HDR_Y, UI_BOX_W, UI_HDR_H, bg);
+        shown[b][0] = 0;
+        return;
+    }
+    p = b - 3; x = box_x(p % 3); y = cell_y(p);
+    lcd_fill(x, y, UI_BOX_W, UI_CELL_H, bg);
+    lcd_fill(x + UI_BADGE_X, y + 2, UI_BADGE_W, UI_CELL_H - 4, th(R_BADGE0 + p));
+    d[0] = (char)('1' + p); d[1] = 0;
+    lcd_text(x + UI_BADGE_X + 2, y + 6, d, 1, 2, th(R_BG), th(R_BADGE0 + p));
+    for (k = 0; k < 3; k++) shown[3 + p * 3 + k][0] = 0;
+}
+
+static void box(uint8_t b, uint16_t bg) { if (box_bg[b] != bg) box_draw(b, bg); }
+
 void ui_main_init(void)
 {
-    uint8_t i;
+    uint8_t b;
     lcd_fill(0, 0, LCD_PX_W, LCD_PX_H, th(R_BG));
-    for (i = 0; i < 3; i++) lcd_fill(box_x(i), UI_HDR_Y, UI_BOX_W, UI_HDR_H, th(R_BOX));
-    for (i = 0; i < NPORTS; i++) {
-        uint8_t x = box_x(i % 3), y = cell_y(i);
-        char d[2];
-        lcd_fill(x, y, UI_BOX_W, UI_CELL_H, th(R_BOX));
-        lcd_fill(x + UI_BADGE_X, y + 2, UI_BADGE_W, UI_CELL_H - 4, th(R_BADGE0 + i));
-        d[0] = (char)('1' + i); d[1] = 0;
-        lcd_text(x + UI_BADGE_X + 2, y + 6, d, 1, 2, th(R_BG), th(R_BADGE0 + i));
-        shown_dot[i] = 0xFF;
-    }
-    for (i = 0; i < NELEM; i++) shown[i][0] = shown[i][8] = 0;      /* [8]: the header boxes' run colour, just repainted plain */
+    for (b = 0; b < NBOX; b++) box_draw(b, th(R_BOX));
     next_el = 0;
 }
 
@@ -150,8 +172,7 @@ static void header(const ui_state_t *s, uint8_t e, char XD *t) REENT
         else { fmt_v1(t, cal_vin_mv(s->vin)); col = th(R_VIN); }
     } else fmt_v2(t, cal_port_mv(s->tgt));
     pad(t, 7);
-    /* the box colour changes with run state: repaint the box when it does */
-    if (shown[e][8] != (char)(s->run + 1)) { lcd_fill(box_x(e), UI_HDR_Y, UI_BOX_W, UI_HDR_H, bg); shown[e][0] = 0; shown[e][8] = (char)(s->run + 1); }
+    box(e, bg);
     put(e, box_x(e) + UI_HDR_TX, UI_HDR_Y + UI_HDR_TY, 2, col, bg, t);
 }
 
@@ -166,6 +187,7 @@ static void element(const ui_state_t *s, uint8_t e) REENT
     k = e - 3; p = k / 3; part = k % 3;
     x = box_x(p % 3); y = cell_y(p);
     st = s->state[p]; off = s->set[p] == PV_OFF;
+    box(3 + p, th(R_BOX));
     if (s->ps) {                                     /* port settings: the value big, what kind of value small, a frame round the selection */
         uint8_t edit = s->ps == 2 && p == s->sel;
         if (part == 0) {
@@ -179,11 +201,8 @@ static void element(const ui_state_t *s, uint8_t e) REENT
             put(e, x + UI_CELL_IX, y + UI_CELL_IY, 1, off || s->set[p] == PV_AUTO ? th(R_DIM) : th(R_INFO), th(R_BOX), t);
         } else {
             uint8_t f = p != s->sel ? 0 : !edit ? 1 : s->blink ? 2 : 3;      /* none, selected, editing (blinks) */
-            if (shown_dot[p] != (uint8_t)(0x40 | f)) {
-                if ((shown_dot[p] & 0xC0) != 0x40) lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, th(R_BOX));   /* no dot here */
-                shown_dot[p] = (uint8_t)(0x40 | f);
-                frame(x, y, f == 1 ? th(R_INFO) : f == 2 ? th(R_WARN) : th(R_BOX));
-            }
+            uint16_t fc = f == 1 ? th(R_INFO) : f == 2 ? th(R_WARN) : th(R_BOX);
+            if (changed(e, fc)) frame(x, y, fc);
         }
         return;
     }
@@ -206,10 +225,7 @@ static void element(const ui_state_t *s, uint8_t e) REENT
         st &= 7;
         c = th(R_DOT0 + st);
         if (st == PS_FAULT && !s->blink) c = th(R_BOX);               /* errors blink */
-        if (shown_dot[p] != (uint8_t)(st | (c == th(R_BOX) ? 0x80 : 0))) {
-            shown_dot[p] = (uint8_t)(st | (c == th(R_BOX) ? 0x80 : 0));
-            lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, c);
-        }
+        if (changed(e, c)) lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, c);
     }
 }
 
@@ -248,8 +264,7 @@ void ui_main_step(const ui_state_t *s)
     if (++next_el == NELEM) next_el = 0;
     if (++refresh_div >= REFRESH_EVERY) {
         refresh_div = 0;
-        if (e >= 3 && (e - 3) % 3 == 2) shown_dot[(e - 3) / 3] = 0xFF;     /* the state dots have their own cache */
-        else shown[e][0] = 0;
+        shown[e][0] = 0;
     }
     element(s, e);
 }
