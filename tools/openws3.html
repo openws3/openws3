@@ -15,19 +15,19 @@
 :root {
   --bg: #f4f5f7; --card: #ffffff; --line: #dde0e6; --text: #1c2026; --dim: #6a717d;
   --accent: #2563eb; --good: #15803d; --warn: #b45309; --bad: #c62828; --bad-bg: #fde8e8; --warn-bg: #fdf3e1;
-  --track: #e3e6eb; --spark: #2563eb;
+  --track: #e3e6eb; --spark: #2563eb; --discord: #5865f2; --discord-dark: #4752c4;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #111317; --card: #1a1d23; --line: #2b2f37; --text: #e6e8ec; --dim: #8b929e;
     --accent: #5b8def; --good: #4ade80; --warn: #fbbf24; --bad: #f87171; --bad-bg: #3a1c1c; --warn-bg: #3a2f17;
-    --track: #2b2f37; --spark: #5b8def;
+    --track: #2b2f37; --spark: #5b8def; --discord: #5865f2; --discord-dark: #4752c4;
   }
 }
 :root[data-theme="dark"] {
   --bg: #111317; --card: #1a1d23; --line: #2b2f37; --text: #e6e8ec; --dim: #8b929e;
   --accent: #5b8def; --good: #4ade80; --warn: #fbbf24; --bad: #f87171; --bad-bg: #3a1c1c; --warn-bg: #3a2f17;
-  --track: #2b2f37; --spark: #5b8def;
+  --track: #2b2f37; --spark: #5b8def; --discord: #5865f2; --discord-dark: #4752c4;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -98,6 +98,13 @@ select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-
 select:disabled { opacity: .45; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 14px; }
 .actions label { color: var(--dim); font-size: 12px; margin-right: 6px; }
+.card.join { border-color: var(--discord); }
+.card.join h2 { color: var(--discord); }
+a.bigbtn { display: inline-block; padding: 12px 24px; border-radius: 8px; background: var(--discord); color: #fff; font-weight: 700;
+  font-size: 16px; text-decoration: none; }
+a.bigbtn:hover { background: var(--discord-dark); }
+header a.disc { color: var(--discord); font-weight: 600; text-decoration: none; padding: 6px 4px; }
+header a.disc:hover { text-decoration: underline; }
 .big { font-size: 22px; font-weight: 600; }
 progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--accent); }
 #fwMsg { margin-top: 8px; }
@@ -127,6 +134,7 @@ progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--acce
   <span id="conn">not connected</span>
   <a id="updChip" class="chip" href="#fwcard" hidden>Update available</a>
   <a class="guide" href="https://github.com/openws3/openws3/blob/main/GUIDE.md" target="_blank" rel="noopener">User guide</a>
+  <a class="disc" href="https://discord.gg/n95aNxqCM" target="_blank" rel="noopener">Discord</a>
   <button id="bConnect" class="primary">Connect</button>
   <span class="seg" id="view"><button id="bSimple">Simple</button><button id="bAdv">Advanced</button></span>
   <button id="bEnter" class="adv fwonly mononly" disabled>Enter dev mode</button>
@@ -150,6 +158,12 @@ progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--acce
       <li>Charge only cells in good condition, and pick the target voltage for the cell: 4.35 V is for high-voltage (HV) cells only.</li>
       <li>It is made for the <b>WhoopStor V3</b> charger only. See the <a href="https://github.com/openws3/openws3/blob/main/GUIDE.md" target="_blank" rel="noopener">user guide</a> for how to use it.</li>
     </ul>
+  </section>
+  <section class="card join">
+    <h2>Questions, problems, news</h2>
+    <p>There is a Discord server for OpenWS3: installing it, flashing problems, charging behaviour, bug reports, and word of new releases.
+      It is the quickest place to get an answer, and a report there helps the next person with the same charger.</p>
+    <div class="actions"><a class="bigbtn" href="https://discord.gg/n95aNxqCM" target="_blank" rel="noopener">Join the OpenWS3 Discord</a></div>
   </section>
   <section class="card welcome">
     <h2>Already running OpenWS3?</h2>
