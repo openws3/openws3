@@ -33,7 +33,7 @@
 
 static uint8_t  XD rail_hold, run, strap, stop_reason, alarm_ui;   /* alarm_ui: the STOP_* reason the display shows, 0 = none */
 static uint32_t XD save_at;                      /* ms: a main-screen change is saved then (0 = nothing to save) */
-#define SAVE_DELAY_MS 3000                       /* after the last tap: stepping through values writes the flash once */
+#define SAVE_DELAY_MS 1500                       /* after the last tap: stepping through values writes the flash once */
 static int16_t  XD rail_duty;
 static uint16_t XD bg_ref;                     /* slow baseline of the bandgap count: a jump away from it = a supply glitch */
 static uint8_t  XD lcd_cnt;
