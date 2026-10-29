@@ -48,7 +48,7 @@ const char *dbg_text(uint8_t page, uint8_t row)
         switch (row) {
         case 0: rb_str("PORT V  raw  volts"); break;
         case 7: rb_str("raw: ADC counts"); break;
-        case 8: rb_str("volts: corrected for VCC"); break;
+        case 8: rb_str("volts: from the counts"); break;
         case 9: break;
         default:
             k = (uint8_t)(row - 1);
@@ -58,7 +58,7 @@ const char *dbg_text(uint8_t page, uint8_t row)
     case 3:
         switch (row) {
         case 0: rb_str("PORT I raw  mA  duty"); break;
-        case 7: rb_str("raw: counts, mA corrected"); break;
+        case 7: rb_str("raw: counts, mA from them"); break;
         case 8: rb_str("duty 0..400, sw=bleed path"); break;
         case 9: break;
         default:

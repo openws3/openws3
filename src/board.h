@@ -21,8 +21,8 @@
 #define NADC         16
 
 /* index 0..5 = physical port 1..6 */
-#define PORT_ADC_V_INIT   { 1, 2, 3, 4, 5, 6 }              /* voltage: 4.5 V full scale at the calibration VCC (adc.h) */
-#define PORT_ADC_I_INIT   { 12, 14, 13, 9, 10, 11 }         /* current: 1/68.25 A per count at the calibration VCC */
+#define PORT_ADC_V_INIT   { 1, 2, 3, 4, 5, 6 }              /* voltage: 4.5 V full scale (adc.h) */
+#define PORT_ADC_I_INIT   { 12, 14, 13, 9, 10, 11 }         /* current: 1/68.25 A per count */
 /* per-port current-control PWM compare register (high byte address; low byte = +1) */
 #define PORT_CCR_INIT     { 0xFEFB, 0xFED7, 0xFED9, 0xFEDB, 0xFEF5, 0xFEF7 }
 /* per-port switch pin as { port 0..5, bit }: P4.5 P2.7 P2.5 P4.2 P4.3 P4.4.

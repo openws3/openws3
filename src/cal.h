@@ -1,5 +1,5 @@
 /*
- * Calibration: ADC readings (adc.h, already corrected for VCC) -> engineering units.  Pure functions, no hardware.
+ * Calibration: ADC readings (adc.h) -> engineering units.  Pure functions, no hardware.
  *
  * Status of each constant is marked.  Anything not [VERIFIED] should be checked on the hardware
  * before the number is trusted for a safety decision.

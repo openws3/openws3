@@ -14,10 +14,10 @@ needed. The report descriptor uses a vendor-defined usage page, so the host does
 
 ## Units
 
-Raw **counts** are what the ADC returned: 0..4095, relative to VCC. The charger works on **readings**: counts scaled by
-1071 / bandgap, i.e. what the channel would read at the VCC the calibration was made at, so a fixed unit that does not drift with
-the supply: **vu** = 4.5 V / 4096 (1.0986 mV) for port voltages and the rail, **iu** = 1/68.25 A (14.65 mA) for port currents
-(`src/adc.h`). A host turns counts into volts the same way: reading = count × 1071 / bandgap count.
+**Counts** are what the ADC returned: 0..4095, relative to VCC, which is regulated. The charger works on them as they are, in a fixed
+unit: **vu** = 4.5 V / 4096 (1.0986 mV) for port voltages and the rail, **iu** = 1/68.25 A (14.65 mA) for port currents
+(`src/adc.h`). The bandgap count guards VCC. Only the input voltage count is corrected in the firmware (for a supply that sags); a host
+shows it as received.
 
 ## Telemetry report (IN, 64 bytes, big-endian)
 
