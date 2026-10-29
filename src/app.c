@@ -357,28 +357,24 @@ static void menu_leave(void)
     ui_main_init();
 }
 
-static void menu_key(uint8_t ev)
+/* the beep and the close for a menu-like mode; MA_DIAG opens the diagnostics (only the menu can) */
+static void mode_result(uint8_t a, void (*open)(void), void (*leave)(void))
 {
-    static uint8_t XD a;
-    a = menu_event(ev);
     if (a == MA_LOCKED) buzz_play(PAT_ERROR);
-    else if (a == MA_DIAG) { show(1); buzz_play(PAT_KEY); }
-    else if (a == MA_EXIT) { menu_leave(); buzz_play(PAT_KEY); }
+    else if (a == MA_DIAG && open) { open(); buzz_play(PAT_KEY); }
+    else if (a == MA_EXIT) { leave(); buzz_play(PAT_KEY); }
     else if (a) buzz_play(PAT_KEY);
 }
+
+static void diag_open(void) { show(1); }
+
+static void menu_key(uint8_t ev)  { mode_result(menu_event(ev), diag_open, menu_leave); }
 
 /* the port settings mode on the main screen: drawn over it, saved when it closes */
 static void ports_enter(void) { portset_open(run); screen = SCR_PORTS; ui_main_init(); }
 static void ports_leave(void) { cfg_save(); screen = 0; ui_main_init(); }
 
-static void ports_key(uint8_t ev)
-{
-    static uint8_t XD a;
-    a = portset_event(ev);
-    if (a == MA_LOCKED) buzz_play(PAT_ERROR);
-    else if (a == MA_EXIT) { ports_leave(); buzz_play(PAT_KEY); }
-    else if (a) buzz_play(PAT_KEY);
-}
+static void ports_key(uint8_t ev) { mode_result(portset_event(ev), 0, ports_leave); }
 
 static void handle_buttons(void)
 {
