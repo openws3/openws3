@@ -126,13 +126,32 @@ def parse(resp):
         return None, None
     return body[0], body[1:]
 
+def bcd(v):
+    return (v >> 4) * 10 + (v & 0x0F)
+
+def chip_info(d):
+    """what the loader reports about the chip: clock, boot loader, bandgap, date and the option bytes"""
+    if len(d) < 40:
+        return
+    clock = int.from_bytes(d[0:4], 'big')
+    print(f'[i] clock {clock / 1e6:.2f} MHz, boot loader {d[16] >> 4}.{d[16] & 0x0F}.{d[21] & 0x0F}{chr(d[17])}')
+    print(f'[i] bandgap {int.from_bytes(d[34:36], "big")} mV, made 20{bcd(d[36]):02d}-{bcd(d[37]):02d}-{bcd(d[38]):02d}')
+    base = d[15] * 256                                  # option byte: where the EEPROM area starts in the 64 KB flash (0: none)
+    size = 0x10000 - base if base else 0
+    if size >= 512:
+        print(f'[i] EEPROM area {size} bytes at flash {base:#06x} (IAP offsets 0x0000..{size - 1:#06x})')
+    else:
+        print('[!] no EEPROM area: the charger has nowhere to keep its settings')
+        print('    set the EEPROM size when flashing (STC-ISP: 1K), then flash again')
+
 def handshake(isp):
     r = isp.cmd(0x00, b'')
     c, d = parse(r)
     print(f'[i] handshake: cmd={c} payload={len(d) if d else 0} bytes')
     if d:
         print('    ' + d[:40].hex())
-    return c == 0x00
+        chip_info(d)
+    return d if c == 0x00 else None
 
 def main():
     ap = argparse.ArgumentParser()

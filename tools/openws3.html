@@ -254,13 +254,16 @@ sudo udevadm control --reload-rules</pre>
     <div class="kv wide" id="fwKv"></div>
     <div class="actions" style="margin-top:10px">
       <button id="bFlash" class="primary" disabled>Install firmware</button>
+      <button id="bCheck" disabled>Check the unit</button>
       <button id="bFile" class="adv">Use another file…</button><input type="file" id="fFile" accept=".bin" hidden>
       <button id="bLoader" hidden>Select the unit…</button>
     </div>
     <progress id="fwProg" max="100" value="0" hidden></progress>
     <div id="fwMsg" class="hint"></div>
     <p class="hint">A running OpenWS3 restarts into its loader by itself, takes the new firmware and starts again (not while charging).
-      Do not unplug the charger meanwhile. If an update is ever interrupted, hold the left button while plugging in USB-C and install again.</p>
+      Do not unplug the charger meanwhile. If an update is ever interrupted, hold the left button while plugging in USB-C and install again.
+      "Check the unit" only reads: it restarts the charger into its loader, reports the chip and the area it keeps its settings in, and
+      starts the firmware again.</p>
   </section>
 </main>
 <script>
@@ -509,12 +512,31 @@ async function ispRecv(ms) {                         // [cmd, data] of the next 
   }
 }
 async function ispCmd(cmd, data, ms = 2000) { await ispSend(ispFrame(cmd, data)); return ispRecv(ms); }
+let chip = null;                                     // what the loader reported about the chip (read by "Check the unit")
+function chipRows() {                                // the status packet the loader sends at the handshake, as rows for the card
+  if (!chip || chip.length < 40) return [];
+  const u32 = a => ((chip[a] << 24) | (chip[a + 1] << 16) | (chip[a + 2] << 8) | chip[a + 3]) >>> 0;
+  const u16 = a => (chip[a] << 8) | chip[a + 1];
+  const bcd = v => (v >> 4) * 10 + (v & 15), two = v => String(v).padStart(2, '0');
+  const base = chip[15] * 256, size = base ? 0x10000 - base : 0;   // option byte: where the EEPROM area starts in the 64 KB flash (0: none)
+  return [
+    ['Chip', 'boot loader ' + (chip[16] >> 4) + '.' + (chip[16] & 15) + '.' + (chip[21] & 15) + String.fromCharCode(chip[17]),
+      'clock ' + (u32(0) / 1e6).toFixed(2) + ' MHz, bandgap ' + u16(34) + ' mV, made 20' + two(bcd(chip[36])) + '-' + two(bcd(chip[37])) + '-' + two(bcd(chip[38]))],
+    ['Settings area', size >= 512 ? (size / 1024).toFixed(1) + ' KB' : 'none',
+      size >= 512 ? 'the charger keeps its settings here' : 'nothing can be stored: flash it once with an EEPROM size of 1K',
+      size >= 512 ? 'OK' : 'No storage', size >= 512 ? 'ok' : 'upd']
+  ];
+}
 async function ispWrite(image, progress) {          // erase and program the whole image; the loader then starts the application
   const blocks = [];
   for (let i = 0; i < image.length; i += 128) { const b = new Uint8Array(128).fill(255); b.set(image.subarray(i, i + 128)); blocks.push(b); }
   while (blocks.length > 1 && blocks[blocks.length - 1].every(x => x === 255)) blocks.pop();   // erased flash reads 0xFF already
   let ok = false;
-  for (let n = 0; n < 10 && !ok; n++) { ok = (await ispCmd(0x00, [], 1000))[0] === 0x00; if (!ok) await sleep(500); }
+  for (let n = 0; n < 10 && !ok; n++) {
+    const [c, d] = await ispCmd(0x00, [], 1000);
+    ok = c === 0x00; if (ok) chip = d;
+    if (!ok) await sleep(500);
+  }
   if (!ok) throw new Error('the loader does not answer');
   await ispCmd(0x01, [0, 0, 0, 0, 0, 0, 0x80]);
   await ispCmd(0x05, [0, 0, 0x5a, 0xa5]);
@@ -558,6 +580,7 @@ function fwShow() {
   if (BUNDLED) rows.push(['Newest (in this page)', bundledText(), 'built ' + BUNDLED.built + ', ' + (BUNDLED.size / 1024).toFixed(1) + ' KB, SHA-256 ' + BUNDLED.sha256.slice(0, 12)]);
   if (fw && !(BUNDLED && fw.name === 'OpenWS3 ' + bundledText())) rows.push(['Selected file', fw.name, (used / 1024).toFixed(1) + ' KB']);
   else if (!fw) rows.push(['Firmware', 'choose a file (.bin) to install']);
+  rows.push(...chipRows());
   kvSet($('fwKv'), rows);
   $('updChip').hidden = $('updCard').hidden = st !== 'update';
   if (st === 'update') {
@@ -566,6 +589,7 @@ function fwShow() {
     $('bUpdate').disabled = busy || !!p1.run;
   }
   $('bFlash').disabled = busy || !fw || !dev || (kind === 'fw' && !!(p1 && p1.run));
+  $('bCheck').disabled = busy || !dev || kind !== 'fw' || !!(p1 && (p1.run || inDev()));
 }
 setInterval(() => { if (!busy && kind === 'fw') fwShow(); }, 1000);   // the installed version arrives with the telemetry
 $('bFile').onclick = () => $('fFile').click();
@@ -579,6 +603,25 @@ $('bLoader').onclick = async () => {
     const [d] = await navigator.hid.requestDevice({ filters: [{ vendorId: VID }], exclusionFilters: [{ vendorId: VID, productId: PID }] });
     if (d && pickLoader) pickLoader(d);
   } catch (e) { fwStatus('Could not open the unit: ' + e.message, true); }
+};
+$('bCheck').onclick = async () => {                  // read the chip's identity and settings area from its loader, then start it again
+  if (busy || !dev || kind !== 'fw') return;
+  busy = true; fwShow();
+  try {
+    fwStatus('Restarting the unit into its loader…');
+    await sendRaw([6, 0, 0]).catch(() => {});
+    const d = await waitFor(isLoader, 8000);
+    if (!d) throw new Error('the unit did not restart into its loader');
+    await connect(d);
+    const [c, r] = await ispCmd(0x00, [], 2000);
+    if (c !== 0x00 || !r || r.length < 40) throw new Error('the loader did not answer');
+    chip = r; fwShow();
+    await ispCmd(0xff, [1], 1000);                   // the loader starts the firmware again
+    const b = await waitFor(isFw, 10000);
+    if (b) { await connect(b); fwStatus('Done: the unit runs again.'); }
+    else { disconnected(); fwStatus('Done. Press Connect to reconnect to the unit.'); }
+  } catch (e) { fwStatus('Check failed: ' + e.message + '.', true); }
+  busy = false; fwShow();
 };
 $('bFlash').onclick = async () => {
   if (busy || !fw) return;
