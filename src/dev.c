@@ -6,6 +6,7 @@
 #include "chg.h"
 #include "cal.h"
 #include "buzz.h"
+#include "tele.h"
 
 #define WATCHDOG_MS  500
 #define I_MAX        (2 * CUR_MAX + 7)      /* iu: the charger's over-current threshold at the highest setting (2.8 A) */
@@ -17,8 +18,6 @@ static uint16_t XD out_duty[NPORTS];                           /* what is applie
 static uint8_t  XD out_sw, out_flags, trip, status, raw_now, session;
 static int16_t  XD rail_duty;
 static uint32_t XD last_cmd;
-
-static void put16(uint8_t XD *b, uint8_t at, uint16_t v) { b[at] = (uint8_t)(v >> 8); b[at + 1] = (uint8_t)v; }
 
 void dev_reset(uint16_t setpoint, int16_t duty, uint8_t flags, uint8_t s)
 {
@@ -85,14 +84,14 @@ void dev_tele(uint8_t XD *b)
 {
     uint8_t k;
     for (k = 0; k < NPORTS; k++) {
-        put16(b, 8 + 2 * k, adc_raw(port_v_ch(k)));                    /* counts: the host corrects them with the bandgap */
-        put16(b, 20 + 2 * k, adc_raw(port_i_ch(k)));
-        put16(b, 40 + 2 * k, out_duty[k]);
+        tele_put16(b, 8 + 2 * k, adc_raw(port_v_ch(k)));                    /* counts: the host corrects them with the bandgap */
+        tele_put16(b, 20 + 2 * k, adc_raw(port_i_ch(k)));
+        tele_put16(b, 40 + 2 * k, out_duty[k]);
     }
-    put16(b, 32, adc_raw(ADC_IIN)); put16(b, 34, adc_raw(ADC_VIN)); put16(b, 36, adc_raw(ADC_RAIL)); put16(b, 38, adc_raw(ADC_BANDGAP));
-    put16(b, 52, (uint16_t)rail_duty);
+    tele_put16(b, 32, adc_raw(ADC_IIN)); tele_put16(b, 34, adc_raw(ADC_VIN)); tele_put16(b, 36, adc_raw(ADC_RAIL)); tele_put16(b, 38, adc_raw(ADC_BANDGAP));
+    tele_put16(b, 52, (uint16_t)rail_duty);
     b[54] = out_sw; b[55] = out_flags;
     b[56] = (uint8_t)(hal_btn(1) | (hal_btn(2) << 1) | (hal_strap() << 2));
     b[57] = status; b[58] = trip;
-    put16(b, 59, dev_setpoint());
+    tele_put16(b, 59, dev_setpoint());
 }

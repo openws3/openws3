@@ -21,8 +21,7 @@
 #include "limits.h"
 #include "dev.h"
 #include "portset.h"
-#include "version.h"
-#include "version_build.h"
+#include "tele.h"
 
 #define RAIL_UP          3185     /* vu (3.5 V): wait for the rail before starting the display */
 #define RAIL_UP_TIMEOUT  10000    /* ms */
@@ -39,92 +38,19 @@ static int16_t  XD rail_duty;
 static uint16_t XD bg_ref;                     /* slow baseline of the bandgap count: a jump away from it = a supply glitch */
 static uint8_t  XD lcd_cnt;
 static uint8_t  XD stack_free, stack_div;     /* the stack's never-used bytes, read about once a second */
-#define SCR_PORTS 13                            /* screen: 0 = main, 1..DBG_PAGES = a diagnostics page, SCR_PORTS = the port settings */
-#define SCR_DEV   14                            /* mode (portset.h, drawn on the main screen), SCR_DEV = developer mode (dev.h), */
-#define SCR_MENU  15                            /* SCR_MENU = the menu (as USB byte 12 reports it) */
-static uint8_t  XD screen, text_row;            /* text_row: the row of the menu / diagnostics drawn next */
+static uint8_t  XD screen, text_row;          /* text_row: the row of the menu / diagnostics drawn next */
 static uint32_t XD t_next;
 static chg_in_t  XD cin;
 static chg_out_t XD cout;
 static ui_state_t XD ui;
 static sup_in_t  XD sin;
 static sup_out_t XD sout;
+static tele_ctx_t XD tctx;                    /* what the telemetry reads (tele.h): pointers into the state above */
 
 /* ------------------------------------------------------------------------------------------------------------- */
 
-/* ---- USB telemetry (layout in USB.md).  The interrupt copies usb_tx to the host; it is rebuilt here, tail byte last. ---- */
-enum { PH_RAIL_WAIT = 1, PH_SPLASH, PH_VCC_GATE, PH_SELFTEST, PH_INPUT, PH_RUN = 7, PH_FATAL = 0x80 };
-enum { EV_PORT_FULL = 1, EV_PORT_FAULT, EV_STOPPED };           /* ev_code; ev_port = port (0..5) or the stop reason */
-static uint8_t XD tele_seq, ev_seq, ev_code, ev_port, cmd_seq, cmd_res;
-
 static uint8_t ch_iset(uint8_t k) { return settings.ch_cur[k] ? settings.ch_cur[k] : settings.cur; }
 static void apply_limits(void) { lim_cfg.ilim = settings.ilim; lim_cfg.vmin = settings.vmin; lim_cfg.vcut = settings.vcut; lim_cfg.mode = settings.lmode; }
-static void note_event(uint8_t code, uint8_t port) { ev_code = code; ev_port = port; ev_seq++; }
-
-static void put16(uint8_t XD *b, uint8_t at, uint16_t v) { b[at] = (uint8_t)(v >> 8); b[at + 1] = (uint8_t)v; }
-
-/* clear a page and write its head: the tail is zero until the page is complete (torn-copy guard) */
-static void tele_head(uint8_t XD *b, uint8_t page, uint32_t ms)
-{
-    uint8_t k;
-    b[63] = 0;
-    for (k = 3; k < 63; k++) b[k] = 0;
-    b[0] = 0x57; b[1] = 0x33; b[2] = tele_seq; b[3] = page;
-    b[4] = (uint8_t)(ms >> 24); b[5] = (uint8_t)(ms >> 16); b[6] = (uint8_t)(ms >> 8); b[7] = (uint8_t)ms;
-}
-
-/* page 2: what the limiter and the supervisor are doing (zero before the run phase) */
-static void tele_limits(uint8_t ph, uint32_t ms)
-{
-    uint8_t k;
-    tele_head(usb_tx2, 2, ms);
-    if (ph >= PH_RUN && ph < PH_FATAL) {
-        usb_tx2[8] = lim_cfg.ilim; usb_tx2[9] = lim_cfg.vmin; usb_tx2[10] = lim_cfg.vcut; usb_tx2[11] = lim_cfg.mode;
-        put16(usb_tx2, 12, lim_out.budget); put16(usb_tx2, 14, lim_out.p_cur); put16(usb_tx2, 16, lim_out.p_vol);
-        put16(usb_tx2, 18, lim_out.est_ma); put16(usb_tx2, 20, lim_out.bcnt);
-        usb_tx2[22] = lim_out.trip; usb_tx2[23] = (uint8_t)(run && !rail_hold);        /* the limiter ran this pass */
-        for (k = 0; k < NPORTS; k++) {
-            usb_tx2[24 + k] = (uint8_t)(cout.held[k] | (cout.up[k] != 0) << 2 | ((cin.rise >> k) & 1) << 3 | (cin.cut == k) << 4);
-            usb_tx2[30 + k] = cout.want[k];
-            usb_tx2[36 + k] = portset_get(k);
-        }
-        put16(usb_tx2, 42, sup_setpoint(settings.volt)); put16(usb_tx2, 44, sup_target(settings.volt));    /* vu */
-        usb_tx2[46] = stack_free;
-        usb_tx2[47] = FW_PRE;
-        usb_tx2[51] = cout.any_active;
-        usb_tx2[52] = sout.stop; usb_tx2[54] = sout.rail_cut; usb_tx2[55] = sout.stop == STOP_RAIL; usb_tx2[56] = sout.fan;
-    }
-    put16(usb_tx2, 57, (uint16_t)(FW_BUILD >> 16)); put16(usb_tx2, 59, (uint16_t)FW_BUILD); usb_tx2[61] = FW_DIRTY;   /* the build id */
-    usb_tx2[63] = tele_seq;
-}
-
-static void tele(uint8_t ph)
-{
-    uint8_t k;
-    uint32_t ms;
-    if (!usb_configured()) return;                   /* nobody reads it */
-    ms = hal_ms();
-    if (++tele_seq == 0) tele_seq = 1;
-    tele_head(usb_tx, 1, ms);
-    usb_tx[8] = (uint8_t)(run | (settings.volt << 1) | ((run && !rail_hold) << 3) | (rail_hold << 5) | (strap << 6));
-    usb_tx[9] = settings.cur; usb_tx[10] = (uint8_t)(FW_MAJOR << 4 | FW_MINOR); usb_tx[11] = stop_reason; usb_tx[12] = (uint8_t)(alarm_ui | (screen << 4));
-    usb_tx[13] = ev_seq; usb_tx[14] = ev_code; usb_tx[15] = ev_port; usb_tx[16] = cmd_seq; usb_tx[17] = cmd_res;
-    usb_tx[25] = ph;
-    if (ph >= PH_RUN && ph < PH_FATAL && screen != SCR_DEV) {          /* developer mode: the ports are on page 3 */
-        for (k = 0; k < NPORTS; k++) {
-            usb_tx[18 + k] = cout.state[k];
-            usb_tx[24] |= (uint8_t)(cout.sw[k] << k);
-            put16(usb_tx, 26 + 2 * k, cout.duty[k]);
-            put16(usb_tx, 38 + 2 * k, cout.v[k]);
-            usb_tx[50 + k] = cout.i[k] > 255 ? 255 : (uint8_t)cout.i[k];
-        }
-        usb_tx[62] = (uint8_t)(rail_duty >> 2);
-    }
-    put16(usb_tx, 56, adc_raw(ADC_RAIL)); put16(usb_tx, 58, adc_raw(ADC_VIN)); put16(usb_tx, 60, adc_raw(ADC_BANDGAP));   /* counts */
-    usb_tx[63] = tele_seq;
-    if (screen == SCR_DEV) { tele_head(usb_tx2, 3, ms); dev_tele(usb_tx2); usb_tx2[63] = tele_seq; }
-    else tele_limits(ph, ms);
-}
 
 static void outputs_off(void)
 {
@@ -154,7 +80,7 @@ static void soft_stop(void)
 static void stop_run(uint8_t why)
 {
     run = 0; stop_reason = why;
-    note_event(EV_STOPPED, why);
+    tele_event(EV_STOPPED, why);
     chg_abort();
     soft_stop();
     hal_global(0);
@@ -163,7 +89,7 @@ static void stop_run(uint8_t why)
 static void fatal(const char *title, const char *line2, uint8_t has_n, uint16_t n)
 {
     hal_all_off();
-    tele(PH_FATAL);
+    tele_pass(PH_FATAL);
     ui_message(title, line2, has_n, n, 0, 0);
     buzz_play(PAT_ERROR);
     for (;;) { hal_delay_ms(1000); }               /* outputs stay off until the power is cycled */
@@ -199,6 +125,11 @@ void app_boot(void)
     th_set(settings.theme); apply_limits();
     input_reset(); buzz_reset(); buzz_enable(settings.sound);
 
+    tctx.out = &cout; tctx.in = &cin; tctx.sup = &sout; tctx.rail_duty = &rail_duty;
+    tctx.screen = &screen; tctx.run = &run; tctx.rail_hold = &rail_hold; tctx.strap = &strap;
+    tctx.stop = &stop_reason; tctx.alarm = &alarm_ui; tctx.stack = &stack_free;
+    tele_init(&tctx);
+
     hal_power(1);                                    /* main power enable, first on */
     strap = hal_strap();
     if (!strap) hal_profile(1);                      /* P5.3 set when the strap is low */
@@ -211,7 +142,7 @@ void app_boot(void)
     t0 = hal_ms();
     for (;;) {                                       /* wait for the rail */
         adc_scan();
-        tele(PH_RAIL_WAIT);
+        tele_pass(PH_RAIL_WAIT);
         if (adc_get(ADC_RAIL) >= RAIL_UP) break;
         if (hal_ms() - t0 > RAIL_UP_TIMEOUT) { lcd_init(); fatal("NO RAIL", "RAIL DID NOT COME UP", 1, adc_get(ADC_RAIL)); }
         hal_delay_ms(2);
@@ -223,16 +154,16 @@ void app_boot(void)
     n = 0;
     for (;;) {
         adc_scan_slow_now(); adc_scan_slow_now();
-        tele(PH_VCC_GATE);
+        tele_pass(PH_VCC_GATE);
         if (adc_get(ADC_BANDGAP) >= VCC_OK_MIN) break;
         if (hal_ms() - t0 > 3000 && !n) { n = 1; ui_message("VCC HIGH", "SUPPLY OVER 5.0V", 1, adc_get(ADC_BANDGAP), 0, 0); }
         hal_delay_ms(100);
     }
 
     /* rail authority self-test: retry until it passes, showing the numbers meanwhile */
-    tele(PH_SELFTEST);
+    tele_pass(PH_SELFTEST);
     while (!selftest(&r1, &r2)) {
-        tele(PH_SELFTEST);
+        tele_pass(PH_SELFTEST);
         ui_message("RAIL TEST FAIL", "RETRYING", 1, r1, 1, r2);
         hal_delay_ms(1000);
     }
@@ -242,16 +173,16 @@ void app_boot(void)
     for (n = 0; n < 50; n++) { adc_scan(); adc_scan_slow_now(); hal_delay_ms(3); }
     vin = adc_get(ADC_VIN);
     n = 0;
-    tele(PH_INPUT);
+    tele_pass(PH_INPUT);
     while (vin < VIN_MIN) {
-        tele(PH_INPUT);
+        tele_pass(PH_INPUT);
         if (!n) { n = 1; ui_message("ERR:INPUT LOW", "CONNECT INPUT", 1, vin, 0, 0); }
         hal_delay_ms(500);
         adc_scan_slow_now(); adc_scan_slow_now(); vin = adc_get(ADC_VIN);
     }
     /* the logo waits until the start-up load is over: an init made while the fan line is on and the rail is being brought up
        can leave the panel black (cold starts), one made after the self-test always works */
-    tele(PH_SPLASH);
+    tele_pass(PH_SPLASH);
     lcd_init();
     ui_splash();
     buzz_play(PAT_BOOT);
@@ -340,7 +271,7 @@ static void usb_service(void)
         break;
     default: res = 2; break;
     }
-    cmd_seq = c[2]; cmd_res = res;
+    tele_cmd(c[2], res);
 }
 
 static void menu_enter(void)
@@ -469,7 +400,7 @@ void app_pass(void)
     rail_hold = (uint8_t)(run && sout.stop == STOP_RAIL);
     if (screen == SCR_DEV) {                         /* developer mode: the host drives the outputs, the guards in dev.c */
         rail_duty = dev_pass(sout.stop == STOP_VIN || sout.stop == STOP_VCC, sout.fan);
-        tele(PH_RUN);
+        tele_pass(PH_RUN);
         return;
     }
     hal_fan(sout.fan);
@@ -502,8 +433,8 @@ void app_pass(void)
         for (k = 0; k < NPORTS; k++) {
             hal_pwm(k, cout.duty[k]);
             hal_sw(k, cout.sw[k]);
-            if (cout.event[k] == CE_FULL) { buzz_play(PAT_DONE); note_event(EV_PORT_FULL, k); }
-            if (cout.event[k] == CE_FAULT) { buzz_play(PAT_ERROR); note_event(EV_PORT_FAULT, k); }
+            if (cout.event[k] == CE_FULL) { buzz_play(PAT_DONE); tele_event(EV_PORT_FULL, k); }
+            if (cout.event[k] == CE_FAULT) { buzz_play(PAT_ERROR); tele_event(EV_PORT_FAULT, k); }
         }
     } else if (!rail_hold) {
         outputs_off();
@@ -542,5 +473,5 @@ void app_pass(void)
         ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
     }
 
-    tele(PH_RUN);
+    tele_pass(PH_RUN);
 }
