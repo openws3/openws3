@@ -5,8 +5,7 @@ Six independent charge ports, four target voltages (4.20 V, 4.35 V, 3.80 V stora
 storage-voltage bleed, input / rail / VCC supervision, a colour LCD UI with a settings menu, **input current and input voltage limits**
 (so it can run from a PC USB port or a weak supply), a USB monitor and button-less flashing.
 
-> **Status: early.** It runs on a real unit (display, buttons, menu, USB monitor, limits, charging at low current from a 5 V supply).
-> The full charge cycle to termination, all six ports and higher input voltages have had little or no hardware testing.
+> **Status: early.** It runs on a real unit (display, buttons, menu, USB monitor, limits, charging) and testing is still ongoing.
 > **You are charging lithium cells with unproven firmware. Supervise it and use it at your own risk.**
 > It replaces the manufacturer's firmware: flashing is possible only through the chip's ISP loader and there is no vendor support afterwards.
 > See `HARDWARE.md` for what is known about the board and what is still assumed.
