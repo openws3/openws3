@@ -98,8 +98,8 @@ def draw(scr, out, cur, t, msg):
     put('')
     put('INPUTS', curses.A_BOLD)
     bg = d['bandgap']
-    volts = lambda raw: fwmon.reading(raw, bg) * fwmon.V_PER_COUNT          # page 3 carries raw counts: correct them with the bandgap
-    amps = lambda raw: fwmon.reading(raw, bg) * fwmon.A_PER_COUNT
+    volts = lambda raw: fwmon.reading(raw, bg) * fwmon.V_PER_COUNT         
+    amps = lambda raw: raw * fwmon.A_PER_COUNT                            # the currents are not corrected
     put('  VIN   %6.2f V (%4d)    RAIL %6.3f V (%4d, duty %3d, setpoint %4d = %.3f V)' % (
         fwmon.vin_volts(fwmon.reading(d['vin'], bg)), d['vin'], volts(d['rail']), d['rail'], d['rail_duty'], d['setpoint'], d['setpoint'] * fwmon.V_PER_COUNT))
     put('  VCC   %6.2f V (bandgap %4d)    THERMISTOR ADC0 %4d    B1 %s  B2 %s  STRAP %d' % (

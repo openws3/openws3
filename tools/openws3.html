@@ -285,7 +285,8 @@ sudo udevadm control --reload-rules</pre>
 const VID = 0x34bf, PID = 0x1004;                   // the firmware; the chip's loader has the same vendor id and another product id
 const BUNDLED = null;                                // { major, minor, pre, build, dirty, built, size, sha256, data (base64) } in the file made by tools/bundle.py
 const V = 4.5 / 4096, A = 1 / 68.25;                 // readings -> volts / amps (vu, iu: src/adc.h)
-const rd = raw => raw;                              // the readings are the counts: no correction for VCC
+const BG_NOM = 1071;                                // the bandgap count the voltage scales were made at: a voltage count x BG_NOM / bandgap = its reading
+const rd = (raw, bg) => bg ? raw * BG_NOM / bg : raw;       // the voltages (ports, input, rail); the currents are not corrected
 const vinV = r => (r + 1) * 0.4 / 61;                // a VIN reading in volts (cal.c)
 const vminV = v => v <= 200 ? v * 0.05 : 10 + (v - 200) * 0.5;   // MIN IN VOLTS setting in volts (limits.h VMIN_MV)
 const DF = { GLOBAL: 1, FAN: 2, PROFILE: 4, BEEP: 8, RAW: 16 };
@@ -332,7 +333,7 @@ function parse(dv) {
            therm: u16(32), vin: u16(34), rail: u16(36), bandgap: u16(38), duty: [0, 1, 2, 3, 4, 5].map(k => u16(40 + 2 * k)),
            railDuty: u16(52), sw: r[54], flags: r[55], b1: r[56] & 1, b2: (r[56] >> 1) & 1, strap: (r[56] >> 2) & 1,
            watchdog: r[57] & 1, supplyStop: (r[57] >> 1) & 1, trip: r[58], setpoint: u16(59) };
-    for (let k = 0; k < 6; k++) { hist[k].push(rd(p3.i[k]) * A); if (hist[k].length > HIST) hist[k].shift(); }
+    for (let k = 0; k < 6; k++) { hist[k].push(p3.i[k] * A); if (hist[k].length > HIST) hist[k].shift(); }
     if (entering && inDev()) { entering = false; startOutputs(); }   // only after our own Enter: never take over another host's session
   }
 }
@@ -793,11 +794,11 @@ function renderMonitor() {
   const vcc = d.bandgap ? 1.19 * 4096 / d.bandgap : 0;
   $('sum').innerHTML =
     `<div><span>Status</span><b class="big">${d.phase === 128 ? 'Fatal error' : d.phase !== 7 ? 'Starting…' : d.run ? (d.railHold ? 'Paused' : 'Charging') : 'Ready'}</b></div>` +
-    item('Input', vinV(rd(d.vin)).toFixed(2) + ' V') +
+    item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V') +
     item('Ports charging', d.state.filter(x => x === 2).length + ' of 6');
   $('inputs').innerHTML =
-    item('Input', vinV(rd(d.vin)).toFixed(2) + ' V', d.vin + ' cnt') +
-    item('Rail', (rd(d.rail) * V).toFixed(3) + ' V', d.rail + ' cnt') +
+    item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') +
+    item('Rail', (rd(d.rail, d.bandgap) * V).toFixed(3) + ' V', d.rail + ' cnt') +
     item('Rail PWM', d.railDuty, '/ 400') +
     item('VCC', vcc.toFixed(2) + ' V', 'bandgap ' + d.bandgap) +
     (p2 ? item('Fan', p2.fan ? 'ON' : 'off') : '') +
@@ -811,7 +812,7 @@ function renderMonitor() {
     item('Cell target', p2 ? (p2.target * V).toFixed(3) + ' V' : VOLTS[d.volt], p2 ? p2.target + ' vu' : '') +
     item('Rail setpoint', p2 ? (p2.setpoint * V).toFixed(3) + ' V' : '-', p2 ? p2.setpoint + ' vu' : '') +
     item('Charge current', (d.iset * A).toFixed(2) + ' A', d.iset + ' iu') +
-    item('Rail now', (rd(d.rail) * V).toFixed(3) + ' V', 'PWM ' + d.railDuty);
+    item('Rail now', (rd(d.rail, d.bandgap) * V).toFixed(3) + ' V', 'PWM ' + d.railDuty);
   $('limits').innerHTML = !p2 ? '' :
     item('Max input', p2.ilim ? (p2.ilim / 10).toFixed(1) + ' A' : 'off') +
     item('Min input', p2.vmin ? vminV(p2.vmin).toFixed(2) + ' V' : 'off', p2.vmin ? (p2.vcut ? 'stop run' : 'limit') : '') +
@@ -838,8 +839,8 @@ function renderDev() {
   if (!p3) return;
   const d = p3, vcc = d.bandgap ? 1.19 * 4096 / d.bandgap : 0;
   $('inputs').innerHTML =
-    item('Input', vinV(rd(d.vin)).toFixed(2) + ' V', d.vin + ' cnt') +
-    item('Rail', (rd(d.rail) * V).toFixed(3) + ' V', d.rail + ' cnt') +
+    item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') +
+    item('Rail', (rd(d.rail, d.bandgap) * V).toFixed(3) + ' V', d.rail + ' cnt') +
     item('Rail PWM', d.railDuty, '/ 400') +
     item('Rail setpoint', (d.setpoint * V).toFixed(3) + ' V', d.setpoint) +
     item('VCC', vcc.toFixed(2) + ' V', 'bandgap ' + d.bandgap) +
@@ -850,8 +851,8 @@ function renderDev() {
   portEls.forEach((p, k) => {
     const cut = !!(d.trip >> k & 1), sw = !!(d.sw >> k & 1);
     p.el.classList.toggle('cut', cut);
-    p.v.textContent = (rd(d.v[k]) * V).toFixed(3) + ' V';
-    p.i.textContent = (rd(d.i[k]) * A).toFixed(3) + ' A';
+    p.v.textContent = (rd(d.v[k], d.bandgap) * V).toFixed(3) + ' V';
+    p.i.textContent = (d.i[k] * A).toFixed(3) + ' A';
     p.meta.innerHTML = (cut ? '<span class="badge">CUT</span><br>' : '') + d.v[k] + ' / ' + d.i[k] + ' cnt<br>PWM ' + d.duty[k];
     p.applied.textContent = 'applied: ' + (sw ? 'bleed' : 'charge path');
     p.applied.classList.toggle('on', sw);
