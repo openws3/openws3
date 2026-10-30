@@ -37,6 +37,6 @@
  *   P5.3  input bypass ("profile"), set at boot when strap P3.4=0: bypasses a diode in the USB-C input path, 0.6 V (V), and conducts
  *         backwards, into the USB-C connector from a supply on the XT60 (V)   P3.4  input strap ?
  *   P3.2  button 1 (INT0)   P3.6  button 2 (INT2)
- *   P4.6  buzzer, 1 kHz square wave in the beep bursts; P0.7 = FAN enable (on at boot, then by the thermistor ADC0, see sup.c)   */
+ *   P4.6  buzzer, 1 kHz square wave in the beep bursts; P0.7 = FAN enable (by the thermistor ADC0, see sup.c)   */
 
 #endif

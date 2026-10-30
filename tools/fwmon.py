@@ -23,7 +23,7 @@ import isp
 VID, PID = 0x34BF, 0x1004
 REPORT = 64
 
-PHASE = {1: 'rail-wait', 2: 'splash', 3: 'vcc-gate', 4: 'self-test', 5: 'input', 6: 'choose', 7: 'run', 0x80: 'FATAL'}
+PHASE = {1: 'rail-up', 2: 'splash', 7: 'run', 0x80: 'FATAL'}
 STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'FULL', 'BLEED', 'FAULT']
 STOP = {0: '-', 1: 'input-low', 2: 'vcc-low', 3: 'rail', 4: 'user', 5: 'min-input-voltage'}
 EVENT = {0: '-', 1: 'port-full', 2: 'port-fault', 3: 'stopped'}

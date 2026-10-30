@@ -10,7 +10,7 @@
 #include "sup.h"
 
 /* the boot phases and the events the pages report (USB byte layout) */
-enum { PH_RAIL_WAIT = 1, PH_SPLASH, PH_VCC_GATE, PH_SELFTEST, PH_INPUT, PH_RUN = 7, PH_FATAL = 0x80 };
+enum { PH_RAIL_WAIT = 1, PH_SPLASH, PH_RUN = 7, PH_FATAL = 0x80 };
 enum { EV_PORT_FULL = 1, EV_PORT_FAULT, EV_STOPPED };
 
 /* the app state the pages read: pointers into the app's own variables, all live (tele_init copies them once) */

@@ -33,6 +33,7 @@
 #define UI_C_BADGE      { 0xF800, 0x07E0, 0x041F, 0xFFE0, 0xF81F, 0x07FF }
 #define UI_C_RUN        0xC000   /* header boxes while running */
 #define UI_C_WARN       0xFD20
+#define UI_C_WAIT       0xFFE0
 #define UI_C_GOOD       0x07E0
 #define UI_C_BAD        0xF800
 #define UI_C_INFO       0x07FF

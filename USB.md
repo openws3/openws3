@@ -4,8 +4,8 @@ The firmware is a USB **HID** device (VID `34bf`, PID `1004`, product "OpenWS3")
 needed. The report descriptor uses a vendor-defined usage page, so the host does not turn the telemetry into keyboard or other input events. On Linux it shows up as `/dev/hidrawN`. Use `tools/fwmon.py`.
 
 * Telemetry: 64-byte **IN** reports, polled every 10 ms, in two pages sent alternately (byte 3 = page): page 1 is the charger, page 2 the
-  limiter and supervisor, so each page is refreshed every 20 ms. It is available from power-up, including during boot and on fatal
-  errors, so a failing boot can be watched. `fwmon.py` merges the two pages into one snapshot.
+  limiter and supervisor, so each page is refreshed every 20 ms. It is available from power-up, and the commands work in every state,
+  also in a fatal condition (everything stays off; the unit can still be read, stopped and flashed). `fwmon.py` merges the two pages into one snapshot.
 * Commands: one 64-byte **OUT** report. The interrupt only stores it. `app_pass` executes it in the main loop with the same rules as
   the buttons, so the power path is never touched from interrupt context. Raw PWM and pin access exists only in the separate
   developer mode (commands 7–9, below), which keeps its own guards.
@@ -31,12 +31,12 @@ sags: reading = count × 1071 / bandgap count, then the unit above or cal.h. The
 | 9 | current setting (iu: 21 = 0.3 A … 91 = 1.3 A, ×7 per 0.1 A) |
 | 10 | firmware release: major in the high nibble, minor in the low (`src/version.h`); 0 on firmware that predates it |
 | 11 | stop reason: 0 none, 1 input low, 2 VCC low, 3 rail, 4 user, 5 minimum input voltage (user setting) |
-| 12 | low nibble: alarm shown on the display, as a stop reason (byte 11: 1 input low, 2 VCC, 3 rail, 5 minimum input voltage); high nibble: screen open on the LCD (0 = main, 1..6 = diagnostics page, 13 = port settings, 14 = developer mode, 15 = menu) |
+| 12 | low nibble: the condition now, as a stop reason (byte 11: 1 input low, 2 VCC low, 3 rail out of range, 5 minimum input voltage; the first three have a screen of their own); high nibble: screen open on the LCD (0 = main, 1..6 = diagnostics page, 13 = port settings, 14 = developer mode, 15 = menu) |
 | 13–15 | last event: sequence (increments), code (1 port full, 2 port fault, 3 stopped), port 0..5 (or the stop reason for code 3) |
 | 16, 17 | last command: its sequence number, result (0 ok, 1 refused, 2 unknown) |
 | 18–23 | port states 1..6: 0 idle, 1 probe, 2 charge, 3 rest, 4 full, 5 bleed, 6 fault |
 | 24 | bit k = port k+1 switch pin high (bleed path) |
-| 25 | phase: 1 rail wait, 2 splash, 3 VCC gate, 4 self-test, 5 input, 7 running, 0x80 fatal error |
+| 25 | phase: 1 bringing the rail up, 2 splash, 7 running, 0x80 fatal condition (everything off; the link keeps working) |
 | 26–37 | PWM duty 1..6 (0..400), 16 bit |
 | 38–49 | port voltage 1..6: the charger's filtered reading, vu (×4.5/4096 V), 16 bit |
 | 50–55 | port current 1..6: the charger's filtered reading, iu (÷68.25 A), saturated at 255 |
@@ -65,7 +65,7 @@ Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Eve
 | 47 | pre-release: the beta number of the firmware release (`src/version.h`), 0 for a final release or firmware that predates it |
 | 48–50 | reserved (0) |
 | 51 | some port is charging or bleeding (global enable) |
-| 52–56 | supervisor: stop reason, reserved (0), rail cut (fatal), rail alarm (stop reason 3), fan |
+| 52–56 | supervisor: stop reason (waiting condition: 1 input low, 2 VCC low, 3 rail out of range), reserved (0), fatal condition (0 none, 0x10 VCC over 5.0 V, 0x11 rail overvoltage, 0x12 no rail), rail alarm (stop reason 3), fan |
 | 57–60 | build id: the first 8 hex digits of the git commit the firmware was built from, 32 bit (the page is not sent in developer mode; use byte 10 of page 1 there) |
 | 61 | 1 if the source tree had uncommitted changes when it was built |
 

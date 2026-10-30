@@ -37,7 +37,7 @@ To press both buttons together, press them within about 0.2 s of each other and 
 ## Start up
 
 The unit shows its logo and beeps twice, then the main screen. It needs an input of about 4.6 V or more: below that it shows
-`ERR:INPUT LOW` and waits until a supply is connected.
+`INPUT LOW` and waits until a supply is connected.
 
 | Logo | No input |
 |---|---|
@@ -277,14 +277,21 @@ A unit with nothing saved starts with these values:
 
 ## When something is wrong
 
+**A full-screen message replaces the main screen.** An **amber** title means the unit is waiting: nothing is charged, and the message goes away
+by itself when the condition clears (both buttons still open the menu, for example to change DISABLE USB POWER). A **red** title means a
+fault: everything stays off until the power is cycled (the USB link keeps working, so the unit can still be read and flashed).
+
 | You see | Meaning | What to do |
 |---|---|---|
-| `ERR:INPUT LOW` at start | the input is below about 4.6 V | connect a supply |
-| `VIN!` in the input box, charging stopped | the input fell below about 4.6 V during the run | use a stronger supply or a lower current, then start again |
+| amber `INPUT LOW` | the input is below about 4.6 V, at start or during a run (a run is stopped). With DISABLE USB POWER on the second line says `USB POWER OFF, USE XT60` | connect or strengthen the supply, or use a lower current |
+| amber `VCC LOW` | the unit's own supply voltage is 4.4 V or less | try another supply or cable |
+| amber `RAIL OUT OF RANGE`, with repeating beeps | the output rail is out of regulation for a while | check the supply; a run resumes by itself |
+| amber `RAIL TEST` | the rail self-test did not pass yet and is tried again | wait; after 3 tries it becomes `RAIL TEST FAIL` |
+| red `VCC HIGH` | the unit's own supply is over 5.0 V | power off, use a supply of at most the rated voltage |
+| red `RAIL OVERVOLTAGE` | the output rail was beyond what can be measured | power off; see `HARDWARE.md` if it repeats |
+| red `NO RAIL` | the rail has not come up although the input is fine | power off, check the unit; see `HARDWARE.md` |
+| red `RAIL TEST FAIL` | the rail could not be regulated to the test levels (the two voltages shown are what it reached at the 3.80 V and 4.35 V levels) | power off and try again; see `HARDWARE.md` if it repeats |
 | `V LIMIT` in the input box | the input fell below MIN IN VOLTS with BELOW MIN on `STOP RUN` | as above, or set BELOW MIN to `LIMIT` |
-| `VCC!` in the input box | the unit's own supply voltage is too low (4.0 V or less) | try another supply or cable |
-| `RAIL!` in the input box, with repeating beeps | the output rail is out of regulation | check the supply, then start again |
-| `VCC HIGH`, `RAIL TEST FAIL`, `NO RAIL` at start | the start-up self checks did not pass | unplug it and try again; if it repeats, see `HARDWARE.md` |
 | a port shows `ERR` | over-voltage or over-current on that port | remove the cell, check it, or stop the run |
 | a port stays at `0.00V` | no cell, or a cell below 1.00 V, which is not charged | check the contacts and the cell |
 | a port shows `LIMIT` | an input limit holds it | wait for room, or raise MAX IN AMPS, or use a stronger supply |

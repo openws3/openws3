@@ -23,11 +23,11 @@
 #include "portset.h"
 #include "tele.h"
 
-#define RAIL_UP          3185     /* vu (3.5 V): wait for the rail before starting the display */
-#define RAIL_UP_TIMEOUT  10000    /* ms */
+#define BOOT_RAIL_PASSES 150      /* the rail is brought up under the regulator for this many 2 ms steps before the display starts */
+#define TEST_TRIES       3        /* the rail self-test: failed this many times with the rail up, it is fatal */
+#define C_TESTING        8        /* the waiting condition between two tries of it (with STOP_VIN .. STOP_RAIL, SF_*) */
 #define SELFTEST_TOL1    70       /* phase 1 (servo to the 3.80 V target) must land within this many counts of it ... */
 #define SELFTEST_TOL2    80       /* ... phase 2 (servo to the 4.35 V target) within this many */
-#define VCC_OK_MIN       976      /* bandgap count: VCC <= 5.0 V (it never starts above that) */
 #define BG_GLITCH        15       /* bandgap counts (~1.4 % of VCC) off the baseline: treat as a supply glitch */
 #define LCD_RECONFIG_PASSES 222   /* ~1 s */
 
@@ -36,9 +36,13 @@ static uint32_t XD save_at;                      /* ms: a main-screen change is 
 #define SAVE_DELAY_MS 1500                       /* after the last tap: stepping through values writes the flash once */
 static int16_t  XD rail_duty;
 static uint16_t XD bg_ref;                     /* slow baseline of the bandgap count: a jump away from it = a supply glitch */
-static uint8_t  XD lcd_cnt;
+static uint8_t  XD lcd_cnt, bg_quiet;
 static uint8_t  XD stack_free, stack_div;     /* the stack's never-used bytes, read about once a second */
 static uint8_t  XD screen, text_row;          /* text_row: the row of the menu / diagnostics drawn next */
+static uint8_t  XD fatal_code, cond, msg_code, msg_tick;   /* sup.h SF_* latched until the power is cycled; the condition now (SF_* or STOP_*), 0 = none; the one on the screen */
+static uint8_t  XD test_ok, test_tries;       /* the rail self-test: passed, failed so far */
+static uint32_t XD test_at;                   /* ms: the next try */
+static uint16_t XD t1, t2;                    /* its last two readings */
 static uint32_t XD t_next;
 static chg_in_t  XD cin;
 static chg_out_t XD cout;
@@ -86,13 +90,43 @@ static void stop_run(uint8_t why)
     hal_global(0);
 }
 
-static void fatal(const char *title, const char *line2, uint8_t has_n, uint16_t n)
+static char XD v1[8], v2[8];                         /* the numbers of a condition screen, in volts */
+
+static void cond_numbers(uint8_t c)
 {
+    switch (c) {
+    case SF_VCC_HIGH: case STOP_VCC: fmt_v2(v1, dbg_vcc_mv(adc_get(ADC_BANDGAP))); break;
+    case STOP_VIN:                   fmt_vin(v1, cal_vin_mv(adc_get(ADC_VIN))); break;
+    case SF_RAIL_OVER:               fmt_v2(v1, cal_port_mv(adc_raw(ADC_RAIL))); break;
+    case SF_TEST: case C_TESTING:    fmt_v2(v1, cal_port_mv(t1)); fmt_v2(v2, cal_port_mv(t2)); break;
+    default:                         fmt_v2(v1, cal_port_mv(adc_get(ADC_RAIL))); break;
+    }
+}
+
+/* The screen of a condition (sup.h): red for a fatal one, amber for one that waits to clear. */
+static void cond_draw(uint8_t c)
+{
+    cond_numbers(c);
+    switch (c) {
+    case SF_VCC_HIGH:  ui_message(R_BAD, "VCC HIGH", "OVER 5.0V, POWER CYCLE", v1, 0); break;
+    case SF_RAIL_OVER: ui_message(R_BAD, "RAIL OVERVOLTAGE", "ADC FULL, POWER CYCLE", v1, 0); break;
+    case SF_NO_RAIL:   ui_message(R_BAD, "NO RAIL", "NOT UP, POWER CYCLE", v1, 0); break;
+    case SF_TEST:      ui_message(R_BAD, "RAIL TEST FAIL", "POWER CYCLE", v1, v2); break;
+    case STOP_VIN:     ui_message(R_WAIT, "INPUT LOW", settings.usb_off ? "USB POWER OFF, USE XT60" : "CHECK THE SUPPLY", v1, 0); break;
+    case STOP_VCC:     ui_message(R_WAIT, "VCC LOW", "TRY ANOTHER SUPPLY", v1, 0); break;
+    case STOP_RAIL:    ui_message(R_WAIT, "RAIL OUT OF RANGE", "WAITING TO RECOVER", v1, 0); break;
+    case C_TESTING:    ui_message(R_WAIT, "RAIL TEST", "FAILED, TRYING AGAIN", v1, v2); break;
+    }
+}
+
+/* A fatal condition: everything off, and it stays so until the power is cycled.  The loop goes on (fatal_pass): the host can still read
+ * the unit, stop it, or flash it. */
+static void go_fatal(uint8_t code)
+{
+    run = 0; chg_abort();
     hal_all_off();
-    tele_pass(PH_FATAL);
-    ui_message(title, line2, has_n, n, 0, 0);
+    screen = 0; fatal_code = code;
     buzz_play(PAT_ERROR);
-    for (;;) { hal_delay_ms(1000); }               /* outputs stay off until the power is cycled */
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
@@ -117,8 +151,6 @@ static uint8_t selftest(uint16_t *r1, uint16_t *r2)
 
 void app_boot(void)
 {
-    uint16_t r1 = 0, r2 = 0, vin;
-    uint32_t t0;
     uint8_t n;
 
     cfg_load();                                      /* flash reads are safe before anything is powered */
@@ -135,53 +167,18 @@ void app_boot(void)
     if (!strap) hal_profile(1);                      /* P5.3 set when the strap is low */
     rail_duty = 100; hal_rail(100);                  /* rail PWM starts at 100/400 */
     ctl_rail_reset(rail_duty);
-    hal_fan(1);                                      /* the fan runs during start-up */
     hal_irq_on();
 
     adc_prime();
-    t0 = hal_ms();
-    for (;;) {                                       /* wait for the rail */
-        adc_scan();
+    for (n = 0; n < BOOT_RAIL_PASSES; n++) {         /* the rail comes up under the regulator; what is wrong with the supply or the rail is the main loop's */
+        adc_scan(); rail_step();
         tele_pass(PH_RAIL_WAIT);
-        if (adc_get(ADC_RAIL) >= RAIL_UP) break;
-        if (hal_ms() - t0 > RAIL_UP_TIMEOUT) { lcd_init(); fatal("NO RAIL", "RAIL DID NOT COME UP", 1, adc_get(ADC_RAIL)); }
         hal_delay_ms(2);
     }
-    lcd_init();                                      /* for the start-up messages below; may be lost, see the logo */
+    lcd_init();                                      /* may be lost, see the logo */
 
-    /* VCC gate: do not start unless VCC <= 5.0 V (bandgap >= 976) */
-    t0 = hal_ms();
-    n = 0;
-    for (;;) {
-        adc_scan_slow_now(); adc_scan_slow_now();
-        tele_pass(PH_VCC_GATE);
-        if (adc_get(ADC_BANDGAP) >= VCC_OK_MIN) break;
-        if (hal_ms() - t0 > 3000 && !n) { n = 1; ui_message("VCC HIGH", "SUPPLY OVER 5.0V", 1, adc_get(ADC_BANDGAP), 0, 0); }
-        hal_delay_ms(100);
-    }
-
-    /* rail authority self-test: retry until it passes, showing the numbers meanwhile */
-    tele_pass(PH_SELFTEST);
-    while (!selftest(&r1, &r2)) {
-        tele_pass(PH_SELFTEST);
-        ui_message("RAIL TEST FAIL", "RETRYING", 1, r1, 1, r2);
-        hal_delay_ms(1000);
-    }
-    hal_fan(0);
-
-    /* input voltage: 50 samples, then the input rules */
-    for (n = 0; n < 50; n++) { adc_scan(); adc_scan_slow_now(); hal_delay_ms(3); }
-    vin = adc_get(ADC_VIN);
-    n = 0;
-    tele_pass(PH_INPUT);
-    while (vin < VIN_MIN) {
-        tele_pass(PH_INPUT);
-        if (!n) { n = 1; ui_message("ERR:INPUT LOW", "CONNECT INPUT", 1, vin, 0, 0); }
-        hal_delay_ms(500);
-        adc_scan_slow_now(); adc_scan_slow_now(); vin = adc_get(ADC_VIN);
-    }
-    /* the logo waits until the start-up load is over: an init made while the fan line is on and the rail is being brought up
-       can leave the panel black (cold starts), one made after the self-test always works */
+    /* the logo waits until the rail has settled: an init made while the rail is being brought up
+       can leave the panel black (cold starts), one made after it always worked */
     tele_pass(PH_SPLASH);
     lcd_init();
     ui_splash();
@@ -192,9 +189,10 @@ void app_boot(void)
 
     ui_main_init();
     adc_prime();
-    bg_ref = adc_get(ADC_BANDGAP); lcd_cnt = 0;
+    bg_ref = adc_get(ADC_BANDGAP); lcd_cnt = 0; bg_quiet = 0;
     t_next = hal_ticks();
     run = 0; stop_reason = 0; alarm_ui = 0; screen = 0;
+    fatal_code = cond = msg_code = 0; test_ok = test_tries = 0; test_at = 0;
     lim_reset();
     chg_init();
     stack_free = hal_stack_free();                   /* after the boot, which may go deepest; then about once a second */
@@ -208,7 +206,7 @@ static void save_later(void) { save_at = hal_ms() + SAVE_DELAY_MS; if (!save_at)
 static uint8_t start_run(void)
 {
     if (save_at) save_main();
-    if (run || sout.stop != STOP_NONE) return 0;
+    if (run || sout.stop != STOP_NONE || fatal_code || !test_ok) return 0;
     run = 1; stop_reason = 0; chg_init(); lim_reset();
     return 1;
 }
@@ -217,7 +215,7 @@ static uint8_t start_run(void)
 static void show(uint8_t s)
 {
     screen = s; text_row = 0;
-    if (s == SCR_DEV) ui_message("DEV MODE", "HOLD BOTH KEYS TO EXIT", 0, 0, 0, 0);
+    if (s == SCR_DEV) ui_message(R_BAD, "DEV MODE", "HOLD BOTH KEYS TO EXIT", 0, 0);
     else ui_text_enter();
 }
 
@@ -260,7 +258,7 @@ static void usb_service(void)
     case 5: break;                                                                     /* ping */
     case 6: if (run) { res = 1; break; } hal_reboot_isp(); break;                      /* reboot into the USB ISP loader (not while charging) */
     case 7:                                                                            /* developer mode, byte 1 = session (not while charging, */
-        if (run || (screen == SCR_DEV && dev_taken(c[1]))) { res = 1; break; }       /* nor while another host drives it) */
+        if (run || fatal_code || (screen == SCR_DEV && dev_taken(c[1]))) { res = 1; break; }   /* nor while another host drives it) */
         dev_enter(c[1]);
         break;
     case 8: if (screen != SCR_DEV || !dev_set(c)) res = 1; break;                     /* developer mode: the outputs (the owner only) */
@@ -321,6 +319,10 @@ static void handle_buttons(void)
             else if (ev == EV_BACK) { show(SCR_MENU); buzz_play(PAT_KEY); }
             continue;
         }
+        if (cond) {                                      /* a condition is on the screen: the menu is the way out (DISABLE USB POWER) */
+            if (ev == EV_OK) { menu_enter(); buzz_play(PAT_KEY); }
+            continue;
+        }
         switch (ev) {
         case EV_B1:
             if (!run) {
@@ -346,6 +348,26 @@ static void handle_buttons(void)
     }
 }
 
+/* The rail self-test (rail authority: it must servo to the 3.80 V and 4.35 V levels), once, as soon as nothing waits and the rail is up.  A
+ * low input is not a failure of it: that waits first.  Starting a run needs it passed. */
+static void test_step(void)
+{
+    if (selftest(&t1, &t2)) test_ok = 1;
+    else if (++test_tries >= TEST_TRIES) go_fatal(SF_TEST);
+    else test_at = hal_ms() + 1000;
+    sup_reset();                                     /* the rail went through two levels: its counters start again */
+}
+
+/* A fatal condition: nothing is driven, nothing but the host link works. */
+static void fatal_pass(void)
+{
+    hal_all_off();
+    while (input_get() != EV_NONE) ;
+    usb_service();
+    if (msg_code != fatal_code) { cond_draw(fatal_code); msg_code = fatal_code; }
+    tele_pass(PH_FATAL);
+}
+
 void app_pass(void)
 {
     uint8_t k;
@@ -356,6 +378,7 @@ void app_pass(void)
 
     adc_scan();
     if (!++stack_div) stack_free = hal_stack_free();
+    if (fatal_code) { fatal_pass(); return; }
     handle_buttons();
     usb_service();
     if (save_at && (int32_t)(hal_ms() - save_at) >= 0) save_main();
@@ -364,6 +387,7 @@ void app_pass(void)
         if (portset_pass() == MA_EXIT) ports_leave();                       /* 10 s without a key */
     } else if (screen && screen != SCR_DEV) {        /* menu values apply while they are edited; they are saved when the menu closes */
         buzz_enable(settings.sound);
+        if (settings.usb_off) hal_profile(0);        /* DISABLE USB POWER takes effect at once; turning it off again waits for the next start */
         if (settings.theme != th_get()) { th_set(settings.theme); show(screen); }   /* repaint the menu in the new colours */
         apply_limits();
         menu_context(run);
@@ -374,16 +398,22 @@ void app_pass(void)
     sin.vin = adc_get(ADC_VIN); sin.rail = adc_get(ADC_RAIL); sin.rail_sat = adc_saturated(ADC_RAIL); sin.bandgap = adc_get(ADC_BANDGAP); sin.adc0 = adc_get(0);
     sin.setpoint = screen == SCR_DEV ? dev_setpoint() : sup_setpoint(settings.volt);
     sup_pass(&sin, &sout);
+    if (sout.fatal) { go_fatal(sout.fatal); return; }
+    cond = sout.stop;                                /* STOP_VIN, STOP_VCC, STOP_RAIL: waiting, on the screen */
+    if (!test_ok && screen != SCR_DEV && !run && !cond && sout.rail_up && (int32_t)(hal_ms() - test_at) >= 0) test_step();
+    if (!cond && !test_ok && test_tries) cond = C_TESTING;
 
     /* display self-healing: re-send the panel settings about once a second; after a sudden VCC dip (bandgap count jumps off its
        baseline) also repaint everything, since a glitch can scramble the panel's rotation, colours and picture */
     {
         int16_t d = (int16_t)sin.bandgap - (int16_t)bg_ref;
         bg_ref = (uint16_t)((int16_t)bg_ref + (d >> 5));
-        if (d > BG_GLITCH || d < -BG_GLITCH) {
-            bg_ref = sin.bandgap;
+        if (bg_quiet) bg_quiet--;
+        if ((d > BG_GLITCH || d < -BG_GLITCH) && !bg_quiet) {         /* at most once a second: a supply falling over many steps would repaint all the way */
+            bg_ref = sin.bandgap; bg_quiet = 222;
             lcd_wake(); hal_delay_ms(5); lcd_reconfig();
-            if (screen) show(screen); else ui_main_init();
+            if (screen) show(screen); else if (!cond) ui_main_init();
+            msg_code = 0;                            /* a condition on the screen is drawn again */
         } else if (++lcd_cnt == LCD_RECONFIG_PASSES - 2) {
             lcd_wake();                              /* the settings follow two passes (9 ms) later: no busy wait */
         } else if (lcd_cnt >= LCD_RECONFIG_PASSES) {
@@ -395,8 +425,6 @@ void app_pass(void)
 
     alarm_ui = sout.stop ? sout.stop : !run && stop_reason == STOP_VLIM ? STOP_VLIM : STOP_NONE;
     if (run && sout.stop != STOP_NONE && sout.stop != STOP_RAIL) stop_run(sout.stop);
-    /* a rail held over-voltage means the regulation failed: nothing may be driven again until the power is cycled */
-    if (sout.rail_cut) fatal("RAIL OVERVOLTAGE", "ADC FULL, POWER CYCLE", 1, adc_raw(ADC_RAIL));
     /* the rail out of band for long is a pause, not a stop: nothing is driven, charging resumes by itself with a fresh soft ramp */
     rail_hold = (uint8_t)(run && sout.stop == STOP_RAIL);
     if (screen == SCR_DEV) {                         /* developer mode: the host drives the outputs, the guards in dev.c */
@@ -442,9 +470,10 @@ void app_pass(void)
     }
 
     /* ---- display ---- */
-    ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui;
+    ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui == STOP_VLIM ? STOP_VLIM : STOP_NONE;      /* the others are screens of their own */
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
     ui.tphase = (uint8_t)(((hal_ms() >> 10) & 3) == 3);
+    ui.usb_off = settings.usb_off;
     ui.ps = screen != SCR_PORTS ? 0 : portset_editing() ? 2 : 1; ui.sel = portset_port(); ui.locked = portset_locked(); ui.mixed = 0;
     for (k = 0; k < NPORTS; k++) {
         ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.held[k] == 2);
@@ -465,12 +494,18 @@ void app_pass(void)
         for (n = 0; n < NPORTS; n++) dbg_view.held[n] = cout.held[n];
         ui_text_row(text_row, dbg_text(screen, text_row), text_row == 0 ? th(R_INFO) : th(R_TEXT));       /* one row per pass */
         if (++text_row == DBG_ROWS) text_row = 0;
+        msg_code = 0;
     } else if (screen == SCR_MENU) {
         static const char * XD t;
         t = menu_text(text_row);
         ui_text_row(text_row, t, t[0] == '>' ? th(R_GOOD) : t[0] == '*' ? th(R_WARN) : text_row == 0 ? th(R_INFO) : text_row == MENU_ROWS - 1 ? th(R_DIM) : th(R_TEXT));
         if (++text_row == MENU_ROWS) text_row = 0;
+        msg_code = 0;
+    } else if (cond && screen == 0) {
+        if (msg_code != cond) { cond_draw(cond); msg_code = cond; }     /* once: the screen of the condition replaces the main screen */
+        else if (cond != C_TESTING && (uint8_t)(hal_ms() >> 8) != msg_tick) { msg_tick = (uint8_t)(hal_ms() >> 8); cond_numbers(cond); ui_message_big(v1); }   /* its number, ~4 times a second */
     } else {
+        if (msg_code) { msg_code = 0; ui_main_init(); }              /* the condition is over: the main screen again */
         ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
     ui.usb_off = settings.usb_off;
     }

@@ -211,38 +211,73 @@ static void t_sup(void)
     CHECK(sup_setpoint(0) == 3836 && sup_setpoint(1) == 3973 && sup_setpoint(2) == 3472 && sup_setpoint(3) == 3518);   /* 15 mV above the target */
 
     sup_reset(); in = si(); sup_pass(&in, &o);
-    CHECK(o.stop == STOP_NONE && !o.rail_cut && !o.fan);
+    CHECK(o.stop == STOP_NONE && o.fatal == SF_NONE && !o.fan);
 
-    in.vin = 699; sup_pass(&in, &o); CHECK(o.stop == STOP_VIN);                       /* input gone */
-    in.vin = 700; sup_pass(&in, &o); CHECK(o.stop == STOP_NONE);                      /* back above the gate */
+    in.vin = 699; sup_pass(&in, &o); CHECK(o.stop == STOP_VIN);                       /* input gone: at once */
+    in.vin = 700; for (k = 0; k < 221; k++) { sup_pass(&in, &o); CHECK(o.stop == STOP_VIN); }
+    sup_pass(&in, &o); CHECK(o.stop == STOP_NONE);                                    /* back above the gate: gone after a second */
 
     sup_reset(); in = si(); in.bandgap = 1230; sup_pass(&in, &o); CHECK(o.stop == STOP_VCC);
+    in.bandgap = 1107; for (k = 0; k < 222; k++) sup_pass(&in, &o); CHECK(o.stop == STOP_NONE);   /* 4.4 V is the edge */
+    in.bandgap = 1108; sup_pass(&in, &o); CHECK(o.stop == STOP_VCC);
+    in.vin = 600; sup_pass(&in, &o); CHECK(o.stop == STOP_VIN);                       /* a low input is said first: VCC follows it down */
+
+    /* a falling supply: VCC and the input flip across their thresholds; what is shown does not */
+    sup_reset(); in = si();
+    for (k = 0; k < 400; k++) {
+        in.bandgap = k % 2 ? 1150 : 995; in.vin = k % 3 ? 650 : 3000;
+        sup_pass(&in, &o);
+        if (k >= 1) CHECK(o.stop == STOP_VIN || (k < 3 && o.stop == STOP_VCC));
+    }
+    in = si(); sup_pass(&in, &o); CHECK(o.stop == STOP_VIN);                          /* both fine again: held, then gone */
+    for (k = 0; k < 221; k++) sup_pass(&in, &o);
+    CHECK(o.stop == STOP_NONE);
+    /* at a low VCC the rail ADC is full below the real limit: no over-voltage from it, however long */
+    sup_reset(); in = si(); in.bandgap = 1150; in.rail = 4095; in.rail_sat = 1;
+    for (k = 0; k < 300; k++) { sup_pass(&in, &o); CHECK(o.fatal != SF_RAIL_OVER); }
 
     /* rail: out of band for 250 passes -> alarm + stop; recovers inside +-30 */
     sup_reset(); in = si(); in.rail = 3700;
     for (k = 0; k < 249; k++) sup_pass(&in, &o);
     CHECK(o.stop == STOP_NONE);
     sup_pass(&in, &o); CHECK(o.stop == STOP_RAIL);
-    in.rail = 3836 + 20; sup_pass(&in, &o); CHECK(o.stop == STOP_NONE);
+    in.rail = 3836 + 20; for (k = 0; k < 222; k++) sup_pass(&in, &o);
+    CHECK(o.stop == STOP_NONE);
     /* rail over-voltage (the ADC at full scale): cut after 50 passes; a high reading below full scale is not one */
-    sup_reset(); in = si(); in.rail = 4080; for (k = 0; k < 200; k++) { sup_pass(&in, &o); CHECK(!o.rail_cut); }
+    sup_reset(); in = si(); in.rail = 4080; for (k = 0; k < 200; k++) { sup_pass(&in, &o); CHECK(o.fatal != SF_RAIL_OVER); }
     sup_reset(); in = si(); in.rail = 4095; in.rail_sat = 1;
     for (k = 0; k < 49; k++) sup_pass(&in, &o);
-    CHECK(!o.rail_cut); sup_pass(&in, &o); CHECK(o.rail_cut);
+    CHECK(o.fatal != SF_RAIL_OVER); sup_pass(&in, &o); CHECK(o.fatal == SF_RAIL_OVER);
     /* a long sag followed by an overshoot while recovering is not an over-voltage */
     sup_reset(); in = si(); in.rail = 3500; for (k = 0; k < 300; k++) sup_pass(&in, &o);
-    in.rail = 4095; in.rail_sat = 1; for (k = 0; k < 20; k++) { sup_pass(&in, &o); CHECK(!o.rail_cut); }
+    in.rail = 4095; in.rail_sat = 1; for (k = 0; k < 20; k++) { sup_pass(&in, &o); CHECK(o.fatal != SF_RAIL_OVER); }
     in.rail = 3836; in.rail_sat = 0; for (k = 0; k < 20; k++) sup_pass(&in, &o);
-    in.rail = 4095; in.rail_sat = 1; for (k = 0; k < 30; k++) { sup_pass(&in, &o); CHECK(!o.rail_cut); }      /* the count decays in between */
+    in.rail = 4095; in.rail_sat = 1; for (k = 0; k < 30; k++) { sup_pass(&in, &o); CHECK(o.fatal != SF_RAIL_OVER); }      /* the count decays in between */
     /* but over-voltage most of the time is */
     sup_reset(); in = si();
-    for (k = 0; k < 400 && !o.rail_cut; k++) { in.rail_sat = k % 4 != 0; in.rail = in.rail_sat ? 4095 : 3836; sup_pass(&in, &o); }
-    CHECK(o.rail_cut && k < 120);
+    for (k = 0; k < 400 && o.fatal != SF_RAIL_OVER; k++) { in.rail_sat = k % 4 != 0; in.rail = in.rail_sat ? 4095 : 3836; sup_pass(&in, &o); }
+    CHECK(o.fatal == SF_RAIL_OVER && k < 120);
     /* a short excursion is forgiven: the counter decays */
     sup_reset(); in = si(); in.rail = 3700; for (k = 0; k < 100; k++) sup_pass(&in, &o);
     in.rail = 3836; for (k = 0; k < 120; k++) sup_pass(&in, &o);
     in.rail = 3700; for (k = 0; k < 200; k++) sup_pass(&in, &o);
     CHECK(o.stop != STOP_RAIL);
+
+    /* VCC over 5.0 V (a count under 976) for 20 passes in a row is fatal; a glitch is not */
+    sup_reset(); in = si(); in.bandgap = 970;
+    for (k = 0; k < 19; k++) { sup_pass(&in, &o); CHECK(o.fatal == SF_NONE); }
+    sup_pass(&in, &o); CHECK(o.fatal == SF_VCC_HIGH);
+    sup_reset(); in = si(); in.bandgap = 970; for (k = 0; k < 10; k++) sup_pass(&in, &o);
+    in.bandgap = 1070; sup_pass(&in, &o); in.bandgap = 970; for (k = 0; k < 10; k++) { sup_pass(&in, &o); CHECK(o.fatal == SF_NONE); }
+
+    /* the rail never up (under 3.5 V) with a good input: fatal after 10 s; with a low input or VCC it is the waiting STOP_*, not fatal */
+    sup_reset(); in = si(); in.rail = 3000; sup_pass(&in, &o); CHECK(!o.rail_up);
+    for (k = 1; k < 2199; k++) { sup_pass(&in, &o); CHECK(o.fatal != SF_NO_RAIL); }
+    sup_pass(&in, &o); CHECK(o.fatal == SF_NO_RAIL);
+    sup_reset(); in = si(); in.rail = 3000; in.vin = 600; for (k = 0; k < 3000; k++) { sup_pass(&in, &o); CHECK(o.fatal != SF_NO_RAIL); }
+    CHECK(o.stop == STOP_VIN);
+    sup_reset(); in = si(); in.rail = 3000; in.bandgap = 1230; for (k = 0; k < 3000; k++) { sup_pass(&in, &o); CHECK(o.fatal != SF_NO_RAIL); }
+    sup_reset(); in = si(); sup_pass(&in, &o); CHECK(o.rail_up);
 
     /* fan: follows the thermistor, with hysteresis */
     sup_reset(); in = si(); in.adc0 = 1200; sup_pass(&in, &o); CHECK(o.fan);

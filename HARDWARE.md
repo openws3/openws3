@@ -50,7 +50,7 @@ charge current is lower. The firmware therefore cannot measure a bleed current; 
 ## Behaviour worth knowing
 
 * Rail PWM gain is about 1 mA per duty count at the port; the soft ramp of 1 count per 100 control passes takes minutes to reach 0.3 A.
-* The ADC reads high when VCC sags (the reference is VCC); the firmware watches the bandgap and stops below about 4.0 V.
+* The ADC reads high when VCC sags (the reference is VCC); the firmware watches the bandgap and treats a VCC of 4.4 V or less as an undervoltage (nothing is charged; the rail over-voltage check is off then, as the ADC is full at VCC).
 * A weak input (PC USB port) sags under load: use MAX IN AMPS and MIN IN VOLTS in the menu.
 * The input profile pin (P5.3) is a bypass around a diode in the USB-C input path, set at boot when the strap P3.4 reads low (V: with it off
   the input of a USB-powered unit sits about 0.6 V lower, 5.15 to 4.53 V, and VCC about 0.24 V lower, 4.55 to 4.31 V; the drop is a diode's,

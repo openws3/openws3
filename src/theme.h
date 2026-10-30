@@ -9,8 +9,8 @@
 
 enum { TH_CLASSIC = 0, TH_CALM, TH_AMBER, TH_CONTRAST, TH_COUNT };
 
-/* roles: the first 13 are the base palette, then the six port badges and the eight per-state dots (index = PS_*) */
-enum { R_BG = 0, R_BOX, R_TEXT, R_VIN, R_VOLT, R_DIM, R_RUN, R_WARN, R_GOOD, R_BAD, R_INFO, R_FULL, R_FULLTX, R_BADGE0, R_DOT0 = R_BADGE0 + 6, R_COUNT = R_DOT0 + 7 };
+/* roles: the first 14 are the base palette, then the six port badges and the eight per-state dots (index = PS_*) */
+enum { R_BG = 0, R_BOX, R_TEXT, R_VIN, R_VOLT, R_DIM, R_RUN, R_WARN, R_GOOD, R_BAD, R_INFO, R_FULL, R_FULLTX, R_WAIT, R_BADGE0, R_DOT0 = R_BADGE0 + 6, R_COUNT = R_DOT0 + 7 };
 
 void     th_set(uint8_t theme);          /* out of range -> classic */
 uint8_t  th_get(void);

@@ -49,7 +49,7 @@ static void tele_limits(uint8_t ph, uint32_t ms)
         usb_tx2[46] = *ctx.stack;
         usb_tx2[47] = FW_PRE;
         usb_tx2[51] = ctx.out->any_active;
-        usb_tx2[52] = ctx.sup->stop; usb_tx2[54] = ctx.sup->rail_cut; usb_tx2[55] = ctx.sup->stop == STOP_RAIL; usb_tx2[56] = ctx.sup->fan;
+        usb_tx2[52] = ctx.sup->stop; usb_tx2[54] = ctx.sup->fatal; usb_tx2[55] = ctx.sup->stop == STOP_RAIL; usb_tx2[56] = ctx.sup->fan;
     }
     tele_put16(usb_tx2, 57, (uint16_t)(FW_BUILD >> 16)); tele_put16(usb_tx2, 59, (uint16_t)FW_BUILD); usb_tx2[61] = FW_DIRTY;   /* the build id */
     usb_tx2[63] = tele_seq;

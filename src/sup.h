@@ -26,9 +26,14 @@ typedef struct {
 
 enum { STOP_NONE = 0, STOP_VIN, STOP_VCC, STOP_RAIL, STOP_USER, STOP_VLIM };   /* VLIM: the user's minimum input voltage (limits.h) */
 
+/* Two kinds of condition.  WAITING: a supply condition, the unit does nothing until it clears by itself (STOP_VIN, STOP_VCC, STOP_RAIL
+ * below).  FATAL: something is wrong with the unit or its supply, everything stays off until the power is cycled (SF_*). */
+enum { SF_NONE = 0, SF_VCC_HIGH = 0x10, SF_RAIL_OVER, SF_NO_RAIL, SF_TEST };   /* SF_TEST (the rail self-test failed) is set by the app */
+
 typedef struct {
     uint8_t  stop;          /* STOP_* : charging must stop now (all ports off, P5.2 low); STOP_RAIL also sounds the rail alarm */
-    uint8_t  rail_cut;      /* rail over-voltage (its ADC at full scale for 0.22 s net): a fatal error, everything off */
+    uint8_t  fatal;         /* SF_* : VCC over 5.0 V, the rail beyond the ADC (its full scale for 0.22 s net) or never up: everything off */
+    uint8_t  rail_up;       /* the rail is at least 3.5 V: the rail self-test (app.c) may run */
     uint8_t  fan;           /* P0.7 level: the board is warm (ADC0, the thermistor) */
 } sup_out_t;
 

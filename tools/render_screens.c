@@ -193,7 +193,7 @@ int main(int argc, char **argv)
     th_set(settings.theme);
 
     ui_splash(); save("splash");
-    ui_message("ERR:INPUT LOW", "CONNECT INPUT", 1, 312, 0, 0); save("input_low");
+    ui_message(R_WAIT, "INPUT LOW", "CHECK THE SUPPLY", "4.52V", 0); save("input_low");
     th_set(settings.theme);
 
     s = idle_state(); draw_main(&s); save("main_idle");

@@ -75,14 +75,31 @@ void ui_splash(void)
     centered(54, "V" STR(FW_MAJOR) "." STR(FW_MINOR) FW_STAGE " " FW_BUILD_STR, 1, 1, th(R_DIM), th(R_BG));
 }
 
-void ui_message(const char *title, const char *line2, uint8_t has_n1, uint16_t n1, uint8_t has_n2, uint16_t n2)
+static char XD mbig[8];                              /* the big line of the message on the screen */
+
+void ui_message(uint8_t role, const char *title, const char *line2, const char *big, const char *small)
 {
-    static char XD b[8];
     lcd_fill(0, 0, LCD_PX_W, LCD_PX_H, th(R_BG));
-    centered(6, title, 1, 2, th(R_BAD), th(R_BG));
+    centered(6, title, 1, 2, th(role), th(R_BG));
     centered(28, line2, 1, 1, th(R_TEXT), th(R_BG));
-    if (has_n1) { fmt_u(b, n1); centered(42, b, 2, 2, th(R_WARN), th(R_BG)); }
-    if (has_n2) { fmt_u(b, n2); centered(60, b, 1, 1, th(R_DIM), th(R_BG)); }
+    if (big) { centered(42, big, 2, 2, th(R_WARN), th(R_BG)); scopy(mbig, big); } else mbig[0] = 0;
+    if (small) centered(60, small, 1, 1, th(R_DIM), th(R_BG));
+}
+
+/* The big line is drawn again in place, only the characters that changed: clearing it first would flash it. */
+void ui_message_big(const char *big)
+{
+    static uint8_t XD i, n, x0;                      /* external RAM: direct RAM is full */
+    static char XD c[2];
+    n = slen(big);
+    if (n != slen(mbig)) { lcd_fill(0, 42, LCD_PX_W, 16, th(R_BG)); mbig[0] = 0; }     /* another length: all of it */
+    x0 = (uint8_t)((LCD_PX_W - n * 12) / 2);
+    for (i = 0; i < n; i++) {
+        if (mbig[0] && mbig[i] == big[i]) continue;
+        c[0] = big[i]; c[1] = 0;
+        lcd_text((uint8_t)(x0 + i * 12), 42, c, 2, 2, th(R_WARN), th(R_BG));
+    }
+    scopy(mbig, big);
 }
 
 /* The one rule for text: draw `s` (at most `max` characters) at x,y in fg on bg, only the characters that differ from `was`, the text

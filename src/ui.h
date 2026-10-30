@@ -23,8 +23,9 @@ typedef struct {
 } ui_state_t;
 
 void ui_splash(void);
-/* full-screen message: two text lines (1x2 / 1x1) and up to two numbers appended on lines 3/4 */
-void ui_message(const char *title, const char *line2, uint8_t has_n1, uint16_t n1, uint8_t has_n2, uint16_t n2);
+/* full-screen message: the title (1x2, in the colour of role), a line under it (1x1) and up to two more lines (big 2x2, small 1x1); 0 = none */
+void ui_message(uint8_t role, const char *title, const char *line2, const char *big, const char *small);
+void ui_message_big(const char *big);     /* only the big line of the message on the screen, again (a number that changes) */
 void ui_main_init(void);                  /* draws the frame; elements fill in over the next calls (also when ps changes) */
 void ui_main_step(const ui_state_t *s);   /* refresh one element: the main screen, or with ps set the port settings mode on it */
 
