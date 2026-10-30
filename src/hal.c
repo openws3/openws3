@@ -2,6 +2,7 @@
  * STC8H8K64U @ 40 MHz.  Init values for PWM/ADC/ports are those of a bench firmware that has run on this board.
  */
 #include "hal.h"
+#include "cfg.h"
 
 __sfr __at (0x80) P0;   __sfr __at (0x90) P1;   __sfr __at (0xA0) P2;
 __sfr __at (0xB0) P3;   __sfr __at (0xC0) P4;   __sfr __at (0xC8) P5;
@@ -45,8 +46,11 @@ static volatile uint32_t __xdata g_ticks;       /* 0.5 ms ticks since boot */
  *
  * Runs before the C runtime: drive every power-path pin low while they are still quasi-bidirectional
  * (a strong 0 even before the port mode registers are written).  */
+static uint8_t XD profile_ok;  /* 1 once the settings are loaded (hal_profile_allow): until then the input bypass cannot be turned on */
+
 unsigned char __sdcc_external_startup(void)
 {
+    profile_ok = 0;            /* not left to whatever the RAM holds */
     P2 = 0x00;                 /* PWM pins + two enables low */
     P4 = 0x02;                 /* enables, beep, power low; LCD CS (P4.1) idle high */
     P5 = 0x03;                 /* P5.2/P5.3 low; LCD RST/DC idle high */
@@ -165,7 +169,11 @@ void hal_sw(uint8_t port, uint8_t on)
 
 void hal_global(uint8_t on) { GLOBAL_EN = on; }
 void hal_power(uint8_t on)  { POWER_EN = on; }
-void hal_profile(uint8_t on){ PROFILE = on; }
+/* The one place the input bypass pin is driven.  With DISABLE USB POWER set (cfg.h) it is never on, whoever asks: the boot, developer mode,
+   the host. And not before the settings are loaded, so no ordering of the start-up can turn it on first. The bypass conducts backwards, so
+   a supply on the XT60 would be fed into the USB-C connector (HARDWARE.md). */
+void hal_profile_allow(void) { profile_ok = 1; }
+void hal_profile(uint8_t on){ PROFILE = on && profile_ok && !settings.usb_off; }
 
 void hal_all_off(void)
 {

@@ -1,5 +1,6 @@
 #include "dev.h"
 #include "hal.h"
+#include "cfg.h"
 #include "adc.h"
 #include "ports.h"
 #include "ctl.h"
@@ -76,6 +77,7 @@ int16_t dev_pass(uint8_t supply_stop, uint8_t warm)
     if ((req_flags & DF_FAN) || warm) out_flags |= DF_FAN;
     hal_global(out_flags & DF_GLOBAL);
     hal_fan((out_flags & DF_FAN) != 0);
+    if (settings.usb_off) out_flags &= (uint8_t)~DF_PROFILE;            /* hal_profile keeps the pin off: the report says so too */
     hal_profile((out_flags & DF_PROFILE) != 0);
     return rail_duty;
 }

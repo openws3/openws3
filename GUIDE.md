@@ -163,6 +163,7 @@ While you edit, the item is marked orange and the bottom row changes to `< -`, `
 | | REGULATION | which ports get the available current first: `EQUAL`, `CH1 FIRST` or `HIGH V FIRST` |
 | **PREFERENCES** | SOUND | beeps `ON` or `OFF` |
 | | THEME | the colours: `CLASSIC`, `CALM`, `AMBER`, `HIGH CONTRAST` |
+| | DISABLE USB POWER | `NO` or `YES`. With `YES` the USB-C input is never switched on: use it when the charger is powered from the XT60 and the USB-C is only a data link to a computer (monitor, web page, flashing). A computer then neither powers the unit nor gets power from it. While it is on, the input voltage in the header is green and reads `USB OFF` for a second every four seconds, so you can see at a glance that the USB-C is isolated. On USB alone the unit shows `INPUT LOW` with `USB POWER OFF, USE XT60` and waits for the XT60; the menu still opens, so the setting can be switched back. Not while charging; takes effect at once, switching back to `NO` waits for the next start |
 | **DIAGNOSTICS** | | the technical pages, see below |
 
 | CHARGING | LIMITS | PREFERENCES |
@@ -271,6 +272,7 @@ A unit with nothing saved starts with these values:
 | REGULATION | CH1 FIRST |
 | SOUND | ON |
 | THEME | CLASSIC |
+| DISABLE USB POWER | NO |
 | every port | AUTO |
 
 ## When something is wrong

@@ -18,6 +18,7 @@ uint8_t cfg_valid_lmode(uint8_t raw) { return raw < LM_NMODES ? raw : LM_BY_CH; 
 uint8_t cfg_valid_theme(uint8_t raw) { return raw < TH_COUNT ? raw : TH_CLASSIC; }
 uint8_t cfg_valid_ch_cur(uint8_t raw) { return cal_cur_valid(raw) ? raw : 0; }
 uint8_t cfg_valid_ch_off(uint8_t raw) { return raw < (1u << NPORTS) ? raw : 0; }
+uint8_t cfg_valid_usb_off(uint8_t raw) { return raw == 1; }
 
 cfg_t XD settings;
 
@@ -34,4 +35,5 @@ void cfg_validate(void)
     settings.lmode = cfg_valid_lmode(settings.lmode);
     for (k = 0; k < NPORTS; k++) settings.ch_cur[k] = cfg_valid_ch_cur(settings.ch_cur[k]);
     settings.ch_off = cfg_valid_ch_off(settings.ch_off);
+    settings.usb_off = cfg_valid_usb_off(settings.usb_off);
 }

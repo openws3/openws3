@@ -228,10 +228,11 @@ static void t_cfg(void)
     CHECK(cfg_valid_volt(0xFF) == 0); CHECK(cfg_valid_volt(3) == 3); CHECK(cfg_valid_volt(4) == 0);
     CHECK(cfg_valid_buzzer(0xFF) == 1);            /* erased = buzzer on */
     CHECK(cfg_valid_buzzer(0) == 0); CHECK(cfg_valid_buzzer(1) == 1);
+    CHECK(cfg_valid_usb_off(1) == 1 && cfg_valid_usb_off(0) == 0 && cfg_valid_usb_off(0xFF) == 0);
     memset(&settings, 0xFF, sizeof settings); cfg_validate();                     /* erased page: the defaults */
     CHECK(settings.cur == 21 && settings.volt == 0 && settings.sound == 1 && settings.theme == TH_CLASSIC);
     CHECK(settings.ilim == 0 && settings.vmin == 98 && settings.vcut == 0 && settings.lmode == LM_BY_CH);
-    CHECK(settings.ch_cur[0] == 0 && settings.ch_cur[NPORTS - 1] == 0 && settings.ch_off == 0);
+    CHECK(settings.ch_cur[0] == 0 && settings.ch_cur[NPORTS - 1] == 0 && settings.ch_off == 0 && settings.usb_off == 0);
 }
 
 /* run the engine for `n` ticks (0.5 ms); returns the number of ticks with the tone pin high, and edges */

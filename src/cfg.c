@@ -8,6 +8,7 @@ void cfg_load(void)
     uint8_t k, ok = hal_ee_read(CFG_ADDR) == CFG_LAYOUT;
     for (k = 0; k < sizeof settings; k++) BYTES[k] = ok ? hal_ee_read(CFG_ADDR + 1 + k) : 0xFF;
     cfg_validate();
+    hal_profile_allow();                          /* the input bypass may follow the settings from here on */
 }
 
 void cfg_save(void)

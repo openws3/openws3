@@ -177,7 +177,8 @@ static void header(const ui_state_t *s, uint8_t e, char XD *t) REENT
         if (s->mixed) { uint8_t n = slen(t); t[n] = '*'; t[n + 1] = 0; }
     } else if (e == 1) {
         if (s->alarm) { scopy(t, ALARM[s->alarm]); col = th(R_WARN); }
-        else { fmt_vin(t, cal_vin_mv(s->vin)); col = th(R_VIN); }
+        else if (s->usb_off && s->tphase) { scopy(t, "USB OFF"); col = th(R_GOOD); }   /* 1 s in 4, like the targets in the port cells */
+        else { fmt_vin(t, cal_vin_mv(s->vin)); col = s->usb_off ? th(R_GOOD) : th(R_VIN); }
     } else fmt_v2(t, cal_port_mv(s->tgt));
     pad(t, 7);
     box(e, bg);

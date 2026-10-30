@@ -11,6 +11,7 @@ typedef struct {
     uint8_t  state[NPORTS];               /* PS_* */
     uint16_t v[NPORTS], i[NPORTS];        /* filtered readings: vu / iu */
     uint8_t  alarm;                       /* STOP_* reason shown in the input-voltage box, 0 = none */
+    uint8_t  usb_off;                     /* DISABLE USB POWER is on: the input-voltage box is green and says so now and then */
     uint8_t  parked[NPORTS];              /* the user limits hold this port with no current (it waits for room) */
     uint8_t  blink;                       /* toggles at ~1 Hz */
     uint8_t  set[NPORTS];                 /* each port's value (portset.h): PV_OFF, PV_AUTO, else its own current (iu) */

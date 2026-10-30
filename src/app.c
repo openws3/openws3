@@ -226,7 +226,7 @@ static void dev_enter(uint8_t session)
 {
     if (screen && screen != SCR_DEV) cfg_save();     /* the menu may have been open: its values are applied, keep them */
     outputs_off();
-    dev_reset(sup_setpoint(settings.volt), rail_duty, strap ? 0 : DF_PROFILE, session);     /* the profile pin as at boot */
+    dev_reset(sup_setpoint(settings.volt), rail_duty, strap || settings.usb_off ? 0 : DF_PROFILE, session);     /* the profile pin as at boot */
     if (screen != SCR_DEV) show(SCR_DEV);
 }
 
@@ -387,6 +387,7 @@ void app_pass(void)
         } else if (++lcd_cnt == LCD_RECONFIG_PASSES - 2) {
             lcd_wake();                              /* the settings follow two passes (9 ms) later: no busy wait */
         } else if (lcd_cnt >= LCD_RECONFIG_PASSES) {
+        if (settings.usb_off) hal_profile(0);        /* DISABLE USB POWER takes effect at once; turning it off again waits for the next start */
             lcd_cnt = 0;
             lcd_reconfig();
         }
@@ -471,6 +472,7 @@ void app_pass(void)
         if (++text_row == MENU_ROWS) text_row = 0;
     } else {
         ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
+    ui.usb_off = settings.usb_off;
     }
 
     tele_pass(PH_RUN);

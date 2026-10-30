@@ -16,7 +16,8 @@ void     hal_rail(uint16_t duty);                /* rail actuator (P3.3), 0..PWM
 void     hal_sw(uint8_t port, uint8_t on);       /* per-port switch pin: 0 = charge path, 1 = bleed path (see board.h) */
 void     hal_global(uint8_t on);                 /* P5.2 */
 void     hal_power(uint8_t on);                  /* P4.7 */
-void     hal_profile(uint8_t on);                /* P5.3 */
+void     hal_profile(uint8_t on);                /* P5.3: never on before hal_profile_allow() or with DISABLE USB POWER set */
+void     hal_profile_allow(void);                /* the settings are loaded: cfg_load calls it */
 void     hal_reboot_isp(void);                   /* outputs off, then a software reset into the USB ISP loader; does not return */
 void     hal_all_off(void);                      /* every enable low, every duty 0, P5.2 low */
 
