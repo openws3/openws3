@@ -31,8 +31,8 @@ VOLTS = ['4.20', '4.35', '3.80', '3.85']
 RESULT = {0: 'ok', 1: 'refused', 2: 'unknown command'}
 V_PER_COUNT = 4.5 / 4096            # per vu: the charger's voltage readings (port voltages, page 1 bytes 38-49)
 A_PER_COUNT = 1 / 68.25             # per iu: its current readings
-BG_NOM = 1071                       # bandgap count at the VCC the voltage scales were made at: a voltage count x BG_NOM / bandgap = its reading (src/adc.h)
-reading = lambda raw, bandgap: raw * BG_NOM / bandgap if bandgap else raw     # every measurement: the voltages and the currents
+BG_NOM = 1071                       # bandgap count at the VCC the voltage scales were made at: an input count x BG_NOM / bandgap = its reading (src/adc.h)
+reading = lambda raw, bandgap: raw * BG_NOM / bandgap if bandgap else raw     # the input voltage only; every other channel is a plain count
 vin_volts = lambda reading: (reading + 1) * 0.4 / 61           # cal.c cal_vin_mv
 vcc_volts = lambda bandgap: 1.19 * 4096 / bandgap if bandgap else 0
 vmin_volts = lambda v: v * 0.05 if v <= 200 else 10 + (v - 200) * 0.5        # limits.h VMIN_MV
@@ -129,7 +129,7 @@ def fmt_status(t):
     bg = t['bandgap']
     head = '%8.1fs %-9s %s %s  set %.1fA  %s  rail %.3fV  vin %.2fV  vcc %.2fV  (counts %d %d %d)' % (
         t['ms'] / 1000, PHASE.get(t['phase'], t['phase']), 'RUN' if t['run'] else 'idle', VOLTS[t['volt']] + ' V',
-        0.1 * t['iset'] / 7.0, 'hold' if t['rail_hold'] else '', reading(t['rail'], bg) * V_PER_COUNT, vin_volts(reading(t['vin'], bg)),
+        0.1 * t['iset'] / 7.0, 'hold' if t['rail_hold'] else '', t['rail'] * V_PER_COUNT, vin_volts(reading(t['vin'], bg)),
         vcc_volts(bg), t['rail'], t['vin'], bg)
     cells = '  '.join('%d:%-6s %.3fV %3dmA%s' % (k + 1, STATE[t['state'][k]], t['v'][k] * V_PER_COUNT, round(t['i'][k] * A_PER_COUNT * 1000),
                                                   ' sw' if t['sw'][k] else '') for k in range(6) if t['state'][k] or t['v'][k] > 900)

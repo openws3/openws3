@@ -3,7 +3,7 @@
 #include "ports.h"
 
 #define SLOW_EVERY 8
-#define BG_NOM     1071       /* bandgap count at the VCC the voltage scales (adc.h, cal.h) were made at */
+#define BG_NOM     1071       /* bandgap count at the VCC the input scale (cal.h) was made at */
 #define FULL       4092       /* a raw mean this close to 4095 is at full scale: the input is beyond what the ADC measures */
 
 static uint16_t XD raw[NADC], filt[NADC];       /* raw: counts as converted; filt: the filtered counts (adc.h) */
@@ -14,7 +14,7 @@ static uint8_t  XD slow_div;
 uint16_t adc_now(uint8_t ch)
 {
     ch &= 0x0F;
-    if (ch < 1 || ch > 14) return raw[ch];           /* ADC1..14 are the ports, the input and the rail (voltages) and the six currents; 0 and 15 are not */
+    if (ch != ADC_VIN) return raw[ch];               /* only the input voltage is corrected (adc.h) */
     tmp = (uint32_t)raw[ch] * gain + 2048;
     return (uint16_t)(tmp >> 12);
 }

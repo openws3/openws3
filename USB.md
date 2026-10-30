@@ -16,8 +16,8 @@ needed. The report descriptor uses a vendor-defined usage page, so the host does
 
 **Counts** are what the ADC returned: 0..4095, relative to VCC, which is regulated. The charger works on them as they are, in a fixed
 unit: **vu** = 4.5 V / 4096 (1.0986 mV) for port voltages and the rail, **iu** = 1/68.25 A (14.65 mA) for port currents
-(`src/adc.h`). The bandgap count guards VCC. The voltage counts (ports, input, rail) are corrected in the firmware for a supply that
-sags: reading = count × 1071 / bandgap count, then the unit above or cal.h. The currents are corrected the same way.
+(`src/adc.h`). The bandgap count guards VCC. Only the input voltage count is corrected in the firmware, for a supply that
+sags: reading = count × 1071 / bandgap count, then cal.h. Every other channel is a plain count.
 
 ## Telemetry report (IN, 64 bytes, big-endian)
 
