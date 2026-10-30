@@ -8,11 +8,11 @@
  *               vu  4.5 V / 4096 = 1.0986 mV   port voltage and rail channels
  *               iu  1/68.25 A    = 14.65 mA    port current channels
  *             and cal.h for VIN.  The control works on these.  The thermistor (ADC0) divider sits on VCC.
- * The voltage channels (the six ports, the input and the rail) are corrected for VCC: it follows the input down on a weak supply, and a
- * count is relative to it, so a lower VCC would read every voltage high (the minimum-input limit would not trip, a cell would look
- * fuller than it is).  Each is scaled by BG_NOM / bandgap, the bandgap count the voltage scales were made at: a fixed reference, so it holds
- * from the first reading, and the rail and the cells stay on one scale.  The reference differs from chip to chip by a percent or so.  The
- * currents and the thermistor are not corrected.
+ * Every measurement channel (the six port voltages and currents, the input and the rail) is corrected for VCC: it follows the input down
+ * on a weak supply, and a count is relative to it, so a lower VCC would read every voltage and current high (the minimum-input limit would
+ * not trip, a cell would look fuller than it is) and a higher one low (a current would run above its setting).  Each is scaled by
+ * BG_NOM / bandgap, the bandgap count the scales were made at: a fixed reference, so it holds from the first reading, and the rail and the
+ * cells stay on one scale.  The reference differs from chip to chip by a percent or so.  The thermistor (ADC0) is not corrected.
  *   adc_now() is the latest value, adc_get() a light filter on it: (old + new) / 2 per scan of that channel.
  */
 #ifndef ADC_H

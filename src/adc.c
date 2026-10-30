@@ -14,7 +14,7 @@ static uint8_t  XD slow_div;
 uint16_t adc_now(uint8_t ch)
 {
     ch &= 0x0F;
-    if (ch < 1 || ch > 8) return raw[ch];            /* ADC1..8 are the voltages: the six ports, the input, the rail */
+    if (ch < 1 || ch > 14) return raw[ch];           /* ADC1..14 are the ports, the input and the rail (voltages) and the six currents; 0 and 15 are not */
     tmp = (uint32_t)raw[ch] * gain + 2048;
     return (uint16_t)(tmp >> 12);
 }

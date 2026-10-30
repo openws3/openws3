@@ -32,7 +32,7 @@ RESULT = {0: 'ok', 1: 'refused', 2: 'unknown command'}
 V_PER_COUNT = 4.5 / 4096            # per vu: the charger's voltage readings (port voltages, page 1 bytes 38-49)
 A_PER_COUNT = 1 / 68.25             # per iu: its current readings
 BG_NOM = 1071                       # bandgap count at the VCC the voltage scales were made at: a voltage count x BG_NOM / bandgap = its reading (src/adc.h)
-reading = lambda raw, bandgap: raw * BG_NOM / bandgap if bandgap else raw     # the voltages (ports, input, rail); the currents are not corrected
+reading = lambda raw, bandgap: raw * BG_NOM / bandgap if bandgap else raw     # every measurement: the voltages and the currents
 vin_volts = lambda reading: (reading + 1) * 0.4 / 61           # cal.c cal_vin_mv
 vcc_volts = lambda bandgap: 1.19 * 4096 / bandgap if bandgap else 0
 vmin_volts = lambda v: v * 0.05 if v <= 200 else 10 + (v - 200) * 0.5        # limits.h VMIN_MV
