@@ -15,10 +15,11 @@ All pictures are what the unit's 160 x 80 screen shows; they are drawn by the fi
 5. [Per-port settings](#per-port-settings)
 6. [The menu](#the-menu)
 7. [Running from a weak supply: the limits](#running-from-a-weak-supply-the-limits)
-8. [Themes](#themes)
-9. [Sounds](#sounds)
-10. [Default settings](#default-settings)
-11. [When something is wrong](#when-something-is-wrong)
+8. [USB data with XT60 power](#usb-data-with-xt60-power)
+9. [Themes](#themes)
+10. [Sounds](#sounds)
+11. [Default settings](#default-settings)
+12. [When something is wrong](#when-something-is-wrong)
 
 ## The two buttons
 
@@ -230,6 +231,23 @@ input current and the budget the charger is working to.
 **From a LiPo pack:** the charger does not detect the pack or its cell count. Set MIN IN VOLTS to the pack's cut-off voltage (about 3.3 V per
 cell: 6.6 V for 2S, 13.2 V for 4S, 19.8 V for 6S) and BELOW MIN to `STOP RUN`, so charging stops before the pack is over-discharged.
 The unit itself stays on and draws a little current: unplug it from the pack when you are done.
+
+## USB data with XT60 power
+
+The USB-C input has a switch that, once the USB supply has been negotiated, bypasses a diode in the input path. That switch conducts both
+ways: with it on, the voltage on the XT60 reaches the USB-C connector. So a charger powered from a battery or a bench supply on the XT60
+must not have a computer connected to its USB-C unless the switch is kept off.
+
+To use the monitor, the web page or flashing while the charger runs from the XT60:
+
+1. Open the menu and set **DISABLE USB POWER** to `YES` (not while charging).
+2. Check the input voltage in the header: it is **green**, and reads `USB OFF` for a second every four seconds. This is the sign that the
+   switch is off and cannot be turned on, so it is safe to connect the computer.
+3. Connect the USB-C cable. The computer neither powers the unit nor gets power from it; only data passes.
+
+With the setting on, the switch stays off after every start and cannot be turned on from the menu, the PC link or the web page. Powered from
+USB alone the unit shows the amber `INPUT LOW` screen with `USB POWER OFF, USE XT60` and waits for the XT60; the menu still opens to
+switch the setting back. Set it back to `NO` to charge from a USB-C supply again.
 
 ## Themes
 
