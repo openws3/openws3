@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="96" viewBox="0 0 880 96" role="img" aria-label="Join the OpenWS3 Discord">
+  <rect width="880" height="96" rx="12" fill="#5865F2"/>
+  <g transform="translate(36 24) scale(2)" fill="#fff">
+    <path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.2.5a18.400 18.400 0 0 1 4.600 1.500 16.500 16.500 0 0 0-15.600 0A18.400 18.400 0 0 1 8.800 3.500L8.600 3a19.800 19.800 0 0 0-4.900 1.400C.6 9 -.2 13.500.2 17.900A19.900 19.900 0 0 0 6.300 21l1.300-2.100a13 13 0 0 1-2-1l.5-.4a14.200 14.200 0 0 0 12.200 0l.5.4a13 13 0 0 1-2 1l1.300 2.100a19.900 19.900 0 0 0 6.100-3.100c.5-5.100-.8-9.600-3.900-13.500zM8 15.200c-1.200 0-2.100-1.100-2.100-2.400s.9-2.400 2.100-2.400 2.200 1.100 2.100 2.400c0 1.300-.9 2.400-2.100 2.400zm8 0c-1.200 0-2.100-1.100-2.100-2.400s.9-2.400 2.100-2.400 2.200 1.100 2.100 2.400c0 1.300-.9 2.400-2.100 2.400z"/>
+  </g>
+  <text x="104" y="44" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="26" font-weight="700" fill="#fff">Join the OpenWS3 Discord</text>
+  <text x="104" y="70" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" fill="#fff" fill-opacity="0.9">Questions, problems, news: installing, flashing, charging, bug reports and new releases</text>
+</svg>

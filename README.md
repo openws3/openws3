@@ -1,7 +1,6 @@
 # OpenWS3 — open firmware for the WhoopStor V3
 
-**Questions, problems, news?** Join the [OpenWS3 Discord](https://discord.gg/n95aNxqCM): installing, flashing, charging behaviour, bug
-reports, and word of new releases.
+<a href="https://discord.gg/n95aNxqCM"><img src="docs/discord-banner.svg" alt="Join the OpenWS3 Discord: questions, problems, news" width="880"></a>
 
 Open firmware for the WhoopStor V3, a six-port LiPo charger / storage unit built around the STC8H8K64U (8051 core, 64 KB flash).
 Six independent charge ports, four target voltages (4.20 V, 4.35 V, 3.80 V storage, 3.85 V storage), CC/CV charging with termination,
