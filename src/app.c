@@ -403,6 +403,45 @@ static void lcd_watch(void)
     }
 }
 
+/* The user limits (limits.h): the gate on the port duties, or a stop when a STOP-mode limit is exceeded */
+static void limit_pass(void)
+{
+    uint8_t k;
+    if (run && !rail_hold) {
+        for (k = 0; k < NPORTS; k++) {
+            lim_in.charging[k] = cout.state[k] == PS_CHARGE; lim_in.want[k] = cout.want[k];
+            lim_in.v[k] = cout.v[k]; lim_in.i[k] = cout.i[k]; lim_in.up[k] = cout.up[k];
+        }
+        lim_in.rail = adc_get(ADC_RAIL); lim_in.vin = adc_get(ADC_VIN);
+        lim_pass();
+        if (lim_out.trip) { stop_run(STOP_VLIM); buzz_play(PAT_ERROR); }
+    } else {
+        lim_reset();
+    }
+    cin.lim = lim_out.on; cin.rise = lim_out.rise; cin.cut = lim_out.cut; cin.excess = lim_out.excess;
+}
+
+/* The charger: the readings and settings in, the duties and switch pins out (not while the rail is paused: nothing is driven then) */
+static void charge_pass(void)
+{
+    uint8_t k;
+    for (k = 0; k < NPORTS; k++) { cin.v_now[k] = adc_now(port_v_ch(k)); cin.i_now[k] = adc_now(port_i_ch(k)); }
+    cin.rail = adc_get(ADC_RAIL);
+    cin.tgt = sup_target(settings.volt); cin.setpoint = sup_setpoint(settings.volt); cin.run = run;
+    for (k = 0; k < NPORTS; k++) { cin.iset[k] = portset_current(k); cin.en[k] = portset_on(k); }
+    if (rail_hold) { outputs_off(); chg_cut(); return; }
+    chg_pass(&cin, &cout);
+
+    if (!run) { outputs_off(); return; }
+    hal_global(1);
+    for (k = 0; k < NPORTS; k++) {
+        hal_pwm(k, cout.duty[k]);
+        hal_sw(k, cout.sw[k]);
+        if (cout.event[k] == CE_FULL) { buzz_play(PAT_DONE); tele_event(EV_PORT_FULL, k); }
+        if (cout.event[k] == CE_FAULT) { buzz_play(PAT_ERROR); tele_event(EV_PORT_FAULT, k); }
+    }
+}
+
 void app_pass(void)
 {
     uint8_t k;
@@ -443,39 +482,8 @@ void app_pass(void)
     hal_fan(sout.fan);
     if (sout.stop == STOP_RAIL && !buzz_busy()) buzz_play(PAT_RAIL_ALARM);
 
-    /* ---- user limits (limits.h): the gate on the port duties, or a stop when a STOP-mode limit is exceeded ---- */
-    if (run && !rail_hold) {
-        for (k = 0; k < NPORTS; k++) {
-            lim_in.charging[k] = cout.state[k] == PS_CHARGE; lim_in.want[k] = cout.want[k];
-            lim_in.v[k] = cout.v[k]; lim_in.i[k] = cout.i[k]; lim_in.up[k] = cout.up[k];
-        }
-        lim_in.rail = adc_get(ADC_RAIL); lim_in.vin = adc_get(ADC_VIN);
-        lim_pass();
-        if (lim_out.trip) { stop_run(STOP_VLIM); buzz_play(PAT_ERROR); }
-    } else {
-        lim_reset();
-    }
-    cin.lim = lim_out.on; cin.rise = lim_out.rise; cin.cut = lim_out.cut; cin.excess = lim_out.excess;
-
-    /* ---- charge control ---- */
-    for (k = 0; k < NPORTS; k++) { cin.v_now[k] = adc_now(port_v_ch(k)); cin.i_now[k] = adc_now(port_i_ch(k)); }
-    cin.rail = adc_get(ADC_RAIL);
-    cin.tgt = sup_target(settings.volt); cin.setpoint = sup_setpoint(settings.volt); cin.run = run;
-    for (k = 0; k < NPORTS; k++) { cin.iset[k] = portset_current(k); cin.en[k] = portset_on(k); }
-    if (rail_hold) { outputs_off(); chg_cut(); }
-    else chg_pass(&cin, &cout);
-
-    if (run && !rail_hold) {
-        hal_global(1);
-        for (k = 0; k < NPORTS; k++) {
-            hal_pwm(k, cout.duty[k]);
-            hal_sw(k, cout.sw[k]);
-            if (cout.event[k] == CE_FULL) { buzz_play(PAT_DONE); tele_event(EV_PORT_FULL, k); }
-            if (cout.event[k] == CE_FAULT) { buzz_play(PAT_ERROR); tele_event(EV_PORT_FAULT, k); }
-        }
-    } else if (!rail_hold) {
-        outputs_off();
-    }
+    limit_pass();
+    charge_pass();
 
     /* ---- display ---- */
     ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui == STOP_VLIM ? STOP_VLIM : STOP_NONE;      /* the others are screens of their own */
