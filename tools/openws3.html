@@ -285,6 +285,8 @@ sudo udevadm control --reload-rules</pre>
 const VID = 0x34bf, PID = 0x1004;                   // the firmware; the chip's loader has the same vendor id and another product id
 const BUNDLED = null;                                // { major, minor, pre, build, dirty, built, size, sha256, data (base64) } in the file made by tools/bundle.py
 const V = 4.5 / 4096, A = 1 / 68.25;                 // readings -> volts / amps (vu, iu: src/adc.h)
+const IU_PASS_PER_MAH = 54600, BLED_PER_MAH = 50;    // page 4: the charge counts of 4.5 ms passes, the bleed estimate's top 16 bits (USB.md)
+const vccOf = bandgap => bandgap ? 1.19 * 4096 / bandgap : 0;
 const BG_NOM = 1071;                                // the bandgap count the voltage scales were made at: an input count x BG_NOM / bandgap = its reading
 const rd = (raw, bg) => bg ? raw * BG_NOM / bg : raw;       // the input voltage only; every other channel is a plain count
 const vinV = r => (r + 1) * 0.4 / 61;                // a VIN reading in volts (cal.c)
@@ -302,7 +304,7 @@ const PHASE = { 1: 'waiting for the rail', 2: 'splash', 3: 'VCC check', 4: 'rail
 const LMODE = ['equal', 'CH1 first', 'high V first'];
 const P_NONE = 10000;                                // page 2: budget value meaning "no limit"
 
-let dev = null, kind = '', fw = null, busy = false, pickLoader = null, p1 = null, p2 = null, p3 = null, out = null;
+let dev = null, kind = '', fw = null, busy = false, pickLoader = null, p1 = null, p2 = null, p3 = null, p4 = null, out = null;
 const events = [];                                   // the monitor's log, newest first
 let nrx = 0, lastRx = 0, sending = false, dirty = false, beep = 0, seq = 1, msg = '', reopening = false, leaving = false, entering = false;
 const hist = [...Array(6)].map(() => []);
@@ -335,6 +337,9 @@ function parse(dv) {
            watchdog: r[57] & 1, supplyStop: (r[57] >> 1) & 1, trip: r[58], setpoint: u16(59) };
     for (let k = 0; k < 6; k++) { hist[k].push(p3.i[k] * A); if (hist[k].length > HIST) hist[k].shift(); }
     if (entering && inDev()) { entering = false; startOutputs(); }   // only after our own Enter: never take over another host's session
+  } else if (r[3] === 4) {
+    p4 = { charge: six(k => (r[8 + 4 * k] * 16777216 + (r[9 + 4 * k] << 16) + (r[10 + 4 * k] << 8) + r[11 + 4 * k]) / IU_PASS_PER_MAH),
+           vStart: six(k => u16(32 + 2 * k) * V), bled: six(k => u16(44 + 2 * k) / BLED_PER_MAH) };
   }
 }
 const inDev = () => p1 && p1.screen === SCR_DEV;
@@ -416,14 +421,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function connect(d) {
   dev = d; kind = d.productId === PID ? 'fw' : 'isp';
   if (!dev.opened) await dev.open();
-  p1 = p2 = p3 = out = null; ispRx.length = 0;
+  p1 = p2 = p3 = p4 = out = null; ispRx.length = 0;
   dev.addEventListener('inputreport', kind === 'fw' ? onReport : ispOnReport);
   lastRx = performance.now();
   $('conn').textContent = 'connected: ' + (dev.productName || 'OpenWS3');
   fwShow();
 }
 function disconnected() {
-  dev = null; kind = ''; p1 = p2 = p3 = out = null; syncControls(); fwShow();
+  dev = null; kind = ''; p1 = p2 = p3 = p4 = out = null; syncControls(); fwShow();
 }
 async function reopen() {                            // the telemetry stopped (a long-lived handle can wedge after an OUT report)
   if (reopening || !dev) return;
@@ -791,7 +796,7 @@ const amps = c => (c * A).toFixed(2) + ' A';
 function renderMonitor() {
   const d = p1;
   if (!d) return;
-  const vcc = d.bandgap ? 1.19 * 4096 / d.bandgap : 0;
+  const vcc = vccOf(d.bandgap);
   $('sum').innerHTML =
     `<div><span>Status</span><b class="big">${d.phase === 128 ? 'Fatal error' : d.phase !== 7 ? 'Starting…' : d.run ? (d.railHold ? 'Paused' : 'Charging') : 'Ready'}</b></div>` +
     item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V') +
@@ -825,7 +830,8 @@ function renderMonitor() {
     p.el.classList.toggle('cut', st === 6);
     p.v.textContent = (d.v[k] * V).toFixed(3) + ' V';
     p.i.textContent = (d.i[k] * A).toFixed(3) + ' A';
-    p.meta.innerHTML = `<span class="st s${st}">${adv ? STATE[st] : STATE_TXT[st]}</span>` + (adv ? `<br>PWM ${d.duty[k]}${sw ? ' · bleed' : ''}` : '');
+    p.meta.innerHTML = `<span class="st s${st}">${adv ? STATE[st] : STATE_TXT[st]}</span>` + (adv ? `<br>PWM ${d.duty[k]}${sw ? ' · bleed' : ''}` : '') +
+                  (p4 && p4.vStart[k] ? `<br>${p4.charge[k].toFixed(1)} mAh from ${p4.vStart[k].toFixed(3)} V${p4.bled[k] ? ' · bled ' + p4.bled[k].toFixed(1) + ' mAh' : ''}` : '');
     p.lim.textContent = st === 2 && p2 ? 'setpoint ' + amps(p2.want[k]) + ' · ' + ((p2.gate[k] & 3) === 2 ? 'limiter: waiting' : p2.gate[k] & 3 ? 'limiter: held' : 'not limited')
                                        : 'setpoint - (not charging)';
     if (p2 && document.activeElement !== p.pset && +p.pset.value !== p2.pset[k]) p.pset.value = p2.pset[k];
@@ -837,7 +843,7 @@ function renderMonitor() {
 
 function renderDev() {
   if (!p3) return;
-  const d = p3, vcc = d.bandgap ? 1.19 * 4096 / d.bandgap : 0;
+  const d = p3, vcc = vccOf(d.bandgap);
   $('inputs').innerHTML =
     item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') +
     item('Rail', (d.rail * V).toFixed(3) + ' V', d.rail + ' cnt') +
