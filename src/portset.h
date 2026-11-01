@@ -26,6 +26,8 @@ uint8_t portset_editing(void);
 uint8_t portset_locked(void);
 
 uint8_t portset_get(uint8_t k);       /* port k's value from the settings */
+uint8_t portset_on(uint8_t k);        /* port k takes part in the run (its value is not OFF) */
+uint8_t portset_current(uint8_t k);   /* the current port k charges at (iu): its own, or the global setting */
 uint8_t portset_valid(uint8_t v);     /* v is a value a port can take */
 void    portset_put(uint8_t k, uint8_t v);   /* store a valid value */
 uint8_t portset_step(uint8_t v, uint8_t up); /* the next value up / down: OFF < AUTO < 0.3 A ... 1.3 A, no wrap */

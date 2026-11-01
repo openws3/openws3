@@ -37,6 +37,10 @@ static void t_values(void)
     CHECK(settings.ch_cur[1] == 56 && settings.ch_off == 0x08 && portset_get(1) == 56 && portset_get(3) == PV_OFF);
     portset_put(3, PV_AUTO); portset_put(1, PV_AUTO);
     CHECK(settings.ch_off == 0 && settings.ch_cur[1] == 0 && portset_get(3) == PV_AUTO);
+    for (k = 0; k < NPORTS; k++) CHECK(portset_on(k) && portset_current(k) == settings.cur);        /* AUTO: the global current */
+    portset_put(4, 49); portset_put(5, PV_OFF);
+    CHECK(portset_on(4) && portset_current(4) == 49 && !portset_on(5) && portset_current(5) == settings.cur);
+    portset_put(4, PV_AUTO); portset_put(5, PV_AUTO);
     portset_put(2, 42); portset_put(2, PV_OFF);                                  /* OFF keeps the current underneath */
     CHECK(portset_get(2) == PV_OFF && settings.ch_cur[2] == 42);
 }

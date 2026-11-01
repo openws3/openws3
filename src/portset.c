@@ -14,9 +14,12 @@ uint8_t portset_locked(void) { return running; }
 
 uint8_t portset_get(uint8_t k)
 {
-    if (settings.ch_off & (1u << k)) return PV_OFF;
+    if (!portset_on(k)) return PV_OFF;
     return settings.ch_cur[k] ? settings.ch_cur[k] : PV_AUTO;
 }
+
+uint8_t portset_on(uint8_t k) { return !(settings.ch_off & (1u << k)); }
+uint8_t portset_current(uint8_t k) { return settings.ch_cur[k] ? settings.ch_cur[k] : settings.cur; }
 
 uint8_t portset_valid(uint8_t v)
 {

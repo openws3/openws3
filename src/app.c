@@ -53,7 +53,6 @@ static tele_ctx_t XD tctx;                    /* what the telemetry reads (tele.
 
 /* ------------------------------------------------------------------------------------------------------------- */
 
-static uint8_t ch_iset(uint8_t k) { return settings.ch_cur[k] ? settings.ch_cur[k] : settings.cur; }
 static void apply_limits(void) { lim_cfg.ilim = settings.ilim; lim_cfg.vmin = settings.vmin; lim_cfg.vcut = settings.vcut; lim_cfg.mode = settings.lmode; }
 
 static void outputs_off(void)
@@ -453,7 +452,7 @@ void app_pass(void)
     for (k = 0; k < NPORTS; k++) { cin.v_now[k] = adc_now(port_v_ch(k)); cin.i_now[k] = adc_now(port_i_ch(k)); }
     cin.rail = adc_get(ADC_RAIL);
     cin.tgt = sup_target(settings.volt); cin.setpoint = sup_setpoint(settings.volt); cin.run = run;
-    for (k = 0; k < NPORTS; k++) { cin.iset[k] = ch_iset(k); cin.en[k] = !(settings.ch_off & (1u << k)); }
+    for (k = 0; k < NPORTS; k++) { cin.iset[k] = portset_current(k); cin.en[k] = portset_on(k); }
     if (rail_hold) { outputs_off(); chg_cut(); }
     else chg_pass(&cin, &cout);
 
@@ -474,11 +473,10 @@ void app_pass(void)
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
     ui.tphase = (uint8_t)(((hal_ms() >> 10) & 3) == 3);
     ui.usb_off = settings.usb_off;
-    ui.ps = screen != SCR_PORTS ? 0 : portset_editing() ? 2 : 1; ui.sel = portset_port(); ui.locked = portset_locked(); ui.mixed = 0;
+    ui.ps = screen != SCR_PORTS ? 0 : portset_editing() ? 2 : 1; ui.sel = portset_port(); ui.locked = portset_locked();
     for (k = 0; k < NPORTS; k++) {
         ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.held[k] == 2);
-        ui.set[k] = portset_get(k); ui.want[k] = cout.state[k] == PS_CHARGE ? cout.want[k] : ch_iset(k);
-        if (ui.set[k] != PV_AUTO) ui.mixed = 1;
+        ui.set[k] = portset_get(k); ui.want[k] = cin.iset[k];
     }
     if (screen && screen != SCR_MENU && screen != SCR_PORTS) {
         uint8_t n;

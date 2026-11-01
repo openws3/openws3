@@ -172,6 +172,14 @@ static uint16_t status_color(uint8_t state)
     }
 }
 
+/* some port has its own value or is off: the current box gets a marker */
+static uint8_t mixed(const ui_state_t *s)
+{
+    uint8_t k;
+    for (k = 0; k < NPORTS; k++) if (s->set[k] != PV_AUTO) return 1;
+    return 0;
+}
+
 static void header(const ui_state_t *s, uint8_t e, char XD *t) REENT
 {
     static const CODE char *const ALARM[] = { "", "VIN!", "VCC!", "RAIL!", "", "V LIMIT" };   /* by STOP_* */
@@ -184,7 +192,7 @@ static void header(const ui_state_t *s, uint8_t e, char XD *t) REENT
         } else scopy(t, s->ps == 2 ? "- + OK" : "< > OK");
     } else if (e == 0) {
         fmt_a1(t, cal_set_to_ma(s->iset));
-        if (s->mixed) { uint8_t n = slen(t); t[n] = '*'; t[n + 1] = 0; }
+        if (mixed(s)) { uint8_t n = slen(t); t[n] = '*'; t[n + 1] = 0; }
     } else if (e == 1) {
         if (s->alarm) { scopy(t, ALARM[s->alarm]); col = th(R_WARN); }
         else if (s->usb_off && s->tphase) { scopy(t, "USB OFF"); col = th(R_GOOD); }   /* 1 s in 4, like the targets in the port cells */

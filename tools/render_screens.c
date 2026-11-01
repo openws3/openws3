@@ -201,7 +201,7 @@ int main(int argc, char **argv)
     s.tphase = 1; draw_main(&s); save("main_charging_target");
     s = charging_state();
     s.state[1] = PS_CHARGE; s.parked[1] = 1; s.i[1] = 0;
-    s.set[2] = PV_OFF; s.mixed = 1; s.set[3] = iu(900);
+    s.set[2] = PV_OFF; s.set[3] = iu(900);
     draw_main(&s); save("main_limit");
     s = idle_state(); s.alarm = STOP_VLIM; s.vin = vin(4300); draw_main(&s); save("main_stopped");
 
