@@ -85,10 +85,10 @@ const char *dbg_text(uint8_t page, uint8_t row)
         switch (row) {
         case 0: rb_str("LIMITS"); break;
         case 1: rb_str("EST INPUT "); rb_num(lim_out.est_ma, 5); rb_str(" mA"); break;
-        case 2: rb_str("MAX IN "); if (lim_cfg.ilim) { rb_num(lim_cfg.ilim / 10, 0); rb_ch('.'); rb_num(lim_cfg.ilim % 10, 0); rb_str("A"); } else rb_str("OFF"); break;
+        case 2: rb_str("MAX IN "); if (lim_cfg.ilim) { rb_d1(lim_cfg.ilim); rb_str("A"); } else rb_str("OFF"); break;
         case 3: rb_str("MIN IN "); if (lim_cfg.vmin) { rb_v3(VMIN_MV(lim_cfg.vmin)); rb_str(lim_cfg.vcut ? "V STOP" : "V LIMIT"); } else rb_str("OFF"); break;
         case 4: rb_str("REG "); rb_str(lim_mode_name(lim_cfg.mode)); break;
-        case 5: rb_str("BUDGET "); if (lim_out.budget >= LIM_P_BIG) rb_str("NONE"); else { rb_num(lim_out.budget / 10, 0); rb_ch('.'); rb_num(lim_out.budget % 10, 0); rb_str(" W"); } break;
+        case 5: rb_str("BUDGET "); if (lim_out.budget >= LIM_P_BIG) rb_str("NONE"); else { rb_d1(lim_out.budget); rb_str(" W"); } break;
         case 6: rb_str("PORTS MAX "); if (lim_out.bcnt) { rb_num(cal_port_ma(lim_out.bcnt), 0); rb_str(" mA"); } else rb_str("NONE"); break;
         case 7:
             rb_str("HELD ");

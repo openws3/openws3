@@ -23,6 +23,8 @@ void rb_v3(uint32_t mv)
     rb_ch((char)('0' + (mv / 100) % 10)); rb_ch((char)('0' + (mv / 10) % 10)); rb_ch((char)('0' + mv % 10));
 }
 
+void rb_d1(uint32_t t) { rb_num(t / 10, 0); rb_ch('.'); rb_num(t % 10, 0); }
+
 void rb_pad(uint8_t col) { while (wn < col && wn < ROW_COLS) rb_ch(' '); }
 
 void rb_right(const char *s, uint8_t last)

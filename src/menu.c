@@ -74,30 +74,28 @@ uint8_t menu_event(uint8_t ev)
     return MA_NONE;
 }
 
-/* the value of an item as text */
+/* the value of an item as text, right-aligned */
 static void value(uint8_t it)
 {
     uint8_t v = *SLOT[it];
     uint16_t mv;
+    const char *s = tmp;
     switch (it) {
-    case IT_VOLT: rb_right(sup_volt_name(v), ROW_COLS - 1); break;
-    case IT_CURRENT: fmt_a1(tmp, cal_set_to_ma(v)); rb_right(tmp, ROW_COLS - 1); break;
-    case IT_SOUND: rb_right(v ? "ON" : "OFF", ROW_COLS - 1); break;
-    case IT_THEME: rb_right(th_name(v), ROW_COLS - 1); break;
-    case IT_USBOFF: rb_right(v ? "YES" : "NO", ROW_COLS - 1); break;
-    case IT_ILIM:
-        if (v) { fmt_a1(tmp, (uint16_t)(v * 100u)); rb_right(tmp, ROW_COLS - 1); }
-        else rb_right("OFF", ROW_COLS - 1);
-        break;
+    case IT_VOLT:    s = sup_volt_name(v); break;
+    case IT_CURRENT: fmt_a1(tmp, cal_set_to_ma(v)); break;
+    case IT_SOUND:   s = v ? "ON" : "OFF"; break;
+    case IT_THEME:   s = th_name(v); break;
+    case IT_USBOFF:  s = v ? "YES" : "NO"; break;
+    case IT_ILIM:    if (v) fmt_a1(tmp, (uint16_t)(v * 100u)); else s = "OFF"; break;
     case IT_VMIN:
-        if (!v) { rb_right("OFF", ROW_COLS - 1); break; }
+        if (!v) { s = "OFF"; break; }
         mv = (uint16_t)VMIN_MV(v);
         if (mv < 10000) fmt_v2(tmp, mv); else fmt_v1(tmp, mv);                 /* 4.85V, then 12.5V */
-        rb_right(tmp, ROW_COLS - 1);
         break;
-    case IT_VCUT: rb_right(v ? "STOP RUN" : "LIMIT", ROW_COLS - 1); break;
-    case IT_LMODE: rb_right(lim_mode_name(v), ROW_COLS - 1); break;
+    case IT_VCUT:    s = v ? "STOP RUN" : "LIMIT"; break;
+    case IT_LMODE:   s = lim_mode_name(v); break;
     }
+    rb_right(s, ROW_COLS - 1);
 }
 
 const char *menu_text(uint8_t row)

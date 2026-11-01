@@ -41,13 +41,13 @@ static uint8_t diff(const char XD *was, const char *s, uint8_t n)
 }
 
 /* draw that span of `s`, whose first character sits at x */
-static void draw_span(uint8_t x, uint8_t y, uint8_t sy, const char *s, uint16_t fg, uint16_t bg)
+static void draw_span(uint8_t x, uint8_t y, uint8_t sx, uint8_t sy, const char *s, uint16_t fg, uint16_t bg)
 {
     static char XD part[ROW_COLS + 1];
     uint8_t i;
     for (i = d_first; i < d_last; i++) part[i - d_first] = s[i];
     part[d_last - d_first] = 0;
-    lcd_text((uint8_t)(x + d_first * 6), y, part, 1, sy, fg, bg);
+    lcd_text((uint8_t)(x + d_first * 6 * sx), y, part, sx, sy, fg, bg);
 }
 
 /* centre `text` on the 160 px wide screen at scale sx,sy */
@@ -75,49 +75,42 @@ void ui_splash(void)
     centered(54, "V" STR(FW_MAJOR) "." STR(FW_MINOR) FW_STAGE " " FW_BUILD_STR, 1, 1, th(R_DIM), th(R_BG));
 }
 
-static char XD mbig[8];                              /* the big line of the message on the screen */
+static char XD mbig[8];                              /* the big line of the message on the screen, and its colour */
+static uint16_t XD mbig_fg;
 
 void ui_message(uint8_t role, const char *title, const char *line2, const char *big, const char *small)
 {
     lcd_fill(0, 0, LCD_PX_W, LCD_PX_H, th(R_BG));
     centered(6, title, 1, 2, th(role), th(R_BG));
     centered(28, line2, 1, 1, th(R_TEXT), th(R_BG));
-    if (big) { centered(42, big, 2, 2, th(R_WARN), th(R_BG)); scopy(mbig, big); } else mbig[0] = 0;
+    if (big) { centered(42, big, 2, 2, th(R_WARN), th(R_BG)); scopy(mbig, big); mbig_fg = th(R_WARN); } else mbig[0] = 0;
     if (small) centered(60, small, 1, 1, th(R_DIM), th(R_BG));
-}
-
-/* The big line is drawn again in place, only the characters that changed: clearing it first would flash it. */
-void ui_message_big(const char *big)
-{
-    static uint8_t XD i, n, x0;                      /* external RAM: direct RAM is full */
-    static char XD c[2];
-    n = slen(big);
-    if (n != slen(mbig)) { lcd_fill(0, 42, LCD_PX_W, 16, th(R_BG)); mbig[0] = 0; }     /* another length: all of it */
-    x0 = (uint8_t)((LCD_PX_W - n * 12) / 2);
-    for (i = 0; i < n; i++) {
-        if (mbig[0] && mbig[i] == big[i]) continue;
-        c[0] = big[i]; c[1] = 0;
-        lcd_text((uint8_t)(x0 + i * 12), 42, c, 2, 2, th(R_WARN), th(R_BG));
-    }
-    scopy(mbig, big);
 }
 
 /* The one rule for text: draw `s` (at most `max` characters) at x,y in fg on bg, only the characters that differ from `was`, the text
  * the screen shows in the colour *was_fg; a new colour redraws it all.  Then `was` holds `s`. */
-static void show(char XD *was, uint16_t XD *was_fg, uint8_t max, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
+static void show(char XD *was, uint16_t XD *was_fg, uint8_t max, uint8_t x, uint8_t y, uint8_t sx, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
 {
     uint8_t i, n = slen(s);
     if (n > max) n = max;
     if (*was_fg != fg) { *was_fg = fg; was[0] = 0; }
     if (!diff(was, s, n)) return;
-    draw_span(x, y, sy, s, fg, bg);
+    draw_span(x, y, sx, sy, s, fg, bg);
     for (i = 0; i < n; i++) was[i] = s[i];
     was[n] = 0;
 }
 
 static void put(uint8_t e, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
 {
-    show(shown[e], &shown_fg[e], 7, x, y, sy, fg, bg, s);
+    show(shown[e], &shown_fg[e], 7, x, y, 1, sy, fg, bg, s);
+}
+
+/* The big line is drawn again in place, only the characters that changed: clearing it first would flash it. */
+void ui_message_big(const char *big)
+{
+    uint8_t n = slen(big);
+    if (n != slen(mbig)) { lcd_fill(0, 42, LCD_PX_W, 16, th(R_BG)); mbig[0] = 0; }     /* another length: all of it */
+    show(mbig, &mbig_fg, 7, (uint8_t)((LCD_PX_W - n * 12) / 2), 42, 2, 2, th(R_WARN), th(R_BG), big);
 }
 
 /* the same for a coloured square (a dot, a frame): true when it has to be drawn, in colour c */
@@ -225,8 +218,8 @@ static void element(const ui_state_t *s, uint8_t e) REENT
     if (s->ps) {                                     /* port settings: the value big, what kind of value small, a frame round the selection */
         uint8_t edit = s->ps == 2 && p == s->sel;
         if (part == 0) {
-            if (off) scopy(t, "OFF"); else amps1(t, s->want[p]);
-            if (edit) { uint8_t n = slen(t), i; for (i = n; i > 0; i--) t[i] = t[i - 1]; t[0] = '<'; t[n + 1] = '>'; t[n + 2] = 0; }
+            if (off) scopy(t + edit, "OFF"); else amps1(t + edit, s->want[p]);
+            if (edit) { uint8_t n; t[0] = '<'; n = slen(t); t[n] = '>'; t[n + 1] = 0; }
             pad(t, 6);
             fg = edit ? th(R_WARN) : off ? th(R_DIM) : th(R_TEXT);
         } else if (part == 1) {
@@ -275,7 +268,7 @@ void ui_text_enter(void)
 void ui_text_row(uint8_t row, const char *text, uint16_t color)
 {
     if (row >= DBG_ROWS) return;
-    show(dbg_shown[row], &dbg_col[row], DBG_COLS, 0, (uint8_t)(row * 8), 1, color, th(R_BG), text);
+    show(dbg_shown[row], &dbg_col[row], DBG_COLS, 0, (uint8_t)(row * 8), 1, 1, color, th(R_BG), text);
 }
 
 /* Every REFRESH_EVERY-th step the element is redrawn even if it did not change: a glitch that corrupted a few pixels would
