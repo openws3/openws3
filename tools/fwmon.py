@@ -42,6 +42,9 @@ LMODE = ['EQUAL', 'CH1 FIRST', 'HIGH V FIRST']
 P_NONE = 10000                       # budget value meaning "no limit"
 _lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
 _dev = {}                            # the latest page 3 (developer mode, tools/devtool.py), merged the same way
+_chg = {}                            # the latest page 4 (charge counters), merged the same way
+IU_MS_PER_MAH = 68.25 * 3600         # the counters are current counts (1/68.25 A) x ms
+BLED_PER_MAH = 56.25                 # the bleed estimate is (vu x ms / 16) >> 16: 18 ohm, 4.5 V / 4096 per vu
 
 
 def parse_limits(r):
@@ -61,7 +64,7 @@ def parse_dev(r):
 
 
 def parse(r):
-    """decode one 64-byte telemetry report; None if it is not a complete one.  Pages 2 and 3 (byte 3) only update `_lim` / `_dev`
+    """decode one 64-byte telemetry report; None if it is not a complete one.  Pages 2, 3 and 4 (byte 3) only update `_lim` / `_dev` / `_chg`
     and return None."""
     if len(r) != REPORT or r[0] != 0x57 or r[1] != 0x33 or r[2] == 0 or r[2] != r[63]:
         return None
@@ -70,6 +73,11 @@ def parse(r):
         return None
     if r[3] == 3:
         _dev.update(parse_dev(r)); _lim.clear()
+        return None
+    if r[3] == 4:
+        _chg.update(charge=[struct.unpack_from('>I', r, 8 + 4 * k)[0] / IU_MS_PER_MAH for k in range(6)],      # mAh per port
+                    v_start=[((r[32 + 2 * k] << 8) | r[33 + 2 * k]) * V_PER_COUNT for k in range(6)],         # V; 0 = not yet
+                    bled=[((r[44 + 2 * k] << 8) | r[45 + 2 * k]) / BLED_PER_MAH for k in range(6)])           # mAh, estimated
         return None
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     f = r[8]
@@ -80,7 +88,7 @@ def parse(r):
         iset=r[9], stop=r[11], alarm=r[12] & 15, debug_page=r[12] >> 4, ev_seq=r[13], ev_code=r[14], ev_port=r[15],
         cmd_seq=r[16], cmd_res=r[17], state=list(r[18:24]), sw=[(r[24] >> k) & 1 for k in range(6)], phase=r[25],
         duty=[u16(26 + 2 * k) for k in range(6)], v=[u16(38 + 2 * k) for k in range(6)], i=list(r[50:56]),
-        rail=u16(56), vin=u16(58), bandgap=u16(60), rail_duty=r[62] * 4, **_lim, **_dev)
+        rail=u16(56), vin=u16(58), bandgap=u16(60), rail_duty=r[62] * 4, **_lim, **_dev, **_chg)
 
 
 def find(flags=os.O_RDWR):
@@ -131,8 +139,8 @@ def fmt_status(t):
         t['ms'] / 1000, PHASE.get(t['phase'], t['phase']), 'RUN' if t['run'] else 'idle', VOLTS[t['volt']] + ' V',
         0.1 * t['iset'] / 7.0, 'hold' if t['rail_hold'] else '', t['rail'] * V_PER_COUNT, vin_volts(reading(t['vin'], bg)),
         vcc_volts(bg), t['rail'], t['vin'], bg)
-    cells = '  '.join('%d:%-6s %.3fV %3dmA%s' % (k + 1, STATE[t['state'][k]], t['v'][k] * V_PER_COUNT, round(t['i'][k] * A_PER_COUNT * 1000),
-                                                  ' sw' if t['sw'][k] else '') for k in range(6) if t['state'][k] or t['v'][k] > 900)
+    cells = '  '.join('%d:%-6s %.3fV %3dmA %.1fmAh bled %.1fmAh from %.3fV%s' % (k + 1, STATE[t['state'][k]], t['v'][k] * V_PER_COUNT, round(t['i'][k] * A_PER_COUNT * 1000),
+                                                                      t.get('charge', [0] * 6)[k], t.get('bled', [0] * 6)[k], t.get('v_start', [0] * 6)[k], ' sw' if t['sw'][k] else '') for k in range(6) if t['state'][k] or t['v'][k] > 900)
     extra = ''
     if t['stop']: extra += '  stop=%s' % STOP.get(t['stop'], t['stop'])
     if t['alarm']: extra += '  alarm=%d' % t['alarm']

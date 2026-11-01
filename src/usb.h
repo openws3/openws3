@@ -14,6 +14,7 @@
 #define USB_CMD    24                     /* bytes of a command report that are kept (the longest command, 8, uses 18) */
 
 extern uint8_t XD usb_tx2[USB_REPORT];    /* the second page (limits and supervision, or page 3 in developer mode), same head / tail rule */
+extern uint8_t XD usb_tx4[USB_REPORT];    /* the charge counters (page 4), same head / tail rule */
 extern uint8_t XD usb_tx[USB_REPORT];     /* telemetry, written by the app (head byte 2 / tail byte 63 = sequence, see tele_head in app.c) */
 
 void    usb_init(void);

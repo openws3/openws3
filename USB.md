@@ -3,9 +3,9 @@
 The firmware is a USB **HID** device (VID `34bf`, PID `1004`, product "OpenWS3") alongside its normal job. No driver is
 needed. The report descriptor uses a vendor-defined usage page, so the host does not turn the telemetry into keyboard or other input events. On Linux it shows up as `/dev/hidrawN`. Use `tools/fwmon.py`.
 
-* Telemetry: 64-byte **IN** reports, polled every 10 ms, in two pages sent alternately (byte 3 = page): page 1 is the charger, page 2 the
-  limiter and supervisor, so each page is refreshed every 20 ms. It is available from power-up, and the commands work in every state,
-  also in a fatal condition (everything stays off; the unit can still be read, stopped and flashed). `fwmon.py` merges the two pages into one snapshot.
+* Telemetry: 64-byte **IN** reports, polled every 10 ms, in the order page 1, 2, 1, 4 (byte 3 = page): page 1 is the charger (refreshed every 20 ms), page 2 the
+  limiter and supervisor and page 4 the charge counters (every 40 ms). It is available from power-up, and the commands work in every state,
+  also in a fatal condition (everything stays off; the unit can still be read, stopped and flashed). `fwmon.py` merges the pages into one snapshot.
 * Commands: one 64-byte **OUT** report. The interrupt only stores it. `app_pass` executes it in the main loop with the same rules as
   the buttons, so the power path is never touched from interrupt context. Raw PWM and pin access exists only in the separate
   developer mode (commands 7–9, below), which keeps its own guards.
@@ -90,6 +90,16 @@ Sent instead of page 2 while developer mode is on (byte 12's high nibble = 14). 
 | 59, 60 | rail setpoint in force, vu |
 
 The screen open on the LCD (menu, port settings or a diagnostics page) is in byte 12's high nibble. Stop reason 5 in byte 11 is the minimum input voltage (user setting).
+
+### Page 4: charge counters
+
+Same header (byte 3 = 4). Zero before the run phase.
+
+| Byte | Content |
+|---|---|
+| 8–31 | the charge of ports 1..6, 32 bit big-endian each: the raw current counts of the port while it charges, summed over the time (counts x ms; divide by 68.25 x 3600 for mAh, the range is about 17 Ah). It starts at zero when charging starts and again when a cell is taken out, and stays after a stop |
+| 32–43 | port 1..6: the cell voltage the charge started from, vu: read once the probe has settled, with the output off; 0 until then. It starts again with the charge |
+| 44–55 | port 1..6: the charge the bleed load took, an estimate (its current cannot be sensed): the port voltage over the load's 18 ohm, summed over the time in the BLEED state. 16 bit, the top half of a 32 bit sum of vu x ms / 16: divide by 56.25 for mAh (the range is about 1.16 Ah). It starts again with the charge |
 
 ## Commands (OUT, byte 0 = command, 1 = argument, 2 = sequence echoed in telemetry byte 16)
 

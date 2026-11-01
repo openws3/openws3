@@ -20,6 +20,9 @@ typedef struct {
     sup_out_t XD *sup;         /* the supervisor's output (sup.h) */
     int16_t   XD *rail_duty;   /* the rail actuator duty */
     uint8_t   XD *screen;      /* which screen is showing (app.h SCR_*) */
+    uint32_t  XD *charge;      /* per port: the charge so far, current counts x ms (iu x ms) */
+    uint32_t  XD *bled;        /* per port: the charge the bleed load took, estimated (vu x ms / 16) */
+    uint16_t  XD *v_start;     /* per port: the cell voltage at the start of it, vu */
     uint8_t   XD *run, *rail_hold, *strap, *stop, *alarm, *stack;
 } tele_ctx_t;
 

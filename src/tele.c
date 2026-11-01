@@ -55,6 +55,23 @@ static void tele_limits(uint8_t ph, uint32_t ms)
     usb_tx2[63] = tele_seq;
 }
 
+/* page 4: the charge each port has taken since the run started or its cell was put in, 32 bit, iu x ms; the cell voltage it started
+   from; the charge the bleed load took, estimated, the top 16 bits (zero before the run phase) */
+static void tele_charge(uint8_t ph, uint32_t ms) REENT
+{
+    uint8_t k;
+    tele_head(usb_tx4, 4, ms);
+    if (ph >= PH_RUN && ph < PH_FATAL) {
+        for (k = 0; k < NPORTS; k++) {
+            tele_put16(usb_tx4, 8 + 4 * k, (uint16_t)(ctx.charge[k] >> 16));
+            tele_put16(usb_tx4, 10 + 4 * k, (uint16_t)ctx.charge[k]);
+            tele_put16(usb_tx4, 32 + 2 * k, ctx.v_start[k]);
+            tele_put16(usb_tx4, 44 + 2 * k, (uint16_t)(ctx.bled[k] >> 16));
+        }
+    }
+    usb_tx4[63] = tele_seq;
+}
+
 void tele_pass(uint8_t ph)
 {
     uint8_t k;
@@ -81,6 +98,7 @@ void tele_pass(uint8_t ph)
     usb_tx[63] = tele_seq;
     if (*ctx.screen == SCR_DEV) { tele_head(usb_tx2, 3, ms); dev_tele(usb_tx2); usb_tx2[63] = tele_seq; }
     else tele_limits(ph, ms);
+    tele_charge(ph, ms);
 }
 
 void tele_init(const tele_ctx_t XD *c)
