@@ -42,7 +42,7 @@ LMODE = ['EQUAL', 'CH1 FIRST', 'HIGH V FIRST']
 P_NONE = 10000                       # budget value meaning "no limit"
 _lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
 _dev = {}                            # the latest page 3 (developer mode, tools/devtool.py), merged the same way
-_chg = {}                            # the latest page 4 (charge counters), merged the same way
+_chg = dict(charge=[0] * 6, bled=[0] * 6, v_start=[0] * 6)    # the latest page 4 (charge counters), merged the same way
 IU_MS_PER_MAH = 68.25 * 3600         # the counters are current counts (1/68.25 A) x ms
 BLED_PER_MAH = 56.25                 # the bleed estimate is (vu x ms / 16) >> 16: 18 ohm, 4.5 V / 4096 per vu
 
@@ -74,12 +74,12 @@ def parse(r):
     if r[3] == 3:
         _dev.update(parse_dev(r)); _lim.clear()
         return None
+    u16 = lambda i: (r[i] << 8) | r[i + 1]
     if r[3] == 4:
         _chg.update(charge=[struct.unpack_from('>I', r, 8 + 4 * k)[0] / IU_MS_PER_MAH for k in range(6)],      # mAh per port
-                    v_start=[((r[32 + 2 * k] << 8) | r[33 + 2 * k]) * V_PER_COUNT for k in range(6)],         # V; 0 = not yet
-                    bled=[((r[44 + 2 * k] << 8) | r[45 + 2 * k]) / BLED_PER_MAH for k in range(6)])           # mAh, estimated
+                    v_start=[u16(32 + 2 * k) * V_PER_COUNT for k in range(6)],         # V; 0 = not yet
+                    bled=[u16(44 + 2 * k) / BLED_PER_MAH for k in range(6)])           # mAh, estimated
         return None
-    u16 = lambda i: (r[i] << 8) | r[i + 1]
     f = r[8]
     return dict(
         version=r[3], fw=r[10], ms=struct.unpack_from('>I', r, 4)[0],
@@ -140,7 +140,7 @@ def fmt_status(t):
         0.1 * t['iset'] / 7.0, 'hold' if t['rail_hold'] else '', t['rail'] * V_PER_COUNT, vin_volts(reading(t['vin'], bg)),
         vcc_volts(bg), t['rail'], t['vin'], bg)
     cells = '  '.join('%d:%-6s %.3fV %3dmA %.1fmAh bled %.1fmAh from %.3fV%s' % (k + 1, STATE[t['state'][k]], t['v'][k] * V_PER_COUNT, round(t['i'][k] * A_PER_COUNT * 1000),
-                                                                      t.get('charge', [0] * 6)[k], t.get('bled', [0] * 6)[k], t.get('v_start', [0] * 6)[k], ' sw' if t['sw'][k] else '') for k in range(6) if t['state'][k] or t['v'][k] > 900)
+                                                                      t['charge'][k], t['bled'][k], t['v_start'][k], ' sw' if t['sw'][k] else '') for k in range(6) if t['state'][k] or t['v'][k] > 900)
     extra = ''
     if t['stop']: extra += '  stop=%s' % STOP.get(t['stop'], t['stop'])
     if t['alarm']: extra += '  alarm=%d' % t['alarm']

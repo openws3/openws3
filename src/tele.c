@@ -19,6 +19,7 @@ static tele_ctx_t XD ctx;
 static uint8_t XD tele_seq, ev_seq, ev_code, ev_port, cmd_seq, cmd_res;
 
 void tele_put16(uint8_t XD *b, uint8_t at, uint16_t v) { b[at] = (uint8_t)(v >> 8); b[at + 1] = (uint8_t)v; }
+static void tele_put32(uint8_t XD *b, uint8_t at, uint32_t v) REENT { tele_put16(b, at, (uint16_t)(v >> 16)); tele_put16(b, at + 2, (uint16_t)v); }
 
 /* clear a page and write its head: the tail is zero until the page is complete (torn-copy guard) */
 static void tele_head(uint8_t XD *b, uint8_t page, uint32_t ms)
@@ -63,8 +64,7 @@ static void tele_charge(uint8_t ph, uint32_t ms) REENT
     tele_head(usb_tx4, 4, ms);
     if (ph >= PH_RUN && ph < PH_FATAL) {
         for (k = 0; k < NPORTS; k++) {
-            tele_put16(usb_tx4, 8 + 4 * k, (uint16_t)(ctx.charge[k] >> 16));
-            tele_put16(usb_tx4, 10 + 4 * k, (uint16_t)ctx.charge[k]);
+            tele_put32(usb_tx4, 8 + 4 * k, ctx.charge[k]);
             tele_put16(usb_tx4, 32 + 2 * k, ctx.v_start[k]);
             tele_put16(usb_tx4, 44 + 2 * k, (uint16_t)(ctx.bled[k] >> 16));
         }
