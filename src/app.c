@@ -367,6 +367,42 @@ static void fatal_pass(void)
     tele_pass(PH_FATAL);
 }
 
+/* What the open screen needs every pass: the port settings close after 10 s without a key; the menu's values apply while they are
+   edited and are saved when it closes */
+static void mode_pass(void)
+{
+    if (screen == SCR_PORTS) {
+        portset_context(run);
+        if (portset_pass() == MA_EXIT) ports_leave();
+    } else if (screen && screen != SCR_DEV) {
+        buzz_enable(settings.sound);
+        if (settings.usb_off) hal_profile(0);        /* DISABLE USB POWER takes effect at once; turning it off again waits for the next start */
+        if (settings.theme != th_get()) { th_set(settings.theme); show(screen); }   /* repaint the menu in the new colours */
+        apply_limits();
+        menu_context(run);
+    }
+}
+
+/* Display self-healing: re-send the panel settings about once a second; after a sudden VCC dip (bandgap count jumps off its baseline)
+   also repaint everything, since a glitch can scramble the panel's rotation, colours and picture */
+static void lcd_watch(void)
+{
+    int16_t d = (int16_t)sin.bandgap - (int16_t)bg_ref;
+    bg_ref = (uint16_t)((int16_t)bg_ref + (d >> 5));
+    if (bg_quiet) bg_quiet--;
+    if ((d > BG_GLITCH || d < -BG_GLITCH) && !bg_quiet) {         /* at most once a second: a supply falling over many steps would repaint all the way */
+        bg_ref = sin.bandgap; bg_quiet = 222;
+        lcd_wake(); hal_delay_ms(5); lcd_reconfig();
+        if (screen) show(screen); else if (!cond) ui_main_init();
+        msg_code = 0;                                /* a condition on the screen is drawn again */
+    } else if (++lcd_cnt == LCD_RECONFIG_PASSES - 2) {
+        lcd_wake();                                  /* the settings follow two passes (9 ms) later: no busy wait */
+    } else if (lcd_cnt >= LCD_RECONFIG_PASSES) {
+        lcd_cnt = 0;
+        lcd_reconfig();
+    }
+}
+
 void app_pass(void)
 {
     uint8_t k;
@@ -381,16 +417,7 @@ void app_pass(void)
     handle_buttons();
     usb_service();
     if (save_at && (int32_t)(hal_ms() - save_at) >= 0) save_main();
-    if (screen == SCR_PORTS) {
-        portset_context(run);
-        if (portset_pass() == MA_EXIT) ports_leave();                       /* 10 s without a key */
-    } else if (screen && screen != SCR_DEV) {        /* menu values apply while they are edited; they are saved when the menu closes */
-        buzz_enable(settings.sound);
-        if (settings.usb_off) hal_profile(0);        /* DISABLE USB POWER takes effect at once; turning it off again waits for the next start */
-        if (settings.theme != th_get()) { th_set(settings.theme); show(screen); }   /* repaint the menu in the new colours */
-        apply_limits();
-        menu_context(run);
-    }
+    mode_pass();
     if (screen != SCR_DEV) rail_step();              /* developer mode runs the rail itself */
 
     /* ---- supervision ---- */
@@ -402,25 +429,7 @@ void app_pass(void)
     if (!test_ok && screen != SCR_DEV && !run && !cond && sout.rail_up && (int32_t)(hal_ms() - test_at) >= 0) test_step();
     if (!cond && !test_ok && test_tries) cond = C_TESTING;
 
-    /* display self-healing: re-send the panel settings about once a second; after a sudden VCC dip (bandgap count jumps off its
-       baseline) also repaint everything, since a glitch can scramble the panel's rotation, colours and picture */
-    {
-        int16_t d = (int16_t)sin.bandgap - (int16_t)bg_ref;
-        bg_ref = (uint16_t)((int16_t)bg_ref + (d >> 5));
-        if (bg_quiet) bg_quiet--;
-        if ((d > BG_GLITCH || d < -BG_GLITCH) && !bg_quiet) {         /* at most once a second: a supply falling over many steps would repaint all the way */
-            bg_ref = sin.bandgap; bg_quiet = 222;
-            lcd_wake(); hal_delay_ms(5); lcd_reconfig();
-            if (screen) show(screen); else if (!cond) ui_main_init();
-            msg_code = 0;                            /* a condition on the screen is drawn again */
-        } else if (++lcd_cnt == LCD_RECONFIG_PASSES - 2) {
-            lcd_wake();                              /* the settings follow two passes (9 ms) later: no busy wait */
-        } else if (lcd_cnt >= LCD_RECONFIG_PASSES) {
-        if (settings.usb_off) hal_profile(0);        /* DISABLE USB POWER takes effect at once; turning it off again waits for the next start */
-            lcd_cnt = 0;
-            lcd_reconfig();
-        }
-    }
+    lcd_watch();
 
     alarm_ui = sout.stop ? sout.stop : !run && stop_reason == STOP_VLIM ? STOP_VLIM : STOP_NONE;
     if (run && sout.stop != STOP_NONE && sout.stop != STOP_RAIL) stop_run(sout.stop);
@@ -505,7 +514,6 @@ void app_pass(void)
     } else {
         if (msg_code) { msg_code = 0; ui_main_init(); }              /* the condition is over: the main screen again */
         ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
-    ui.usb_off = settings.usb_off;
     }
 
     tele_pass(PH_RUN);
