@@ -156,8 +156,8 @@ static void diag_screen(void)
 {
     uint8_t r;
     memset(&dbg_view, 0, sizeof dbg_view);
-    dbg_view.ilim = 0; dbg_view.vmin = settings.vmin; dbg_view.vcut = 0; dbg_view.lmode = settings.lmode;
-    dbg_view.est_ma = 1230; dbg_view.budget = 52; dbg_view.bcnt = iu(1500);
+    lim_cfg.ilim = 0; lim_cfg.vmin = settings.vmin; lim_cfg.vcut = 0; lim_cfg.mode = settings.lmode;
+    lim_out.est_ma = 1230; lim_out.budget = 52; lim_out.bcnt = iu(1500);
     dbg_view.held[0] = 0; dbg_view.held[1] = 1; dbg_view.held[2] = 2; dbg_view.stop = STOP_NONE;
     ui_text_enter();
     for (r = 0; r < DBG_ROWS; r++) ui_text_row(r, dbg_text(6, r), r == 0 ? th(R_INFO) : th(R_TEXT));
