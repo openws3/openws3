@@ -367,6 +367,28 @@ static void fatal_pass(void)
     tele_pass(PH_FATAL);
 }
 
+/* one control pass takes PASS_TICKS: wait for its start */
+static void pace(void)
+{
+    while ((int32_t)(hal_ticks() - t_next) < 0) ;
+    t_next += PASS_TICKS;
+    if ((int32_t)(hal_ticks() - t_next) > 4 * PASS_TICKS) t_next = hal_ticks();       /* fell behind: do not burst */
+}
+
+/* Supervision (sup.h): the input, VCC and the rail.  A condition that waits to clear (cond) shows on the screen; a fatal one ends the
+   pass (returns 0).  The rail self-test runs here once nothing waits. */
+static uint8_t supervise(void)
+{
+    sin.vin = adc_get(ADC_VIN); sin.rail = adc_get(ADC_RAIL); sin.rail_sat = adc_saturated(ADC_RAIL); sin.bandgap = adc_get(ADC_BANDGAP); sin.adc0 = adc_get(0);
+    sin.setpoint = screen == SCR_DEV ? dev_setpoint() : sup_setpoint(settings.volt);
+    sup_pass(&sin, &sout);
+    if (sout.fatal) { go_fatal(sout.fatal); return 0; }
+    cond = sout.stop;                                /* STOP_VIN, STOP_VCC, STOP_RAIL: waiting, on the screen */
+    if (!test_ok && screen != SCR_DEV && !run && !cond && sout.rail_up && (int32_t)(hal_ms() - test_at) >= 0) test_step();
+    if (!cond && !test_ok && test_tries) cond = C_TESTING;
+    return 1;
+}
+
 /* What the open screen needs every pass: the port settings close after 10 s without a key; the menu's values apply while they are
    edited and are saved when it closes */
 static void mode_pass(void)
@@ -442,14 +464,64 @@ static void charge_pass(void)
     }
 }
 
-void app_pass(void)
+/* what the main screen shows (ui.h) */
+static void ui_fill(void)
 {
     uint8_t k;
+    ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui == STOP_VLIM ? STOP_VLIM : STOP_NONE;      /* the others are screens of their own */
+    ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
+    ui.tphase = (uint8_t)(((hal_ms() >> 10) & 3) == 3);
+    ui.usb_off = settings.usb_off;
+    ui.ps = screen != SCR_PORTS ? 0 : portset_editing() ? 2 : 1; ui.sel = portset_port(); ui.locked = portset_locked();
+    for (k = 0; k < NPORTS; k++) {
+        ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.held[k] == 2);
+        ui.set[k] = portset_get(k); ui.want[k] = cin.iset[k];
+    }
+}
 
-    while ((int32_t)(hal_ticks() - t_next) < 0) ;
-    t_next += PASS_TICKS;
-    if ((int32_t)(hal_ticks() - t_next) > 4 * PASS_TICKS) t_next = hal_ticks();       /* fell behind: do not burst */
+/* what the diagnostics pages show (dbgscr.h) */
+static void dbg_fill(void)
+{
+    uint8_t n;
+    dbg_view.ms = hal_ms();
+    for (n = 0; n < NADC; n++) dbg_view.adc[n] = adc_raw(n);
+    for (n = 0; n < NPORTS; n++) {
+        dbg_view.v[n] = cout.v[n]; dbg_view.i[n] = cout.i[n]; dbg_view.duty[n] = cout.duty[n];
+        dbg_view.state[n] = cout.state[n]; dbg_view.sw[n] = cout.sw[n]; dbg_view.held[n] = cout.held[n];
+    }
+    dbg_view.rail = cin.rail; dbg_view.rail_duty = (uint16_t)rail_duty; dbg_view.vin = sin.vin; dbg_view.bandgap = sin.bandgap;
+    dbg_view.run = run; dbg_view.stop = stop_reason; dbg_view.alarm = alarm_ui;
+    dbg_view.strap = strap; dbg_view.stack = stack_free; dbg_view.rail_hold = rail_hold; dbg_view.fan = sout.fan; dbg_view.usb = usb_configured();
+}
 
+/* One piece of the display per pass (the bus is slow): a row of the menu or of a diagnostics page, the screen of a condition, or one
+   element of the main screen. */
+static void display_pass(void)
+{
+    ui_fill();
+    if (screen && screen != SCR_MENU && screen != SCR_PORTS) {
+        dbg_fill();
+        ui_text_row(text_row, dbg_text(screen, text_row), text_row == 0 ? th(R_INFO) : th(R_TEXT));
+        if (++text_row == DBG_ROWS) text_row = 0;
+        msg_code = 0;
+    } else if (screen == SCR_MENU) {
+        static const char * XD t;
+        t = menu_text(text_row);
+        ui_text_row(text_row, t, t[0] == '>' ? th(R_GOOD) : t[0] == '*' ? th(R_WARN) : text_row == 0 ? th(R_INFO) : text_row == MENU_ROWS - 1 ? th(R_DIM) : th(R_TEXT));
+        if (++text_row == MENU_ROWS) text_row = 0;
+        msg_code = 0;
+    } else if (cond && screen == 0) {
+        if (msg_code != cond) { cond_draw(cond); msg_code = cond; }     /* once: the screen of the condition replaces the main screen */
+        else if (cond != C_TESTING && (uint8_t)(hal_ms() >> 8) != msg_tick) { msg_tick = (uint8_t)(hal_ms() >> 8); cond_numbers(cond); ui_message_big(v1); }   /* its number, ~4 times a second */
+    } else {
+        if (msg_code) { msg_code = 0; ui_main_init(); }              /* the condition is over: the main screen again */
+        ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
+    }
+}
+
+void app_pass(void)
+{
+    pace();
     adc_scan();
     if (!++stack_div) stack_free = hal_stack_free();
     if (fatal_code) { fatal_pass(); return; }
@@ -459,15 +531,7 @@ void app_pass(void)
     mode_pass();
     if (screen != SCR_DEV) rail_step();              /* developer mode runs the rail itself */
 
-    /* ---- supervision ---- */
-    sin.vin = adc_get(ADC_VIN); sin.rail = adc_get(ADC_RAIL); sin.rail_sat = adc_saturated(ADC_RAIL); sin.bandgap = adc_get(ADC_BANDGAP); sin.adc0 = adc_get(0);
-    sin.setpoint = screen == SCR_DEV ? dev_setpoint() : sup_setpoint(settings.volt);
-    sup_pass(&sin, &sout);
-    if (sout.fatal) { go_fatal(sout.fatal); return; }
-    cond = sout.stop;                                /* STOP_VIN, STOP_VCC, STOP_RAIL: waiting, on the screen */
-    if (!test_ok && screen != SCR_DEV && !run && !cond && sout.rail_up && (int32_t)(hal_ms() - test_at) >= 0) test_step();
-    if (!cond && !test_ok && test_tries) cond = C_TESTING;
-
+    if (!supervise()) return;
     lcd_watch();
 
     alarm_ui = sout.stop ? sout.stop : !run && stop_reason == STOP_VLIM ? STOP_VLIM : STOP_NONE;
@@ -485,44 +549,6 @@ void app_pass(void)
     limit_pass();
     charge_pass();
 
-    /* ---- display ---- */
-    ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui == STOP_VLIM ? STOP_VLIM : STOP_NONE;      /* the others are screens of their own */
-    ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
-    ui.tphase = (uint8_t)(((hal_ms() >> 10) & 3) == 3);
-    ui.usb_off = settings.usb_off;
-    ui.ps = screen != SCR_PORTS ? 0 : portset_editing() ? 2 : 1; ui.sel = portset_port(); ui.locked = portset_locked();
-    for (k = 0; k < NPORTS; k++) {
-        ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.held[k] == 2);
-        ui.set[k] = portset_get(k); ui.want[k] = cin.iset[k];
-    }
-    if (screen && screen != SCR_MENU && screen != SCR_PORTS) {
-        uint8_t n;
-        dbg_view.ms = hal_ms();
-        for (n = 0; n < NADC; n++) dbg_view.adc[n] = adc_raw(n);
-        for (n = 0; n < NPORTS; n++) {
-            dbg_view.v[n] = cout.v[n]; dbg_view.i[n] = cout.i[n]; dbg_view.duty[n] = cout.duty[n];
-            dbg_view.state[n] = cout.state[n]; dbg_view.sw[n] = cout.sw[n];
-        }
-        dbg_view.rail = cin.rail; dbg_view.rail_duty = (uint16_t)rail_duty; dbg_view.vin = sin.vin; dbg_view.bandgap = sin.bandgap;
-        dbg_view.run = run; dbg_view.stop = stop_reason; dbg_view.alarm = alarm_ui;
-        dbg_view.strap = strap; dbg_view.stack = stack_free; dbg_view.rail_hold = rail_hold; dbg_view.fan = sout.fan; dbg_view.usb = usb_configured();
-        for (n = 0; n < NPORTS; n++) dbg_view.held[n] = cout.held[n];
-        ui_text_row(text_row, dbg_text(screen, text_row), text_row == 0 ? th(R_INFO) : th(R_TEXT));       /* one row per pass */
-        if (++text_row == DBG_ROWS) text_row = 0;
-        msg_code = 0;
-    } else if (screen == SCR_MENU) {
-        static const char * XD t;
-        t = menu_text(text_row);
-        ui_text_row(text_row, t, t[0] == '>' ? th(R_GOOD) : t[0] == '*' ? th(R_WARN) : text_row == 0 ? th(R_INFO) : text_row == MENU_ROWS - 1 ? th(R_DIM) : th(R_TEXT));
-        if (++text_row == MENU_ROWS) text_row = 0;
-        msg_code = 0;
-    } else if (cond && screen == 0) {
-        if (msg_code != cond) { cond_draw(cond); msg_code = cond; }     /* once: the screen of the condition replaces the main screen */
-        else if (cond != C_TESTING && (uint8_t)(hal_ms() >> 8) != msg_tick) { msg_tick = (uint8_t)(hal_ms() >> 8); cond_numbers(cond); ui_message_big(v1); }   /* its number, ~4 times a second */
-    } else {
-        if (msg_code) { msg_code = 0; ui_main_init(); }              /* the condition is over: the main screen again */
-        ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
-    }
-
+    display_pass();
     tele_pass(PH_RUN);
 }
