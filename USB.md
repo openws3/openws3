@@ -97,9 +97,9 @@ Same header (byte 3 = 4). Zero before the run phase.
 
 | Byte | Content |
 |---|---|
-| 8–31 | the charge of ports 1..6, 32 bit big-endian each: the raw current counts of the port while it charges, summed over the time (counts x ms; divide by 68.25 x 3600 for mAh, the range is about 17 Ah). It starts at zero when charging starts and again when a cell is taken out, and stays after a stop |
+| 8–31 | the charge of ports 1..6, 32 bit big-endian each: the raw current counts (1/68.25 A) of the control passes (4.5 ms) the port spent charging, summed; divide by 54600 for mAh (the range is about 78 Ah). It starts at zero when charging starts and again when a cell is taken out, and stays after a stop |
 | 32–43 | port 1..6: the cell voltage the charge started from, vu: read once the probe has settled, with the output off; 0 until then. It starts again with the charge |
-| 44–55 | port 1..6: the charge the bleed load took, an estimate (its current cannot be sensed): the port voltage over the load's 18 ohm, summed over the time in the BLEED state. 16 bit, the top half of a 32 bit sum of vu x ms / 16: divide by 56.25 for mAh (the range is about 1.16 Ah). It starts again with the charge |
+| 44–55 | port 1..6: the charge the bleed load took, an estimate (its current cannot be sensed): the port voltage over the load's 18 ohm. 16 bit, the top half of a 32 bit sum of the voltage counts (vu / 4) of the passes in the BLEED state; divide by 50 for mAh (the range is about 1.3 Ah). It starts again with the charge |
 
 ## Commands (OUT, byte 0 = command, 1 = argument, 2 = sequence echoed in telemetry byte 16)
 

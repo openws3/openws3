@@ -43,8 +43,8 @@ P_NONE = 10000                       # budget value meaning "no limit"
 _lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
 _dev = {}                            # the latest page 3 (developer mode, tools/devtool.py), merged the same way
 _chg = dict(charge=[0] * 6, bled=[0] * 6, v_start=[0] * 6)    # the latest page 4 (charge counters), merged the same way
-IU_MS_PER_MAH = 68.25 * 3600         # the counters are current counts (1/68.25 A) x ms
-BLED_PER_MAH = 56.25                 # the bleed estimate is (vu x ms / 16) >> 16: 18 ohm, 4.5 V / 4096 per vu
+IU_PASS_PER_MAH = 54600              # the charge is the current counts (1/68.25 A) of the 4.5 ms control passes, summed
+BLED_PER_MAH = 50                    # the bleed estimate is the sum of (vu / 4) >> 16 over the passes: 18 ohm, 4.5 V / 4096 per vu
 
 
 def parse_limits(r):
@@ -76,7 +76,7 @@ def parse(r):
         return None
     u16 = lambda i: (r[i] << 8) | r[i + 1]
     if r[3] == 4:
-        _chg.update(charge=[struct.unpack_from('>I', r, 8 + 4 * k)[0] / IU_MS_PER_MAH for k in range(6)],      # mAh per port
+        _chg.update(charge=[struct.unpack_from('>I', r, 8 + 4 * k)[0] / IU_PASS_PER_MAH for k in range(6)],      # mAh per port
                     v_start=[u16(32 + 2 * k) * V_PER_COUNT for k in range(6)],         # V; 0 = not yet
                     bled=[u16(44 + 2 * k) / BLED_PER_MAH for k in range(6)])           # mAh, estimated
         return None

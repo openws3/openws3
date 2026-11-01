@@ -38,6 +38,8 @@ typedef struct {
     uint16_t t_tail, t_open, t_rest, t_full, t_probe, t_gone;    /* passes each condition has held, see the T_* defines */
     uint8_t  t_over, oc;         /* passes over the rail / over the current */
     uint8_t  announced;          /* the FULL beep was given for this fill */
+    uint32_t charge, bled;       /* chg_out_t: what the cell has had */
+    uint16_t v_start;
     uint8_t  want, up, t_held;   /* for the limits: working current, chg_out_t.up, passes left of "held by the limits" */
 } port_t;
 
@@ -63,7 +65,7 @@ void chg_init(void)
 {
     uint8_t k;
     chg_abort();                                       /* everything to the idle state */
-    for (k = 0; k < NPORTS; k++) P[k].v = P[k].i = 0;  /* the filters start from zero */
+    for (k = 0; k < NPORTS; k++) { P[k].v = P[k].i = 0; P[k].charge = P[k].bled = 0; P[k].v_start = 0; }     /* the filters and the counters start from zero */
 }
 
 void chg_abort(void)
@@ -271,6 +273,20 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev)
     }
 }
 
+/* the counters of chg_out_t, once a pass while running: a port with no cell starts again */
+static void tally(void) REENT
+{
+    if (W.st == PS_IDLE) { W.charge = W.bled = 0; W.v_start = 0; return; }
+    if (W.st == PS_CHARGE) W.charge += IN->i_now[K];                 /* the raw reading: the filtered one rounds down */
+    else if (W.st == PS_BLEED) W.bled += W.v >> 2;
+    if (!W.v_start && W.st != PS_PROBE) W.v_start = W.v;             /* the first classification: the probe has settled the reading */
+}
+
+static void publish(chg_out_t XD *out, uint8_t k) REENT
+{
+    out->charge[k] = W.charge; out->bled[k] = W.bled; out->v_start[k] = W.v_start;
+}
+
 void chg_pass(const chg_in_t XD *in, chg_out_t XD *out)
 {
     uint8_t k;
@@ -279,6 +295,7 @@ void chg_pass(const chg_in_t XD *in, chg_out_t XD *out)
         out->event[k] = CE_NONE;
         W = P[k];
         one_port(in, k, &out->event[k]);
+        if (in->run) tally();
         P[k] = W;
         out->duty[k] = W.duty;
         out->sw[k] = W.sw;
@@ -288,6 +305,7 @@ void chg_pass(const chg_in_t XD *in, chg_out_t XD *out)
         out->held[k] = W.st != PS_CHARGE || !W.t_held ? 0 : W.i <= I_OPEN ? 2 : 1;
         out->v[k] = W.v;
         out->i[k] = W.i;
+        publish(out, k);
         if (W.st == PS_CHARGE || W.st == PS_BLEED) out->any_active = 1;
     }
 }

@@ -44,9 +44,6 @@ static uint8_t  XD test_ok, test_tries;       /* the rail self-test: passed, fai
 static uint32_t XD test_at;                   /* ms: the next try */
 static uint16_t XD t1, t2;                    /* its last two readings */
 static uint32_t XD t_next;
-static uint32_t XD charge[NPORTS], charge_ms;  /* per port: the charge taken, current counts x ms; the time of the last pass */
-static uint32_t XD bled[NPORTS];               /* per port: the charge the bleed load took, estimated: port voltage (vu) x ms / 16, the load being 18 ohm */
-static uint16_t XD v_start[NPORTS];            /* per port, vu: the cell at the start, output off, once the probe has settled (0 = not yet) */
 static chg_in_t  XD cin;
 static chg_out_t XD cout;
 static ui_state_t XD ui;
@@ -162,7 +159,7 @@ void app_boot(void)
 
     tctx.out = &cout; tctx.in = &cin; tctx.sup = &sout; tctx.rail_duty = &rail_duty;
     tctx.screen = &screen; tctx.run = &run; tctx.rail_hold = &rail_hold; tctx.strap = &strap;
-    tctx.stop = &stop_reason; tctx.alarm = &alarm_ui; tctx.stack = &stack_free; tctx.charge = charge; tctx.bled = bled; tctx.v_start = v_start;
+    tctx.stop = &stop_reason; tctx.alarm = &alarm_ui; tctx.stack = &stack_free;
     tele_init(&tctx);
 
     hal_power(1);                                    /* main power enable, first on */
@@ -371,26 +368,6 @@ static void fatal_pass(void)
     tele_pass(PH_FATAL);
 }
 
-/* the ms since the last pass that counted, 0 if that was long ago (a skipped pass: developer mode, a stall) */
-static uint8_t charge_tick(void) REENT
-{
-    uint32_t d = hal_ms() - charge_ms;
-    charge_ms += d;
-    return d > 50 ? 0 : (uint8_t)d;
-}
-
-/* the charge counter: the raw current counts of a charging port over the time since the last pass, the bleed load's charge (the
-   current through it cannot be sensed, so it is the voltage over its 18 ohm) and the cell voltage it started from; a port with no
-   cell starts again */
-static void count_charge(uint8_t k, uint8_t dt) REENT
-{
-    uint8_t st = cout.state[k];
-    if (st == PS_IDLE) { charge[k] = bled[k] = 0; v_start[k] = 0; return; }
-    if (st == PS_CHARGE) charge[k] += (uint32_t)cin.i_now[k] * dt;
-    if (st == PS_BLEED) bled[k] += ((uint32_t)cout.v[k] * dt) >> 4;
-    if (!v_start[k] && st != PS_PROBE) v_start[k] = cout.v[k];         /* the first classification: the probe has settled the reading */
-}
-
 void app_pass(void)
 {
     uint8_t k;
@@ -481,10 +458,8 @@ void app_pass(void)
     else chg_pass(&cin, &cout);
 
     if (run && !rail_hold) {
-        uint8_t dt = charge_tick();
         hal_global(1);
         for (k = 0; k < NPORTS; k++) {
-            count_charge(k, dt);
             hal_pwm(k, cout.duty[k]);
             hal_sw(k, cout.sw[k]);
             if (cout.event[k] == CE_FULL) { buzz_play(PAT_DONE); tele_event(EV_PORT_FULL, k); }

@@ -54,6 +54,11 @@ typedef struct {
                                     at least 1); else 0 */
     uint8_t  held[NPORTS];       /* CHARGE: the limits hold the port below its working current (now or within the last second):
                                     1, or 2 = and it draws nothing (waiting); else 0 */
+    /* what each cell has had, since the run started or the cell was put in; it stays after a stop */
+    uint32_t charge[NPORTS];     /* the raw current readings (iu) of the passes in CHARGE, summed: 54600 = 1 mAh */
+    uint32_t bled[NPORTS];       /* the bleed load's share, estimated (its current cannot be sensed: the port voltage over 18 ohm):
+                                    the voltage readings (vu / 4) of the passes in BLEED, summed: 3276800 = 1 mAh */
+    uint16_t v_start[NPORTS];    /* the cell's voltage once the probe has settled (vu); 0 until then */
 } chg_out_t;
 
 void chg_init(void);

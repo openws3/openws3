@@ -60,7 +60,7 @@ static void step(bench_t *b)
     for (p = 0; p < NPORTS; p++) {
         double a = 0, v;
         if (!b->present[p]) { b->in.v_now[p] = 0; b->in.i_now[p] = 0; if (b->ovr_v[p]) b->in.v_now[p] = (uint16_t)b->ovr_v[p]; continue; }
-        if (b->out.sw[p]) a = -0.15;                         /* bleed load */
+        if (b->out.sw[p]) a = -ocv(&b->cell[p]) / 18;        /* bleed load: 18 ohm */
         else {
             double want = b->k_amp_per_duty * b->out.duty[p];
             double room = (b->rail_v - ocv(&b->cell[p])) / (b->cell[p].r + b->r_pass);
@@ -442,12 +442,47 @@ static void t_bleed_series(void)
         }
         CHECK(full_at > 0 && enters <= 3);
         CHECK(b.out.state[0] == PS_FULL);
-        CHECK(ocv(&b.cell[0]) > 3.80 && ocv(&b.cell[0]) < 3.87);
+        CHECK(ocv(&b.cell[0]) > 3.78 && ocv(&b.cell[0]) < 3.87);
     }
+}
+
+/* the counters against what the model's cell really took (coulombs): 54600 iu-passes = 1 mAh, 3276800 = 1 mAh of bleed */
+static void t_counters(void)
+{
+    bench_t b; double q0, mah;
+    bench_init(&b, 0, 28);
+    attach(&b, 0, 3.70, 500, 0.10);
+    q0 = b.cell[0].q;
+    step(&b); CHECK(b.out.v_start[0] == 0 && b.out.charge[0] == 0);                  /* probing: nothing yet */
+    run(&b, 20000);
+    mah = (b.cell[0].q - q0) / 3.6;
+    CHECK(mah > 5 && fabs(b.out.charge[0] / 54600.0 - mah) < 0.03 * mah);
+    CHECK(fabs(b.out.v_start[0] * VPC - 3.70) < 0.03);
+    CHECK(b.out.charge[1] == 0 && b.out.v_start[1] == 0 && b.out.bled[0] == 0);
+    b.in.run = 0; chg_abort(); step(&b);                                               /* a stop keeps them ... */
+    CHECK(b.out.charge[0] / 54600.0 > 0.97 * mah && b.out.v_start[0] != 0);
+    b.in.run = 1; chg_init(); step(&b);                                                /* ... a new run starts from zero */
+    CHECK(b.out.charge[0] < 100 && b.out.v_start[0] == 0);
+    run(&b, 2000); CHECK(b.out.charge[0] > 0);
+    b.present[0] = 0; run(&b, 10);                                                     /* the cell taken out */
+    CHECK(b.out.charge[0] == 0 && b.out.v_start[0] == 0);
+}
+
+static void t_counters_bleed(void)
+{
+    bench_t b; double q0, mah; int k;
+    bench_init(&b, 2, 21);                                                             /* 3.80 V storage, a cell above it */
+    attach(&b, 0, 3.95, 100, 0.10);
+    q0 = b.cell[0].q;
+    for (k = 0; k < 400000 && b.out.state[0] != PS_FULL; k++) step(&b);
+    CHECK(b.out.state[0] == PS_FULL);
+    mah = (q0 - b.cell[0].q) / 3.6;
+    CHECK(mah > 1 && fabs(b.out.bled[0] / 3276800.0 - mah) < 0.08 * mah);
+    CHECK(b.out.charge[0] == 0 && fabs(b.out.v_start[0] * VPC - 3.95) < 0.03);
 }
 
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series();
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series(); t_counters(); t_counters_bleed();
     return check_report("chg");
 }
