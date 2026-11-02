@@ -138,19 +138,29 @@ def command(cmd, arg=0, ack=True, extra=b''):
     sys.exit('command not acknowledged')
 
 
+def fmt_counts(t, k):
+    """what the cell has had this run: charged, discharged through the bleed load (an estimate), the voltage it started from; '-' before a run"""
+    if not t['v_start'][k]: return 'charged -  discharged -  from -'
+    return 'charged %.1fmAh  discharged %.1fmAh  from %.3fV' % (t['charge'][k], t['bled'][k], t['v_start'][k])
+
+
+def fmt_port(t, k):
+    return '%d:%-6s %.3fV %3dmA  %s%s' % (k + 1, STATE[t['state'][k]], t['v'][k] * V_PER_COUNT, round(t['i'][k] * A_PER_COUNT * 1000),
+                                          fmt_counts(t, k), '  sw' if t['sw'][k] else '')
+
+
 def fmt_status(t):
     bg = t['bandgap']
     head = '%8.1fs %-9s %s %s  set %.1fA  %s  rail %.3fV  vin %.2fV  vcc %.2fV  (counts %d %d %d)' % (
         t['ms'] / 1000, PHASE.get(t['phase'], t['phase']), 'RUN' if t['run'] else 'idle', VOLTS[t['volt']] + ' V',
         0.1 * t['iset'] / 7.0, 'hold' if t['rail_hold'] else '', t['rail'] * V_PER_COUNT, vin_volts(reading(t['vin'], bg)),
         vcc_volts(bg), t['rail'], t['vin'], bg)
-    cells = '  '.join('%d:%-6s %.3fV %3dmA %.1fmAh bled %.1fmAh from %.3fV%s' % (k + 1, STATE[t['state'][k]], t['v'][k] * V_PER_COUNT, round(t['i'][k] * A_PER_COUNT * 1000),
-                                                                      t['charge'][k], t['bled'][k], t['v_start'][k], ' sw' if t['sw'][k] else '') for k in range(6) if t['state'][k] or t['v'][k] > 900)
+    cells = '\n'.join('         ' + fmt_port(t, k) for k in range(6))
     extra = ''
     if t['stop']: extra += '  stop=%s' % STOP.get(t['stop'], t['stop'])
     if t['alarm']: extra += '  alarm=%d' % t['alarm']
     if t['debug_page']: extra += '  screen=%s' % {15: 'menu', 14: 'developer mode'}.get(t['debug_page'], 'diag%d' % t['debug_page'])
-    return head + extra + ('\n         ' + cells if cells else '') + fmt_psets(t) + fmt_limits(t)
+    return head + extra + '\n' + cells + fmt_psets(t) + fmt_limits(t)
 
 
 def pset_name(v):
