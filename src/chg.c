@@ -25,8 +25,8 @@
 #define I_OPEN          2       /* "no current": 29 mA, the offset of the sense input */
 #define T_HELD          222     /* the limits held the port within this many passes (1 s): its current says nothing about the cell */
 #define DUTY_MIN        2       /* the lowest duty while charging (1 is not used) */
-#define NET_PER_IU      16      /* the net charge counts in 1/16 iu: the bleed's small steps are not lost to rounding */
-#define BLEED_NET_PER_VU 273    /* ... and the bleed load takes vu x 1.0986 mV / 18 ohm = vu / 240 iu = vu x 273 / 4096 of those per pass */
+/* the net charge counts in 1/16 iu (a shift: no multiply routines, they cost stack), so the bleed's small steps are not lost to rounding; the
+   bleed load takes vu x 1.0986 mV / 18 ohm = vu / 240 iu = vu x 273 / 4096 of those per pass, and 273 = 256 + 16 + 1 */
 
 typedef struct {
     uint8_t  st;                 /* PS_* */
@@ -280,8 +280,8 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev)
 static void tally(void) REENT
 {
     if (W.st == PS_IDLE) { W.net = 0; W.est = 0; W.v_start = 0; return; }
-    if (W.st == PS_CHARGE) W.net += (int32_t)IN->i_now[K] * NET_PER_IU;      /* the raw reading: the filtered one rounds down */
-    else if (W.st == PS_BLEED) { W.net -= (int32_t)(((uint32_t)W.v * BLEED_NET_PER_VU) >> 12); W.est = 1; }
+    if (W.st == PS_CHARGE) W.net += (int32_t)IN->i_now[K] << 4;                       /* the raw reading: the filtered one rounds down */
+    else if (W.st == PS_BLEED) { W.net -= (int32_t)(((uint32_t)W.v + ((uint32_t)W.v << 4) + ((uint32_t)W.v << 8)) >> 12); W.est = 1; }
     if (!W.v_start && W.st != PS_PROBE) W.v_start = W.v;             /* the first classification: the probe has settled the reading */
 }
 
