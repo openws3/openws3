@@ -285,7 +285,7 @@ sudo udevadm control --reload-rules</pre>
 const VID = 0x34bf, PID = 0x1004;                   // the firmware; the chip's loader has the same vendor id and another product id
 const BUNDLED = null;                                // { major, minor, pre, build, dirty, built, size, sha256, data (base64) } in the file made by tools/bundle.py
 const V = 4.5 / 4096, A = 1 / 68.25;                 // readings -> volts / amps (vu, iu: src/adc.h)
-const IU_PASS_PER_MAH = 54600, BLED_PER_MAH = 50;    // page 4: the charge counts of 4.5 ms passes, the bleed estimate's top 16 bits (USB.md)
+const NET_PER_MAH = 873600;                          // page 4: the net charge in 1/16 iu of 4.5 ms passes (USB.md)
 const vccOf = bandgap => bandgap ? 1.19 * 4096 / bandgap : 0;
 const BG_NOM = 1071;                                // the bandgap count the voltage scales were made at: an input count x BG_NOM / bandgap = its reading
 const rd = (raw, bg) => bg ? raw * BG_NOM / bg : raw;       // the input voltage only; every other channel is a plain count
@@ -341,8 +341,7 @@ function parse(dv) {
     plot(p3.i);
     if (entering && inDev()) { entering = false; startOutputs(); }   // only after our own Enter: never take over another host's session
   } else if (r[3] === 4) {
-    p4 = { charge: six(k => u32(8 + 4 * k) / IU_PASS_PER_MAH),
-           vStart: six(k => u16(32 + 2 * k) * V), bled: six(k => u16(44 + 2 * k) / BLED_PER_MAH) };
+    p4 = { net: six(k => (u32(8 + 4 * k) | 0) / NET_PER_MAH), vStart: six(k => u16(32 + 2 * k) * V), est: six(k => r[44 + k]) };
   }
 }
 const inDev = () => p1 && p1.screen === SCR_DEV;
@@ -798,8 +797,8 @@ function render() {
 const item = (name, val, sub) => `<div><span>${name}</span><b class="num">${val}</b>${sub ? '<small class="num">' + sub + '</small>' : ''}</div>`;
 const counts = k => {                       // this run: the net charge in the cell (the bleed load's share is an estimate, marked ~), and the voltage it started from
   if (!p4.vStart[k]) return 'net - · from -';
-  const n = p4.charge[k] - p4.bled[k];
-  return `net ${p4.bled[k] ? '~' : ''}${n < 0 ? '−' : '+'}${Math.abs(n).toFixed(1)} mAh · from ${p4.vStart[k].toFixed(3)} V`;
+  const n = p4.net[k];
+  return `net ${p4.est[k] ? '~' : ''}${n < 0 ? '−' : '+'}${Math.abs(n).toFixed(1)} mAh · from ${p4.vStart[k].toFixed(3)} V`;
 };
 const amps = c => (c * A).toFixed(2) + ' A';
 const vccItem = d => item('VCC', vccOf(d.bandgap).toFixed(2) + ' V', 'bandgap ' + d.bandgap);
