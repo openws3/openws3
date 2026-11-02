@@ -243,6 +243,16 @@ static void t_sup(void)
     sup_pass(&in, &o); CHECK(o.stop == STOP_RAIL);
     in.rail = 3836 + 20; for (k = 0; k < 222; k++) sup_pass(&in, &o);
     CHECK(o.stop == STOP_NONE);
+    /* a cell far above the rail feeds it: the rail up to +150 is not a fault then, and a rail above that still is */
+    sup_reset(); in = si(); in.rail = 3836 + 100;
+    for (k = 0; k < 300; k++) { sup_pass(&in, &o); CHECK(o.stop == STOP_RAIL || k < 249); }
+    CHECK(o.stop == STOP_RAIL);
+    sup_reset(); in = si(); in.rail = 3836 + 100; in.fed = 1;
+    for (k = 0; k < 600; k++) { sup_pass(&in, &o); CHECK(o.stop == STOP_NONE); }
+    in.rail = 3836 + 160; for (k = 0; k < 250; k++) sup_pass(&in, &o);
+    CHECK(o.stop == STOP_RAIL);
+    in.rail = 3836 + 100; for (k = 0; k < 222; k++) sup_pass(&in, &o);                     /* back within what the feed allows: it clears */
+    CHECK(o.stop == STOP_NONE);
     /* rail over-voltage (the ADC at full scale): cut after 50 passes; a high reading below full scale is not one */
     sup_reset(); in = si(); in.rail = 4080; for (k = 0; k < 200; k++) { sup_pass(&in, &o); CHECK(o.fatal != SF_RAIL_OVER); }
     sup_reset(); in = si(); in.rail = 4095; in.rail_sat = 1;

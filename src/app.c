@@ -350,8 +350,10 @@ static void pace(void)
    pass (returns 0).  The rail self-test runs here once nothing waits. */
 static uint8_t supervise(void)
 {
+    static uint8_t XD k;                             /* direct RAM is full: see README "Build rules" */
     sin.vin = adc_get(ADC_VIN); sin.rail = adc_get(ADC_RAIL); sin.rail_sat = adc_saturated(ADC_RAIL); sin.bandgap = adc_get(ADC_BANDGAP); sin.adc0 = adc_get(0);
     sin.setpoint = screen == SCR_DEV ? dev_setpoint() : sup_setpoint(settings.volt);
+    for (sin.fed = k = 0; k < NPORTS; k++) if (cout.v[k] > sin.rail + RAIL_FED_GAP) sin.fed = 1;
     sup_pass(&sin, &sout);
     if (sout.fatal) { go_fatal(sout.fatal); return 0; }
     cond = sout.stop;                                /* STOP_VIN, STOP_VCC, STOP_RAIL: waiting, on the screen */
