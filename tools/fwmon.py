@@ -43,6 +43,7 @@ P_NONE = 10000                       # budget value meaning "no limit"
 _lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
 _dev = {}                            # the latest page 3 (developer mode, tools/devtool.py), merged the same way
 _chg = dict(charge=[0] * 6, bled=[0] * 6, v_start=[0] * 6)    # the latest page 4 (charge counters), merged the same way
+_seen4 = False                       # a page 4 has been read (until then _chg is only zeros)
 IU_PASS_PER_MAH = 54600              # the charge is the current counts (1/68.25 A) of the 4.5 ms control passes, summed
 BLED_PER_MAH = 50                    # the bleed estimate is the sum of (vu / 4) >> 16 over the passes: 18 ohm, 4.5 V / 4096 per vu
 
@@ -65,6 +66,7 @@ def parse_dev(r):
 
 
 def parse(r):
+    global _seen4
     """decode one 64-byte telemetry report; None if it is not a complete one.  Pages 2, 3 and 4 (byte 3) only update `_lim` / `_dev` / `_chg`
     and return None."""
     if len(r) != REPORT or r[0] != 0x57 or r[1] != 0x33 or r[2] == 0 or r[2] != r[63]:
@@ -76,6 +78,7 @@ def parse(r):
         _dev.update(parse_dev(r)); _lim.clear()
         return None
     if r[3] == 4:
+        _seen4 = True
         _chg.update(charge=[struct.unpack_from('>I', r, 8 + 4 * k)[0] / IU_PASS_PER_MAH for k in range(6)],      # mAh per port
                     v_start=[u16(r, 32 + 2 * k) * V_PER_COUNT for k in range(6)],         # V; 0 = not yet
                     bled=[u16(r, 44 + 2 * k) / BLED_PER_MAH for k in range(6)])           # mAh, estimated
@@ -110,7 +113,9 @@ def snapshot():
     fd = find()
     try:
         t = read_report(fd, 2.0)
-        if t and 'lim' not in t: t = read_report(fd, 2.0) or t       # the first report can precede the first page 2
+        for _ in range(8):                                           # the first report can precede the first page 2 / 4
+            if not t or (_seen4 and ('lim' in t or 'dev' in t)): break
+            t = read_report(fd, 2.0) or t
     finally:
         os.close(fd)
     if not t: sys.exit('no telemetry')
