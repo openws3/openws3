@@ -147,6 +147,7 @@ src/ctl.c          rail PI, cal.c units, fmt.c text, input_pure.c buttons, buzz_
 src/usb.c          USB HID monitor (telemetry + commands)         src/ui.c    screens
 src/dev.c          developer mode: outputs set by the host, guards  src/portset.c  port settings mode (pure)
 src/app.c          boot sequence, 4.5 ms control pass             src/font.c  GENERATED from tools/font5x7.txt
+src/cond.c         screens of the fatal / waiting conditions      src/tele.c  telemetry pages
 test/              host tests (C)                                 tools/      fwmon.py (USB monitor / flasher), devtool.py, openws3.html (web tool), bundle.py, isp.py, render_screens.* (the pictures in GUIDE.md)
 ```
 

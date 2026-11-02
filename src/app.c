@@ -22,10 +22,10 @@
 #include "dev.h"
 #include "portset.h"
 #include "tele.h"
+#include "cond.h"
 
 #define BOOT_RAIL_PASSES 150      /* the rail is brought up under the regulator for this many 2 ms steps before the display starts */
 #define TEST_TRIES       3        /* the rail self-test: failed this many times with the rail up, it is fatal */
-#define C_TESTING        8        /* the waiting condition between two tries of it (with STOP_VIN .. STOP_RAIL, SF_*) */
 #define SELFTEST_TOL1    70       /* phase 1 (servo to the 3.80 V target) must land within this many counts of it ... */
 #define SELFTEST_TOL2    80       /* ... phase 2 (servo to the 4.35 V target) within this many */
 #define BG_GLITCH        15       /* bandgap counts (~1.4 % of VCC) off the baseline: treat as a supply glitch */
@@ -39,10 +39,9 @@ static uint16_t XD bg_ref;                     /* slow baseline of the bandgap c
 static uint8_t  XD lcd_cnt, bg_quiet;
 static uint8_t  XD stack_free, stack_div;     /* the stack's never-used bytes, read about once a second */
 static uint8_t  XD screen, text_row;          /* text_row: the row of the menu / diagnostics drawn next */
-static uint8_t  XD fatal_code, cond, msg_code, msg_tick;   /* sup.h SF_* latched until the power is cycled; the condition now (SF_* or STOP_*), 0 = none; the one on the screen */
+static uint8_t  XD fatal_code, cond;          /* sup.h SF_* latched until the power is cycled; the condition now (SF_* or STOP_*), 0 = none */
 static uint8_t  XD test_ok, test_tries;       /* the rail self-test: passed, failed so far */
 static uint32_t XD test_at;                   /* ms: the next try */
-static uint16_t XD t1, t2;                    /* its last two readings */
 static uint32_t XD t_next;
 static chg_in_t  XD cin;
 static chg_out_t XD cout;
@@ -90,35 +89,6 @@ static void stop_run(uint8_t why)
     hal_global(0);
 }
 
-static char XD v1[8], v2[8];                         /* the numbers of a condition screen, in volts */
-
-static void cond_numbers(uint8_t c)
-{
-    switch (c) {
-    case SF_VCC_HIGH: case STOP_VCC: fmt_v2(v1, dbg_vcc_mv(adc_get(ADC_BANDGAP))); break;
-    case STOP_VIN:                   fmt_vin(v1, cal_vin_mv(adc_get(ADC_VIN))); break;
-    case SF_RAIL_OVER:               fmt_v2(v1, cal_port_mv(adc_raw(ADC_RAIL))); break;
-    case SF_TEST: case C_TESTING:    fmt_v2(v1, cal_port_mv(t1)); fmt_v2(v2, cal_port_mv(t2)); break;
-    default:                         fmt_v2(v1, cal_port_mv(adc_get(ADC_RAIL))); break;
-    }
-}
-
-/* The screen of a condition (sup.h): red for a fatal one, amber for one that waits to clear. */
-static void cond_draw(uint8_t c)
-{
-    cond_numbers(c);
-    switch (c) {
-    case SF_VCC_HIGH:  ui_message(R_BAD, "VCC HIGH", "OVER 5.0V, POWER CYCLE", v1, 0); break;
-    case SF_RAIL_OVER: ui_message(R_BAD, "RAIL OVERVOLTAGE", "ADC FULL, POWER CYCLE", v1, 0); break;
-    case SF_NO_RAIL:   ui_message(R_BAD, "NO RAIL", "NOT UP, POWER CYCLE", v1, 0); break;
-    case SF_TEST:      ui_message(R_BAD, "RAIL TEST FAIL", "POWER CYCLE", v1, v2); break;
-    case STOP_VIN:     ui_message(R_WAIT, "INPUT LOW", settings.usb_off ? "USB POWER OFF, USE XT60" : "CHECK THE SUPPLY", v1, 0); break;
-    case STOP_VCC:     ui_message(R_WAIT, "VCC LOW", "TRY ANOTHER SUPPLY", v1, 0); break;
-    case STOP_RAIL:    ui_message(R_WAIT, "RAIL OUT OF RANGE", "WAITING TO RECOVER", v1, 0); break;
-    case C_TESTING:    ui_message(R_WAIT, "RAIL TEST", "FAILED, TRYING AGAIN", v1, v2); break;
-    }
-}
-
 /* A fatal condition: everything off, and it stays so until the power is cycled.  The loop goes on (fatal_pass): the host can still read
  * the unit, stop it, or flash it. */
 static void go_fatal(uint8_t code)
@@ -132,9 +102,10 @@ static void go_fatal(uint8_t code)
 /* ------------------------------------------------------------------------------------------------------------- */
 static uint8_t within(uint16_t r, uint16_t t, uint16_t tol) { return r + tol >= t && r < t + tol; }
 
-static uint8_t selftest(uint16_t *r1, uint16_t *r2)
+static uint8_t selftest(void)
 {
     uint8_t ph, n;
+    uint16_t r[2];
     ctl_rail_reset(rail_duty);
     for (ph = 0; ph < 2; ph++) {
         for (n = 0; n < 100; n++) {
@@ -142,9 +113,10 @@ static uint8_t selftest(uint16_t *r1, uint16_t *r2)
             rail_servo(sup_target(ph ? VOLT_4_35 : VOLT_3_80));
             hal_delay_ms(2);
         }
-        if (ph == 0) *r1 = adc_get(ADC_RAIL); else *r2 = adc_get(ADC_RAIL);
+        r[ph] = adc_get(ADC_RAIL);
     }
-    return within(*r1, sup_target(VOLT_3_80), SELFTEST_TOL1) && within(*r2, sup_target(VOLT_4_35), SELFTEST_TOL2);
+    cond_test_readings(r[0], r[1]);
+    return within(r[0], sup_target(VOLT_3_80), SELFTEST_TOL1) && within(r[1], sup_target(VOLT_4_35), SELFTEST_TOL2);
 }
 
 void app_boot(void)
@@ -190,7 +162,7 @@ void app_boot(void)
     bg_ref = adc_get(ADC_BANDGAP); lcd_cnt = 0; bg_quiet = 0;
     t_next = hal_ticks();
     run = 0; stop_reason = 0; alarm_ui = 0; screen = 0;
-    fatal_code = cond = msg_code = 0; test_ok = test_tries = 0; test_at = 0;
+    fatal_code = cond = 0; cond_forget(); test_ok = test_tries = 0; test_at = 0;
     lim_reset();
     chg_init();
     stack_free = hal_stack_free();                   /* after the boot, which may go deepest; then about once a second */
@@ -350,7 +322,7 @@ static void handle_buttons(void)
  * low input is not a failure of it: that waits first.  Starting a run needs it passed. */
 static void test_step(void)
 {
-    if (selftest(&t1, &t2)) test_ok = 1;
+    if (selftest()) test_ok = 1;
     else if (++test_tries >= TEST_TRIES) go_fatal(SF_TEST);
     else test_at = hal_ms() + 1000;
     sup_reset();                                     /* the rail went through two levels: its counters start again */
@@ -362,7 +334,7 @@ static void fatal_pass(void)
     hal_all_off();
     while (input_get() != EV_NONE) ;
     usb_service();
-    if (msg_code != fatal_code) { cond_draw(fatal_code); msg_code = fatal_code; }
+    cond_show(fatal_code);
     tele_pass(PH_FATAL);
 }
 
@@ -415,7 +387,7 @@ static void lcd_watch(void)
         bg_ref = sin.bandgap; bg_quiet = LCD_RECONFIG_PASSES;
         lcd_wake(); hal_delay_ms(5); lcd_reconfig();
         if (screen) show(screen); else if (!cond) ui_main_init();
-        msg_code = 0;                                /* a condition on the screen is drawn again */
+        cond_forget();                               /* a condition on the screen is drawn again */
     } else if (++lcd_cnt == LCD_RECONFIG_PASSES - 2) {
         lcd_wake();                                  /* the settings follow two passes (9 ms) later: no busy wait */
     } else if (lcd_cnt >= LCD_RECONFIG_PASSES) {
@@ -502,18 +474,17 @@ static void display_pass(void)
         dbg_fill();
         ui_text_row(text_row, dbg_text(screen, text_row), text_row == 0 ? th(R_INFO) : th(R_TEXT));
         if (++text_row == DBG_ROWS) text_row = 0;
-        msg_code = 0;
+        cond_forget();
     } else if (screen == SCR_MENU) {
         static const char * XD t;
         t = menu_text(text_row);
         ui_text_row(text_row, t, t[0] == '>' ? th(R_GOOD) : t[0] == '*' ? th(R_WARN) : text_row == 0 ? th(R_INFO) : text_row == MENU_ROWS - 1 ? th(R_DIM) : th(R_TEXT));
         if (++text_row == MENU_ROWS) text_row = 0;
-        msg_code = 0;
+        cond_forget();
     } else if (cond && screen == 0) {
-        if (msg_code != cond) { cond_draw(cond); msg_code = cond; }     /* once: the screen of the condition replaces the main screen */
-        else if (cond != C_TESTING && (uint8_t)(hal_ms() >> 8) != msg_tick) { msg_tick = (uint8_t)(hal_ms() >> 8); cond_numbers(cond); ui_message_big(v1); }   /* its number, ~4 times a second */
+        cond_show(cond);                             /* the screen of the condition replaces the main screen */
     } else {
-        if (msg_code) { msg_code = 0; ui_main_init(); }              /* the condition is over: the main screen again */
+        if (cond_shown()) { cond_forget(); ui_main_init(); }              /* the condition is over: the main screen again */
         ui_main_step(&ui);                               /* one element per pass: at the bus rate a big one takes ~5 ms */
     }
 }
