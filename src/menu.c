@@ -47,15 +47,15 @@ static void step(uint8_t it, uint8_t up)
 
 uint8_t menu_event(uint8_t ev)
 {
-    uint8_t up = ev == EV_B1 || ev == EV_B1_REP, dn = ev == EV_B2 || ev == EV_B2_REP;
+    uint8_t prev = ev == EV_B1 || ev == EV_B1_REP, next = ev == EV_B2 || ev == EV_B2_REP;     /* the left key and the right key: in the list up and down, editing - and + */
     if (editing) {
-        if (up || dn) { step(item(), dn); return MA_CHANGED; }
+        if (prev || next) { step(item(), next); return MA_CHANGED; }
         if (ev == EV_OK) { editing = 0; return MA_CHANGED; }
         if (ev == EV_BACK) { *SLOT[item()] = backup; editing = 0; return MA_CHANGED; }
         return MA_NONE;
     }
-    if (up) { cursor = cursor ? (uint8_t)(cursor - 1) : (uint8_t)(count() - 1); return MA_CHANGED; }
-    if (dn) { cursor = cursor < count() - 1 ? (uint8_t)(cursor + 1) : 0; return MA_CHANGED; }
+    if (prev) { cursor = cursor ? (uint8_t)(cursor - 1) : (uint8_t)(count() - 1); return MA_CHANGED; }
+    if (next) { cursor = cursor < count() - 1 ? (uint8_t)(cursor + 1) : 0; return MA_CHANGED; }
     if (ev == EV_BACK) {
         if (!level) return MA_EXIT;
         level = 0; cursor = cat;

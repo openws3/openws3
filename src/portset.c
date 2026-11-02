@@ -53,10 +53,10 @@ uint8_t portset_pass(void)
 
 uint8_t portset_event(uint8_t ev)
 {
-    uint8_t dn = ev == EV_B1 || ev == EV_B1_REP, up = ev == EV_B2 || ev == EV_B2_REP;
+    uint8_t prev = ev == EV_B1 || ev == EV_B1_REP, next = ev == EV_B2 || ev == EV_B2_REP;
     idle = 0;
     if (editing) {
-        if (up || dn) { portset_put(sel, portset_step(portset_get(sel), up)); return MA_CHANGED; }
+        if (prev || next) { portset_put(sel, portset_step(portset_get(sel), next)); return MA_CHANGED; }
         if (ev == EV_OK) { editing = 0; return MA_CHANGED; }
         if (ev == EV_BACK) { cancel(); return MA_CHANGED; }
         return MA_NONE;
