@@ -57,8 +57,8 @@ static void tele_limits(uint8_t ph, uint32_t ms)
     b[63] = tele_seq;
 }
 
-/* page 4: what each cell has had (chg_out_t): the charge, 32 bit; the voltage it started from; the bleed's estimated share, the top
-   16 bits (zero before the run phase) */
+/* page 4: what each cell has had (chg_out_t): the net charge, 32 bit signed; the voltage it started from; whether the net
+   includes the bleed estimate (zero before the run phase) */
 static void tele_charge(uint8_t ph, uint32_t ms) REENT
 {
     uint8_t k;
@@ -66,9 +66,9 @@ static void tele_charge(uint8_t ph, uint32_t ms) REENT
     tele_head(b, 4, ms);
     if (ph >= PH_RUN && ph < PH_FATAL) {
         for (k = 0; k < NPORTS; k++) {
-            tele_put32(b, 8 + 4 * k, ctx.out->charge[k]);
+            tele_put32(b, 8 + 4 * k, (uint32_t)ctx.out->net[k]);
             tele_put16(b, 32 + 2 * k, ctx.out->v_start[k]);
-            tele_put16(b, 44 + 2 * k, (uint16_t)(ctx.out->bled[k] >> 16));
+            b[44 + k] = ctx.out->est[k];
         }
     }
     b[63] = tele_seq;

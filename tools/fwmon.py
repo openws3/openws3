@@ -42,10 +42,9 @@ LMODE = ['EQUAL', 'CH1 FIRST', 'HIGH V FIRST']
 P_NONE = 10000                       # budget value meaning "no limit"
 _lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
 _dev = {}                            # the latest page 3 (developer mode, tools/devtool.py), merged the same way
-_chg = dict(charge=[0] * 6, bled=[0] * 6, v_start=[0] * 6)    # the latest page 4 (charge counters), merged the same way
+_chg = dict(net=[0] * 6, est=[0] * 6, v_start=[0] * 6)    # the latest page 4 (charge counters), merged the same way
 _seen4 = False                       # a page 4 has been read (until then _chg is only zeros)
-IU_PASS_PER_MAH = 54600              # the charge is the current counts (1/68.25 A) of the 4.5 ms control passes, summed
-BLED_PER_MAH = 50                    # the bleed estimate is the sum of (vu / 4) >> 16 over the passes: 18 ohm, 4.5 V / 4096 per vu
+NET_PER_MAH = 873600                 # the net charge: current counts (1/68.25 A) of the 4.5 ms control passes in 1/16, less the bleed load's share
 
 
 def u16(r, i): return (r[i] << 8) | r[i + 1]
@@ -79,9 +78,9 @@ def parse(r):
         return None
     if r[3] == 4:
         _seen4 = True
-        _chg.update(charge=[struct.unpack_from('>I', r, 8 + 4 * k)[0] / IU_PASS_PER_MAH for k in range(6)],      # mAh per port
+        _chg.update(net=[struct.unpack_from('>i', r, 8 + 4 * k)[0] / NET_PER_MAH for k in range(6)],       # mAh per port
                     v_start=[u16(r, 32 + 2 * k) * V_PER_COUNT for k in range(6)],         # V; 0 = not yet
-                    bled=[u16(r, 44 + 2 * k) / BLED_PER_MAH for k in range(6)])           # mAh, estimated
+                    est=list(r[44:50]))                                                    # 1 = the net includes the bleed estimate
         return None
     f = r[8]
     return dict(
@@ -141,7 +140,7 @@ def command(cmd, arg=0, ack=True, extra=b''):
 def fmt_counts(t, k):
     """what the cell has had this run: the net charge (the bleed load's share is an estimate, marked ~) and the voltage it started from; '-' before a run"""
     if not t['v_start'][k]: return 'net -  from -'
-    return 'net %s%+.1fmAh  from %.3fV' % ('~' if t['bled'][k] else '', t['charge'][k] - t['bled'][k], t['v_start'][k])
+    return 'net %s%+.1fmAh  from %.3fV' % ('~' if t['est'][k] else '', t['net'][k], t['v_start'][k])
 
 
 def fmt_port(t, k):

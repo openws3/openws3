@@ -446,26 +446,26 @@ static void t_bleed_series(void)
     }
 }
 
-/* the counters against what the model's cell really took (coulombs): 54600 iu-passes = 1 mAh, 3276800 = 1 mAh of bleed */
+/* the net counter against what the model's cell really took (coulombs): 873600 = 1 mAh */
 static void t_counters(void)
 {
     bench_t b; double q0, mah;
     bench_init(&b, 0, 28);
     attach(&b, 0, 3.70, 500, 0.10);
     q0 = b.cell[0].q;
-    step(&b); CHECK(b.out.v_start[0] == 0 && b.out.charge[0] == 0);                  /* probing: nothing yet */
+    step(&b); CHECK(b.out.v_start[0] == 0 && b.out.net[0] == 0);                     /* probing: nothing yet */
     run(&b, 20000);
     mah = (b.cell[0].q - q0) / 3.6;
-    CHECK(mah > 5 && fabs(b.out.charge[0] / 54600.0 - mah) < 0.03 * mah);
+    CHECK(mah > 5 && fabs(b.out.net[0] / 873600.0 - mah) < 0.03 * mah);
     CHECK(fabs(b.out.v_start[0] * VPC - 3.70) < 0.03);
-    CHECK(b.out.charge[1] == 0 && b.out.v_start[1] == 0 && b.out.bled[0] == 0);
+    CHECK(b.out.net[1] == 0 && b.out.v_start[1] == 0 && b.out.est[0] == 0);
     b.in.run = 0; chg_abort(); step(&b);                                               /* a stop keeps them ... */
-    CHECK(b.out.charge[0] / 54600.0 > 0.97 * mah && b.out.v_start[0] != 0);
+    CHECK(b.out.net[0] / 873600.0 > 0.97 * mah && b.out.v_start[0] != 0);
     b.in.run = 1; chg_init(); step(&b);                                                /* ... a new run starts from zero */
-    CHECK(b.out.charge[0] < 100 && b.out.v_start[0] == 0);
-    run(&b, 2000); CHECK(b.out.charge[0] > 0);
+    CHECK(b.out.net[0] < 1600 && b.out.v_start[0] == 0);
+    run(&b, 2000); CHECK(b.out.net[0] > 0);
     b.present[0] = 0; run(&b, 10);                                                     /* the cell taken out */
-    CHECK(b.out.charge[0] == 0 && b.out.v_start[0] == 0);
+    CHECK(b.out.net[0] == 0 && b.out.v_start[0] == 0);
 }
 
 static void t_counters_bleed(void)
@@ -477,8 +477,8 @@ static void t_counters_bleed(void)
     for (k = 0; k < 400000 && b.out.state[0] != PS_FULL; k++) step(&b);
     CHECK(b.out.state[0] == PS_FULL);
     mah = (q0 - b.cell[0].q) / 3.6;
-    CHECK(mah > 1 && fabs(b.out.bled[0] / 3276800.0 - mah) < 0.08 * mah);
-    CHECK(b.out.charge[0] == 0 && fabs(b.out.v_start[0] * VPC - 3.95) < 0.03);
+    CHECK(mah > 1 && fabs(-b.out.net[0] / 873600.0 - mah) < 0.08 * mah);
+    CHECK(b.out.est[0] == 1 && fabs(b.out.v_start[0] * VPC - 3.95) < 0.03);
 }
 
 int main(void)
