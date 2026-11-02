@@ -17,7 +17,7 @@ static const CODE uint16_t TGT[NVOLTS] = { VU(4200), VU(4350), VU(3800), VU(3850
 #define RAIL_CUT_PASSES  50      /* net passes with the rail ADC at full scale (+1 at it, -1 below): 0.22 s held, short overshoots pass */
 #define RAIL_ALARM_PASSES 250
 #define RAIL_OK_BAND     30
-#define RAIL_FED_HI      150     /* with a cell feeding the rail (sup_in_t.fed) the rail may sit this far above the setpoint: 0.16 V */
+#define RAIL_FED_HI      150     /* with such a cell (sup_in_t.fed) the rail may sit this far above the setpoint: 0.16 V */
 #define ADC0_HOT         1300    /* board thermistor: the fan runs below this count (warm) ... */
 #define ADC0_COOL        1451    /* ... until it is back above this */
 
