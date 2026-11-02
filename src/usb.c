@@ -79,10 +79,9 @@ static const __code uint8_t STR_LANG[4]  = { 0x04, 0x03, 0x09, 0x04 };
 static const __code uint8_t STR_MANUF[8] = { 0x08, 0x03, 'S', 0, 'T', 0, 'C', 0 };
 static const __code uint8_t STR_PROD[16] = { 0x10, 0x03, 'O', 0, 'p', 0, 'e', 0, 'n', 0, 'W', 0, 'S', 0, '3', 0 };
 
-uint8_t XD usb_tx[USB_REPORT];
-uint8_t XD usb_tx2[USB_REPORT];
-uint8_t XD usb_tx4[USB_REPORT];
-static uint8_t XD page;                 /* which buffer the next IN packet carries: 0..3 = page 1, 2 (or 3), 1, 4 */
+uint8_t XD usb_page[UP_COUNT][USB_REPORT];
+static const __code uint8_t SEQUENCE[4] = { UP_MAIN, UP_LIMITS, UP_MAIN, UP_CHARGE };   /* the page 1 goes out twice as often */
+static uint8_t XD turn;                 /* where the next IN packet is in SEQUENCE */
 
 static setup_t XD setup;
 static uint8_t XD ep0_stage;
@@ -111,11 +110,10 @@ static void fifo_put_code(uint8_t fifo, const __code uint8_t *p, uint8_t n) { wh
 static void arm_in(void)
 {
     uint8_t i;
-    uint8_t XD *p;
+    uint8_t XD *p = usb_page[SEQUENCE[turn]];
+    turn = (turn + 1) & 3;
     sie_write(INDEX, 1);
     sie_write(INCSR2, INMODEIN);
-    p = page == 1 ? usb_tx2 : page == 3 ? usb_tx4 : usb_tx;
-    page = (page + 1) & 3;
     for (i = 0; i < USB_REPORT; i++) sie_write(FIFO1, p[i]);
     sie_write(INCSR1, INIPRDY);
 }

@@ -62,9 +62,10 @@ static void outputs_off(void)
     hal_global(0);
 }
 
-static void rail_step(void)
+/* one step of the rail regulator towards a setpoint (vu) */
+static void rail_servo(uint16_t setpoint)
 {
-    rail_duty = ctl_rail_step((int16_t)adc_get(ADC_RAIL), (int16_t)sup_setpoint(settings.volt));
+    rail_duty = ctl_rail_step((int16_t)adc_get(ADC_RAIL), (int16_t)setpoint);
     hal_rail((uint16_t)rail_duty);
 }
 
@@ -136,11 +137,9 @@ static uint8_t selftest(uint16_t *r1, uint16_t *r2)
     uint8_t ph, n;
     ctl_rail_reset(rail_duty);
     for (ph = 0; ph < 2; ph++) {
-        int16_t S = (int16_t)sup_target(ph ? VOLT_4_35 : VOLT_3_80);
         for (n = 0; n < 100; n++) {
             adc_scan();
-            rail_duty = ctl_rail_step((int16_t)adc_get(ADC_RAIL), S);
-            hal_rail((uint16_t)rail_duty);
+            rail_servo(sup_target(ph ? VOLT_4_35 : VOLT_3_80));
             hal_delay_ms(2);
         }
         if (ph == 0) *r1 = adc_get(ADC_RAIL); else *r2 = adc_get(ADC_RAIL);
@@ -170,7 +169,7 @@ void app_boot(void)
 
     adc_prime();
     for (n = 0; n < BOOT_RAIL_PASSES; n++) {         /* the rail comes up under the regulator; what is wrong with the supply or the rail is the main loop's */
-        adc_scan(); rail_step();
+        adc_scan(); rail_servo(sup_setpoint(settings.volt));
         tele_pass(PH_RAIL_WAIT);
         hal_delay_ms(2);
     }
@@ -244,25 +243,25 @@ static void usb_service(void)
     uint8_t c[USB_CMD], res = 0;
     if (!usb_cmd_get(c)) return;
     switch (c[0]) {
-    case 1: if (run) stop_run(STOP_USER); break;                                       /* stop (always allowed) */
-    case 2: res = screen != SCR_DEV && start_run() ? 0 : 1; break;                    /* start (not in developer mode) */
-    case 3:                                                                            /* set current (units), not while running */
+    case CMD_STOP: if (run) stop_run(STOP_USER); break;                                       /* stop (always allowed) */
+    case CMD_START: res = screen != SCR_DEV && start_run() ? 0 : 1; break;                    /* start (not in developer mode) */
+    case CMD_SET_CURRENT:                                                                            /* set current (units), not while running */
         if (run || !cal_cur_valid(c[1])) { res = 1; break; }
         settings.cur = c[1]; cfg_save();
         break;
-    case 4:                                                                            /* set the target voltage, not while running */
+    case CMD_SET_VOLTAGE:                                                                            /* set the target voltage, not while running */
         if (run || c[1] >= NVOLTS) { res = 1; break; }
         settings.volt = c[1]; cfg_save();
         break;
-    case 5: break;                                                                     /* ping */
-    case 6: if (run) { res = 1; break; } hal_reboot_isp(); break;                      /* reboot into the USB ISP loader (not while charging) */
-    case 7:                                                                            /* developer mode, byte 1 = session (not while charging, */
+    case CMD_PING: break;                                                                     /* ping */
+    case CMD_ISP: if (run) { res = 1; break; } hal_reboot_isp(); break;                      /* reboot into the USB ISP loader (not while charging) */
+    case CMD_DEV_ENTER:                                                                            /* developer mode, byte 1 = session (not while charging, */
         if (run || fatal_code || (screen == SCR_DEV && dev_taken(c[1]))) { res = 1; break; }   /* nor while another host drives it) */
         dev_enter(c[1]);
         break;
-    case 8: if (screen != SCR_DEV || !dev_set(c)) res = 1; break;                     /* developer mode: the outputs (the owner only) */
-    case 9: if (screen == SCR_DEV) dev_leave(); break;                                 /* leave developer mode */
-    case 10:                                                                           /* one port's value (portset.h): byte 1 = port, */
+    case CMD_DEV_SET: if (screen != SCR_DEV || !dev_set(c)) res = 1; break;                     /* developer mode: the outputs (the owner only) */
+    case CMD_DEV_LEAVE: if (screen == SCR_DEV) dev_leave(); break;                                 /* leave developer mode */
+    case CMD_PORT_VALUE:                                                                           /* one port's value (portset.h): byte 1 = port, */
         if (run || c[1] >= NPORTS || !portset_valid(c[3]) || (screen == SCR_PORTS && portset_editing())) { res = 1; break; }   /* byte 3 */
         portset_put(c[1], c[3]); cfg_save();
         break;
@@ -413,7 +412,7 @@ static void lcd_watch(void)
     bg_ref = (uint16_t)((int16_t)bg_ref + (d >> 5));
     if (bg_quiet) bg_quiet--;
     if ((d > BG_GLITCH || d < -BG_GLITCH) && !bg_quiet) {         /* at most once a second: a supply falling over many steps would repaint all the way */
-        bg_ref = sin.bandgap; bg_quiet = 222;
+        bg_ref = sin.bandgap; bg_quiet = LCD_RECONFIG_PASSES;
         lcd_wake(); hal_delay_ms(5); lcd_reconfig();
         if (screen) show(screen); else if (!cond) ui_main_init();
         msg_code = 0;                                /* a condition on the screen is drawn again */
@@ -529,7 +528,7 @@ void app_pass(void)
     usb_service();
     if (save_at && (int32_t)(hal_ms() - save_at) >= 0) save_main();
     mode_pass();
-    if (screen != SCR_DEV) rail_step();              /* developer mode runs the rail itself */
+    if (screen != SCR_DEV) rail_servo(sup_setpoint(settings.volt));              /* developer mode runs the rail itself */
 
     if (!supervise()) return;
     lcd_watch();

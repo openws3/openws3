@@ -1,5 +1,5 @@
 /*
- * USB telemetry pages 1-3 (layout in USB.md).  The interrupt copies usb_tx / usb_tx2 to the host; they are rebuilt here, tail byte
+ * USB telemetry pages (layout in USB.md).  The interrupt copies the usb_page buffers to the host; they are rebuilt here, tail byte
  * last.  The source data is the app's live state, reached through a context of pointers set once at boot (tele_init), so nothing
  * is copied: the packets always show what the app is doing.
  */
@@ -35,25 +35,26 @@ static void tele_head(uint8_t XD *b, uint8_t page, uint32_t ms)
 static void tele_limits(uint8_t ph, uint32_t ms)
 {
     uint8_t k;
-    tele_head(usb_tx2, 2, ms);
+    uint8_t XD *b = usb_page[UP_LIMITS];
+    tele_head(b, 2, ms);
     if (ph >= PH_RUN && ph < PH_FATAL) {
-        usb_tx2[8] = lim_cfg.ilim; usb_tx2[9] = lim_cfg.vmin; usb_tx2[10] = lim_cfg.vcut; usb_tx2[11] = lim_cfg.mode;
-        tele_put16(usb_tx2, 12, lim_out.budget); tele_put16(usb_tx2, 14, lim_out.p_cur); tele_put16(usb_tx2, 16, lim_out.p_vol);
-        tele_put16(usb_tx2, 18, lim_out.est_ma); tele_put16(usb_tx2, 20, lim_out.bcnt);
-        usb_tx2[22] = lim_out.trip; usb_tx2[23] = (uint8_t)(*ctx.run && !*ctx.rail_hold);        /* the limiter ran this pass */
+        b[8] = lim_cfg.ilim; b[9] = lim_cfg.vmin; b[10] = lim_cfg.vcut; b[11] = lim_cfg.mode;
+        tele_put16(b, 12, lim_out.budget); tele_put16(b, 14, lim_out.p_cur); tele_put16(b, 16, lim_out.p_vol);
+        tele_put16(b, 18, lim_out.est_ma); tele_put16(b, 20, lim_out.bcnt);
+        b[22] = lim_out.trip; b[23] = (uint8_t)(*ctx.run && !*ctx.rail_hold);        /* the limiter ran this pass */
         for (k = 0; k < NPORTS; k++) {
-            usb_tx2[24 + k] = (uint8_t)(ctx.out->held[k] | (ctx.out->up[k] != 0) << 2 | ((ctx.in->rise >> k) & 1) << 3 | (ctx.in->cut == k) << 4);
-            usb_tx2[30 + k] = ctx.out->want[k];
-            usb_tx2[36 + k] = portset_get(k);
+            b[24 + k] = (uint8_t)(ctx.out->held[k] | (ctx.out->up[k] != 0) << 2 | ((ctx.in->rise >> k) & 1) << 3 | (ctx.in->cut == k) << 4);
+            b[30 + k] = ctx.out->want[k];
+            b[36 + k] = portset_get(k);
         }
-        tele_put16(usb_tx2, 42, sup_setpoint(settings.volt)); tele_put16(usb_tx2, 44, sup_target(settings.volt));    /* vu */
-        usb_tx2[46] = *ctx.stack;
-        usb_tx2[47] = FW_PRE;
-        usb_tx2[51] = ctx.out->any_active;
-        usb_tx2[52] = ctx.sup->stop; usb_tx2[54] = ctx.sup->fatal; usb_tx2[55] = ctx.sup->stop == STOP_RAIL; usb_tx2[56] = ctx.sup->fan;
+        tele_put16(b, 42, sup_setpoint(settings.volt)); tele_put16(b, 44, sup_target(settings.volt));    /* vu */
+        b[46] = *ctx.stack;
+        b[47] = FW_PRE;
+        b[51] = ctx.out->any_active;
+        b[52] = ctx.sup->stop; b[54] = ctx.sup->fatal; b[55] = ctx.sup->stop == STOP_RAIL; b[56] = ctx.sup->fan;
     }
-    tele_put16(usb_tx2, 57, (uint16_t)(FW_BUILD >> 16)); tele_put16(usb_tx2, 59, (uint16_t)FW_BUILD); usb_tx2[61] = FW_DIRTY;   /* the build id */
-    usb_tx2[63] = tele_seq;
+    tele_put16(b, 57, (uint16_t)(FW_BUILD >> 16)); tele_put16(b, 59, (uint16_t)FW_BUILD); b[61] = FW_DIRTY;   /* the build id */
+    b[63] = tele_seq;
 }
 
 /* page 4: what each cell has had (chg_out_t): the charge, 32 bit; the voltage it started from; the bleed's estimated share, the top
@@ -61,42 +62,44 @@ static void tele_limits(uint8_t ph, uint32_t ms)
 static void tele_charge(uint8_t ph, uint32_t ms) REENT
 {
     uint8_t k;
-    tele_head(usb_tx4, 4, ms);
+    uint8_t XD *b = usb_page[UP_CHARGE];
+    tele_head(b, 4, ms);
     if (ph >= PH_RUN && ph < PH_FATAL) {
         for (k = 0; k < NPORTS; k++) {
-            tele_put32(usb_tx4, 8 + 4 * k, ctx.out->charge[k]);
-            tele_put16(usb_tx4, 32 + 2 * k, ctx.out->v_start[k]);
-            tele_put16(usb_tx4, 44 + 2 * k, (uint16_t)(ctx.out->bled[k] >> 16));
+            tele_put32(b, 8 + 4 * k, ctx.out->charge[k]);
+            tele_put16(b, 32 + 2 * k, ctx.out->v_start[k]);
+            tele_put16(b, 44 + 2 * k, (uint16_t)(ctx.out->bled[k] >> 16));
         }
     }
-    usb_tx4[63] = tele_seq;
+    b[63] = tele_seq;
 }
 
 void tele_pass(uint8_t ph)
 {
     uint8_t k;
     uint32_t ms;
+    uint8_t XD *b = usb_page[UP_MAIN];
     if (!usb_configured()) return;                   /* nobody reads it */
     ms = hal_ms();
     if (++tele_seq == 0) tele_seq = 1;
-    tele_head(usb_tx, 1, ms);
-    usb_tx[8] = (uint8_t)(*ctx.run | (settings.volt << 1) | ((*ctx.run && !*ctx.rail_hold) << 3) | (*ctx.rail_hold << 5) | (*ctx.strap << 6));
-    usb_tx[9] = settings.cur; usb_tx[10] = (uint8_t)(FW_MAJOR << 4 | FW_MINOR); usb_tx[11] = *ctx.stop; usb_tx[12] = (uint8_t)(*ctx.alarm | (*ctx.screen << 4));
-    usb_tx[13] = ev_seq; usb_tx[14] = ev_code; usb_tx[15] = ev_port; usb_tx[16] = cmd_seq; usb_tx[17] = cmd_res;
-    usb_tx[25] = ph;
+    tele_head(b, 1, ms);
+    b[8] = (uint8_t)(*ctx.run | (settings.volt << 1) | ((*ctx.run && !*ctx.rail_hold) << 3) | (*ctx.rail_hold << 5) | (*ctx.strap << 6));
+    b[9] = settings.cur; b[10] = (uint8_t)(FW_MAJOR << 4 | FW_MINOR); b[11] = *ctx.stop; b[12] = (uint8_t)(*ctx.alarm | (*ctx.screen << 4));
+    b[13] = ev_seq; b[14] = ev_code; b[15] = ev_port; b[16] = cmd_seq; b[17] = cmd_res;
+    b[25] = ph;
     if (ph >= PH_RUN && ph < PH_FATAL && *ctx.screen != SCR_DEV) {          /* developer mode: the ports are on page 3 */
         for (k = 0; k < NPORTS; k++) {
-            usb_tx[18 + k] = ctx.out->state[k];
-            usb_tx[24] |= (uint8_t)(ctx.out->sw[k] << k);
-            tele_put16(usb_tx, 26 + 2 * k, ctx.out->duty[k]);
-            tele_put16(usb_tx, 38 + 2 * k, ctx.out->v[k]);
-            usb_tx[50 + k] = ctx.out->i[k] > 255 ? 255 : (uint8_t)ctx.out->i[k];
+            b[18 + k] = ctx.out->state[k];
+            b[24] |= (uint8_t)(ctx.out->sw[k] << k);
+            tele_put16(b, 26 + 2 * k, ctx.out->duty[k]);
+            tele_put16(b, 38 + 2 * k, ctx.out->v[k]);
+            b[50 + k] = ctx.out->i[k] > 255 ? 255 : (uint8_t)ctx.out->i[k];
         }
-        usb_tx[62] = (uint8_t)(*ctx.rail_duty >> 2);
+        b[62] = (uint8_t)(*ctx.rail_duty >> 2);
     }
-    tele_put16(usb_tx, 56, adc_raw(ADC_RAIL)); tele_put16(usb_tx, 58, adc_raw(ADC_VIN)); tele_put16(usb_tx, 60, adc_raw(ADC_BANDGAP));   /* counts */
-    usb_tx[63] = tele_seq;
-    if (*ctx.screen == SCR_DEV) { tele_head(usb_tx2, 3, ms); dev_tele(usb_tx2); usb_tx2[63] = tele_seq; }
+    tele_put16(b, 56, adc_raw(ADC_RAIL)); tele_put16(b, 58, adc_raw(ADC_VIN)); tele_put16(b, 60, adc_raw(ADC_BANDGAP));   /* counts */
+    b[63] = tele_seq;
+    if (*ctx.screen == SCR_DEV) { tele_head(usb_page[UP_LIMITS], 3, ms); dev_tele(usb_page[UP_LIMITS]); usb_page[UP_LIMITS][63] = tele_seq; }
     else tele_limits(ph, ms);
     tele_charge(ph, ms);
 }
