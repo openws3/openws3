@@ -17,7 +17,6 @@ static const CODE uint16_t TGT[NVOLTS] = { VU(4200), VU(4350), VU(3800), VU(3850
 #define RAIL_CUT_PASSES  50      /* net passes with the rail ADC at full scale (+1 at it, -1 below): 0.22 s held, short overshoots pass */
 #define RAIL_ALARM_PASSES 250
 #define RAIL_OK_BAND     30
-#define RAIL_FED_HI      150     /* with a cell feeding the rail (sup_in_t.fed) the rail may sit this far above the setpoint: 0.16 V */
 #define ADC0_HOT         1300    /* board thermistor: the fan runs below this count (warm) ... */
 #define ADC0_COOL        1451    /* ... until it is back above this */
 
@@ -49,7 +48,7 @@ void sup_pass(const sup_in_t XD *in, sup_out_t XD *o)
     if (vh_cnt >= VCC_HIGH_PASSES) o->fatal = SF_VCC_HIGH;
 
     /* ---- rail ---- */
-    if (in->rail + RAIL_BAND_LO < S || in->rail >= S + (in->fed ? RAIL_FED_HI : RAIL_BAND_HI)) {
+    if (in->rail + RAIL_BAND_LO < S || in->rail >= S + RAIL_BAND_HI) {
         if (div_cnt < 0xFFFF) div_cnt++;
         if (div_cnt >= RAIL_ALARM_PASSES) rail_alarm = 1;
     } else if (div_cnt) div_cnt--;
@@ -57,7 +56,7 @@ void sup_pass(const sup_in_t XD *in, sup_out_t XD *o)
        does not make one overshoot fatal */
     if (in->rail_sat && in->bandgap < VCC_STOP) { if (++ov_cnt >= RAIL_CUT_PASSES) { ov_cnt = RAIL_CUT_PASSES; o->fatal = SF_RAIL_OVER; } }
     else if (ov_cnt) ov_cnt--;
-    if (rail_alarm && in->rail + RAIL_OK_BAND >= S && in->rail <= S + (in->fed ? RAIL_FED_HI : RAIL_OK_BAND)) { rail_alarm = 0; div_cnt = 0; }
+    if (rail_alarm && in->rail + RAIL_OK_BAND >= S && in->rail <= S + RAIL_OK_BAND) { rail_alarm = 0; div_cnt = 0; }
     if (rail_alarm && o->stop == STOP_NONE) o->stop = STOP_RAIL;   /* out of regulation for long; a low input or VCC is the cause, and is said first */
     /* never up although the input and VCC are fine: the buck stage or its sense is broken (a low input is the waiting STOP_VIN) */
     if (!o->rail_up && in->vin >= VIN_MIN && in->bandgap < VCC_STOP) { if (nr_cnt < NO_RAIL_PASSES) nr_cnt++; } else nr_cnt = 0;
