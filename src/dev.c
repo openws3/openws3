@@ -40,7 +40,8 @@ uint8_t dev_set(const uint8_t *c)
     if ((c[1] & DF_BEEP) && !(req_flags & DF_BEEP)) buzz_play(PAT_KEY);
     req_flags = c[1]; req_sw = (uint8_t)(c[3] & 0x3F);
     req_rail = ((uint16_t)c[4] << 8) | c[5];
-    if (req_rail > (req_flags & DF_RAIL_RAW ? PWM_PERIOD : S_MAX)) req_rail = req_flags & DF_RAIL_RAW ? PWM_PERIOD : S_MAX;
+    d = req_flags & DF_RAIL_RAW ? PWM_PERIOD : S_MAX;
+    if (req_rail > d) req_rail = d;
     for (k = 0; k < NPORTS; k++) {
         d = ((uint16_t)c[6 + 2 * k] << 8) | c[7 + 2 * k];
         req_duty[k] = d > PWM_PERIOD ? PWM_PERIOD : d;

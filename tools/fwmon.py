@@ -47,20 +47,21 @@ IU_PASS_PER_MAH = 54600              # the charge is the current counts (1/68.25
 BLED_PER_MAH = 50                    # the bleed estimate is the sum of (vu / 4) >> 16 over the passes: 18 ohm, 4.5 V / 4096 per vu
 
 
+def u16(r, i): return (r[i] << 8) | r[i + 1]
+
+
 def parse_limits(r):
-    u16 = lambda i: (r[i] << 8) | r[i + 1]
     return dict(lim=dict(
-        ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(12), p_cur=u16(14), p_vol=u16(16), est_ma=u16(18), bcnt=u16(20),
-        trip=r[22], active=r[23], gate=list(r[24:30]), want=list(r[30:36]), pset=list(r[36:42]), stack=r[46], setpoint=u16(42), target=u16(44),
-        any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(57) << 16) | u16(59), dirty=r[61], pre=r[47]))
+        ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(r, 12), p_cur=u16(r, 14), p_vol=u16(r, 16), est_ma=u16(r, 18), bcnt=u16(r, 20),
+        trip=r[22], active=r[23], gate=list(r[24:30]), want=list(r[30:36]), pset=list(r[36:42]), stack=r[46], setpoint=u16(r, 42), target=u16(r, 44),
+        any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(r, 57) << 16) | u16(r, 59), dirty=r[61], pre=r[47]))
 
 
 def parse_dev(r):
-    u16 = lambda i: (r[i] << 8) | r[i + 1]
     return dict(dev=dict(
-        v=[u16(8 + 2 * k) for k in range(6)], i=[u16(20 + 2 * k) for k in range(6)], therm=u16(32), vin=u16(34), rail=u16(36), bandgap=u16(38),
-        duty=[u16(40 + 2 * k) for k in range(6)], rail_duty=u16(52), sw=r[54], flags=r[55], b1=r[56] & 1, b2=(r[56] >> 1) & 1, strap=(r[56] >> 2) & 1,
-        watchdog=r[57] & 1, supply_stop=(r[57] >> 1) & 1, trip=r[58], setpoint=u16(59)))
+        v=[u16(r, 8 + 2 * k) for k in range(6)], i=[u16(r, 20 + 2 * k) for k in range(6)], therm=u16(r, 32), vin=u16(r, 34), rail=u16(r, 36), bandgap=u16(r, 38),
+        duty=[u16(r, 40 + 2 * k) for k in range(6)], rail_duty=u16(r, 52), sw=r[54], flags=r[55], b1=r[56] & 1, b2=(r[56] >> 1) & 1, strap=(r[56] >> 2) & 1,
+        watchdog=r[57] & 1, supply_stop=(r[57] >> 1) & 1, trip=r[58], setpoint=u16(r, 59)))
 
 
 def parse(r):
@@ -74,11 +75,10 @@ def parse(r):
     if r[3] == 3:
         _dev.update(parse_dev(r)); _lim.clear()
         return None
-    u16 = lambda i: (r[i] << 8) | r[i + 1]
     if r[3] == 4:
         _chg.update(charge=[struct.unpack_from('>I', r, 8 + 4 * k)[0] / IU_PASS_PER_MAH for k in range(6)],      # mAh per port
-                    v_start=[u16(32 + 2 * k) * V_PER_COUNT for k in range(6)],         # V; 0 = not yet
-                    bled=[u16(44 + 2 * k) / BLED_PER_MAH for k in range(6)])           # mAh, estimated
+                    v_start=[u16(r, 32 + 2 * k) * V_PER_COUNT for k in range(6)],         # V; 0 = not yet
+                    bled=[u16(r, 44 + 2 * k) / BLED_PER_MAH for k in range(6)])           # mAh, estimated
         return None
     f = r[8]
     return dict(
@@ -87,8 +87,8 @@ def parse(r):
         strap=(f >> 6) & 1,
         iset=r[9], stop=r[11], alarm=r[12] & 15, debug_page=r[12] >> 4, ev_seq=r[13], ev_code=r[14], ev_port=r[15],
         cmd_seq=r[16], cmd_res=r[17], state=list(r[18:24]), sw=[(r[24] >> k) & 1 for k in range(6)], phase=r[25],
-        duty=[u16(26 + 2 * k) for k in range(6)], v=[u16(38 + 2 * k) for k in range(6)], i=list(r[50:56]),
-        rail=u16(56), vin=u16(58), bandgap=u16(60), rail_duty=r[62] * 4, **_lim, **_dev, **_chg)
+        duty=[u16(r, 26 + 2 * k) for k in range(6)], v=[u16(r, 38 + 2 * k) for k in range(6)], i=list(r[50:56]),
+        rail=u16(r, 56), vin=u16(r, 58), bandgap=u16(r, 60), rail_duty=r[62] * 4, **_lim, **_dev, **_chg)
 
 
 def find(flags=os.O_RDWR):
