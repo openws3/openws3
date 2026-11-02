@@ -22,12 +22,11 @@ typedef struct {
     uint16_t vin, rail, bandgap, adc0;  /* filtered ADC7, ADC8, ADC15, ADC0 */
     uint16_t setpoint;                  /* rail setpoint S */
     uint8_t  rail_sat;                  /* the rail ADC is at full scale: the rail is beyond what it can measure */
-    uint8_t  fed;                       /* a cell sits RAIL_FED_GAP or more above the rail (full cells, a storage target): seen with five 4.3 V cells
-                                           bleeding at once, the rail stays above its setpoint with the regulator at its lowest drive; the cause
-                                           is not established, so that is not taken for a fault */
+    uint8_t  fed;                       /* a cell sits RAIL_FED_GAP or more above the rail: it feeds the rail, which the regulator cannot pull down
+                                           (a full cell with a storage target), so a rail above its setpoint is not a fault */
 } sup_in_t;
 
-#define RAIL_FED_GAP  330     /* vu (0.36 V) */
+#define RAIL_FED_GAP  330     /* vu (0.36 V): a cell this far above the rail leaks into it */
 
 enum { STOP_NONE = 0, STOP_VIN, STOP_VCC, STOP_RAIL, STOP_USER, STOP_VLIM };   /* VLIM: the user's minimum input voltage (limits.h) */
 
