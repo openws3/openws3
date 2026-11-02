@@ -168,6 +168,7 @@ static uint16_t status_color(uint8_t state)
     case PS_FULL:   return th(R_FULLTX);
     case PS_FAULT:  return th(R_BAD);
     case PS_BLEED:  return th(R_INFO);
+    case PS_WAIT:   return th(R_WAIT);
     default:        return th(R_WARN);
     }
 }
@@ -245,7 +246,7 @@ static void element(const ui_state_t *s, uint8_t e) REENT
         fg = off ? th(R_DIM) : full ? th(R_FULLTX) : th(R_VOLT);
     } else if (part == 1) {
         /* charging: the measured current, 1 s in 4 the target; idle: the target; an OFF port says so; else the state */
-        static const CODE char *const NAME[] = { "", "TEST", "", "REST", "FULL", "BLEED", "ERR" };   /* by PS_* */
+        static const CODE char *const NAME[] = { "", "TEST", "", "REST", "FULL", "BLEED", "ERR", "WAIT" };   /* by PS_* */
         fg = status_color(st);
         if (st == PS_IDLE && off) { scopy(t, "OFF"); fg = th(R_DIM); }
         else if ((st == PS_CHARGE && s->tphase) || st == PS_IDLE) { t[0] = '>'; amps1(t + 1, s->want[p]); fg = th(R_INFO); }

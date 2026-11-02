@@ -10,6 +10,7 @@
  *   CHARGE  constant current with soft ramp; ends in the rest test: after the tail (the rail sits just above the target, so it holds the
  *           cell there and the current tapers), or with no current at all for 2 s (a pulled cell)
  *   REST    output off for ~1 s, then the rest voltage decides like a probe (an empty port reads below 1 V and is released)
+ *   WAIT    a cell somewhere is far above the rail (feeder, below): no port charges until it has bled down; output off
  *   FULL    cell inside the target window; watched: below it for 2 s = test again, above it = bleed
  *   BLEED   cell above the target: switch HIGH (discharge path) down to the target, then the rest test
  *   FAULT   over-voltage / over-current latched; cleared only by removing the cell or stopping
@@ -20,7 +21,7 @@
 #include "board.h"
 #include "sup.h"
 
-enum { PS_IDLE = 0, PS_PROBE, PS_CHARGE, PS_REST, PS_FULL, PS_BLEED, PS_FAULT };
+enum { PS_IDLE = 0, PS_PROBE, PS_CHARGE, PS_REST, PS_FULL, PS_BLEED, PS_FAULT, PS_WAIT };
 
 /* events (one-shot, per port) for the UI / buzzer */
 enum { CE_NONE = 0, CE_FULL = 1, CE_FAULT = 2 };

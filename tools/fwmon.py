@@ -24,7 +24,7 @@ VID, PID = 0x34BF, 0x1004
 REPORT = 64
 
 PHASE = {1: 'rail-up', 2: 'splash', 7: 'run', 0x80: 'FATAL'}
-STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'FULL', 'BLEED', 'FAULT']
+STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'FULL', 'BLEED', 'FAULT', 'WAIT']
 STOP = {0: '-', 1: 'input-low', 2: 'vcc-low', 3: 'rail', 4: 'user', 5: 'min-input-voltage'}
 EVENT = {0: '-', 1: 'port-full', 2: 'port-fault', 3: 'stopped'}
 VOLTS = ['4.20', '4.35', '3.80', '3.85']

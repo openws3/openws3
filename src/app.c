@@ -417,6 +417,7 @@ static void limit_pass(void)
 /* The charger: the readings and settings in, the duties and switch pins out (not while the rail is paused: nothing is driven then) */
 static void charge_pass(void)
 {
+    static uint8_t XD on;
     uint8_t k;
     for (k = 0; k < NPORTS; k++) { cin.v_now[k] = adc_now(port_v_ch(k)); cin.i_now[k] = adc_now(port_i_ch(k)); }
     cin.rail = adc_get(ADC_RAIL);
@@ -426,7 +427,8 @@ static void charge_pass(void)
     chg_pass(&cin, &cout);
 
     if (!run) { outputs_off(); return; }
-    hal_global(1);
+    for (on = k = 0; k < NPORTS; k++) on |= cout.state[k] == PS_CHARGE;
+    hal_global(on);                                  /* the port path is connected only while a port charges: a cell above the rail would feed it */
     for (k = 0; k < NPORTS; k++) {
         hal_pwm(k, cout.duty[k]);
         hal_sw(k, cout.sw[k]);

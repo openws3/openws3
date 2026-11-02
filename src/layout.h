@@ -39,8 +39,8 @@
 #define UI_C_INFO       0x07FF
 #define UI_C_FULL       0x0400   /* the cell of a full port, and the text and dot on it */
 #define UI_C_FULLTX     0xFFFF
-/* per-port state dot, index = PS_* (idle probe charge rest full bleed fault) */
-#define UI_C_DOT        { 0x2104, 0xFFE0, 0xF800, 0xFD20, 0xFFFF, 0x041F, 0xF81F }
+/* per-port state dot, index = PS_* (idle probe charge rest full bleed fault wait) */
+#define UI_C_DOT        { 0x2104, 0xFFE0, 0xF800, 0xFD20, 0xFFFF, 0x041F, 0xF81F, 0xAFE5 }
 #define UI_DOT_X        44
 #define UI_DOT_Y        4
 #define UI_DOT_S        6

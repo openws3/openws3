@@ -121,7 +121,7 @@ Opened from the menu. B2 is the next page, B1 the previous page, BACK (both held
 Header: set current (with a `*` when some port has its own current or is off), input voltage, target voltage (red while charging).
 Cells: port voltage, and below it the measured current while charging, for one second in four the current the port charges at
 (`>0.8A`), and `LIMIT` when a user limit keeps the port waiting with no current. An idle port shows the current it will charge at
-(`>0.5A`), or `OFF` (dimmed) if it sits the run out; otherwise `TEST` / `REST` / `FULL` / `BLEED` / `ERR`. The dot shows the state.
+(`>0.5A`), or `OFF` (dimmed) if it sits the run out; otherwise `TEST` / `REST` / `WAIT` / `FULL` / `BLEED` / `ERR`. The dot shows the state.
 
 **Port settings.** Each port can have its own current, or be left out of the run. Hold button 2 on the main screen: the cells
 show each port's value (`AUTO` = the set current in the header, `SET` = its own, `OFF`) and port 1 is framed.

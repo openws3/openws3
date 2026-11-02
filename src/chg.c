@@ -25,6 +25,12 @@
 #define I_OPEN          2       /* "no current": 29 mA, the offset of the sense input */
 #define T_HELD          222     /* the limits held the port within this many passes (1 s): its current says nothing about the cell */
 #define DUTY_MIN        2       /* the lowest duty while charging (1 is not used) */
+
+/* A full cell far above the rail (a storage target: 4.3 V against 3.8 V) holds the rail up through the port path while a port charges, to
+   about its own voltage less 0.45 V, and the regulator cannot pull it down.  The rail is the charging cells' voltage limit, so while such
+   a cell (a feeder) is there no port charges: they WAIT, and the feeder bleeds down. */
+#define FEED_ON         420     /* a cell more than this above the rail setpoint (0.46 V) is a feeder ... */
+#define FEED_OFF        365     /* ... until it is back under this (0.40 V): the gap is the bleed's sag and rebound */
 /* the net charge counts in 1/16 iu (a shift: no multiply routines, they cost stack), so the bleed's small steps are not lost to rounding; the
    bleed load takes vu x 1.0986 mV / 18 ohm = vu / 240 iu = vu x 273 / 4096 of those per pass, and 273 = 256 + 16 + 1 */
 
@@ -52,6 +58,7 @@ static port_t XD P[NPORTS], W;
 static const chg_in_t XD *IN;
 static uint8_t XD K;
 static uint8_t XD *EV;
+static uint8_t XD feeder;      /* a cell is far above the rail setpoint */
 
 static void p_reset(port_t XD *p, uint8_t iset)
 {
@@ -75,6 +82,7 @@ void chg_abort(void)
 {
     uint8_t k;
     for (k = 0; k < NPORTS; k++) p_reset(&P[k], 0);    /* keeps the filtered v, i */
+    feeder = 0;
 }
 
 void chg_cut(void)
@@ -122,6 +130,7 @@ static void gate(uint16_t d0)
 /* ---- the state transitions: one function per transition, and the states they lead to ---- */
 static uint8_t to_probe(void) { p_reset(&W, IN->iset[K]); return PS_PROBE; }
 static uint8_t to_rest(void)  { W.t_rest = 0; W.duty = 0; return PS_REST; }
+static uint8_t to_wait(void)  { W.duty = 0; return PS_WAIT; }
 static uint8_t to_bleed(void) { W.duty = 0; W.v_rest = W.v; W.t_bleed = W.drop = 0; return PS_BLEED; }
 
 /* returns 1 if the cell is inside the FULL window used at probe/rest time */
@@ -147,6 +156,7 @@ static uint8_t classify(void)
 {
     if (in_full_window()) return go_full();
     if (above_window()) return to_bleed();
+    if (feeder) return to_wait();
     W.ramp = 1; W.ramp_div = 0;
     return PS_CHARGE;
 }
@@ -166,6 +176,7 @@ static uint8_t st_probe(void)
 static uint8_t st_charge(void) REENT
 {
     uint16_t d0 = W.duty;
+    if (feeder) return to_wait();
     W.want = W.iset;
     /* current limit supervision: 2*Iset + 7 for 200 passes */
     if (W.i >= (uint16_t)(2u * IN->iset[K] + 7u)) {
@@ -203,6 +214,13 @@ static uint8_t st_rest(void)
     if (++W.t_rest < T_REST) return PS_REST;
     W.t_rest = 0;
     return classify();
+}
+
+static uint8_t st_wait(void)
+{
+    W.duty = 0;
+    if (W.v >= V_FAULT) return go_fault();           /* a cell this high is a fault, not a wait (as in BLEED) */
+    return feeder ? PS_WAIT : to_rest();             /* the feeder is down: the rest voltage decides again */
 }
 
 static uint8_t st_full(void)
@@ -272,6 +290,7 @@ static void one_port(const chg_in_t XD *in, uint8_t k, uint8_t XD *ev)
     case PS_FULL:   W.st = st_full();   break;
     case PS_BLEED:  W.st = st_bleed();  break;
     case PS_FAULT:  W.st = st_fault();  break;
+    case PS_WAIT:   W.st = st_wait();   break;
     default: break;                                            /* PS_IDLE: no cell, or not running */
     }
 }
@@ -290,9 +309,20 @@ static void publish(chg_out_t XD *out, uint8_t k) REENT
     out->net[k] = W.net; out->est[k] = W.est; out->v_start[k] = W.v_start;
 }
 
+/* a feeder is the highest port voltage; every port counts, a disabled one too: its cell is connected all the same */
+static void watch_feeders(const chg_in_t XD *in)
+{
+    static uint8_t XD k;
+    static uint16_t XD top;
+    for (top = k = 0; k < NPORTS; k++) if (P[k].v > top) top = P[k].v;
+    if (top > in->setpoint + FEED_ON) feeder = 1;
+    else if (top <= in->setpoint + FEED_OFF) feeder = 0;
+}
+
 void chg_pass(const chg_in_t XD *in, chg_out_t XD *out)
 {
     uint8_t k;
+    watch_feeders(in);
     out->any_active = 0;
     for (k = 0; k < NPORTS; k++) {
         out->event[k] = CE_NONE;

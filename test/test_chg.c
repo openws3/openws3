@@ -481,8 +481,47 @@ static void t_counters_bleed(void)
     CHECK(b.out.est[0] == 1 && fabs(b.out.v_start[0] * VPC - 3.95) < 0.03);
 }
 
+/* a cell far above the rail holds it up while a port charges: nothing charges until it has bled down (WAIT) */
+static void t_feeders(void)
+{
+    bench_t b; int k, charging_while_high = 0;
+    double hi = sup_setpoint(2) * VPC + 0.45;                                          /* where a cell starts to matter */
+    bench_init(&b, 2, 21);                                                             /* 3.80 V storage */
+    attach(&b, 0, 4.30, 100, 0.10);                                                    /* a full cell, far above the rail */
+    attach(&b, 1, 3.50, 400, 0.10);                                                    /* a low one that wants charging */
+    run(&b, 60);
+    CHECK(b.out.state[0] == PS_BLEED && b.out.state[1] == PS_WAIT && b.out.duty[1] == 0);
+    for (k = 0; k < 400000 && b.out.state[1] == PS_WAIT; k++) {
+        step(&b);
+        if (b.out.state[1] == PS_CHARGE && b.out.v[0] * VPC > hi) charging_while_high = 1;
+    }
+    CHECK(b.out.state[1] != PS_WAIT && !charging_while_high);                          /* it went on once the high cell was down ... */
+    CHECK(b.out.v[0] * VPC < sup_setpoint(2) * VPC + 0.47);                            /* ... below the feeder's threshold */
+    run(&b, 800);
+    CHECK(b.out.state[1] == PS_CHARGE && b.out.duty[1] > 0);
+
+    /* a feeder arriving while a port charges: the port stops within a few passes, and starts again when it is gone */
+    bench_init(&b, 2, 21);
+    attach(&b, 1, 3.50, 400, 0.10);
+    run(&b, 600);
+    CHECK(b.out.state[1] == PS_CHARGE);
+    attach(&b, 0, 4.30, 100, 0.10);                                                    /* a full cell is put in */
+    run(&b, 6);
+    CHECK(b.out.state[1] == PS_WAIT && b.out.duty[1] == 0);
+    b.present[0] = 0; run(&b, 20);                                                     /* and taken out again */
+    CHECK(b.out.state[1] == PS_REST || b.out.state[1] == PS_PROBE);
+    run(&b, 600);
+    CHECK(b.out.state[1] == PS_CHARGE);
+
+    /* the 4.20 V target: no cell can be far enough above the rail, a full cell never makes anything wait */
+    bench_init(&b, 0, 21);
+    attach(&b, 0, 4.25, 100, 0.10); attach(&b, 1, 3.50, 400, 0.10);
+    run(&b, 100);
+    CHECK(b.out.state[1] == PS_CHARGE);
+}
+
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series(); t_counters(); t_counters_bleed();
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series(); t_counters(); t_counters_bleed(); t_feeders();
     return check_report("chg");
 }

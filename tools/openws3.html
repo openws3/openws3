@@ -110,7 +110,7 @@ progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--acce
 #fwMsg { margin-top: 8px; }
 #fwMsg.bad { color: var(--bad); }
 .st { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: .03em; border: 1px solid currentColor; color: var(--dim); }
-.st.s2 { color: var(--accent); } .st.s4 { color: var(--good); } .st.s6 { color: var(--bad); } .st.s1, .st.s3 { color: var(--warn); } .st.s5 { color: var(--accent); }
+.st.s2 { color: var(--accent); } .st.s4 { color: var(--good); } .st.s6 { color: var(--bad); } .st.s1, .st.s3, .st.s7 { color: var(--warn); } .st.s5 { color: var(--accent); }
 .tag { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; font-style: normal; vertical-align: middle; border: 1px solid currentColor; color: var(--dim); }
 .tag.upd { color: var(--accent); } .tag.ok { color: var(--good); }
 .kv.wide { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
@@ -298,8 +298,8 @@ const SEND_EVERY = 10;                               // telemetry reports (10 ms
 const HIST = 500;                                    // plot samples (page 3 every 20 ms: 10 s)
 const SESSION = 1 + Math.floor(Math.random() * 255);    // developer mode obeys only the host that entered it
 const STOP = { 1: 'input low', 2: 'VCC low', 3: 'rail', 4: 'user', 5: 'minimum input voltage' };
-const STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'FULL', 'BLEED', 'FAULT'];
-const STATE_TXT = ['Idle', 'Checking', 'Charging', 'Resting', 'Full', 'Discharging', 'Fault'];   // the simple view
+const STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'FULL', 'BLEED', 'FAULT', 'WAIT'];
+const STATE_TXT = ['Idle', 'Checking', 'Charging', 'Resting', 'Full', 'Discharging', 'Fault', 'Waiting'];   // the simple view
 const VOLTS = ['4.20 V', '4.35 V', '3.80 V storage', '3.85 V storage'];
 const PHASE = { 1: 'waiting for the rail', 2: 'splash', 3: 'VCC check', 4: 'rail self-test', 5: 'input check', 7: 'running', 128: 'FATAL ERROR' };
 const LMODE = ['equal', 'CH1 first', 'high V first'];

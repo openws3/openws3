@@ -71,6 +71,7 @@ The line under the voltage and the small square in the corner give the port stat
 | `0.60A` | red | charging, at the measured current |
 | `LIMIT` | red | charging is wanted but an [input limit](#running-from-a-weak-supply-the-limits) holds this port until there is room |
 | `REST` | orange | output off for a moment; the cell voltage is read to decide what to do next |
+| `WAIT` | light green | this port is to be charged, but another cell is far above the target (a full cell on a storage setting) and would hold the supply voltage up; it is discharged first, then this one is tested and charged |
 | `FULL` | white; the whole cell is tinted green | the cell is at the target voltage; the port keeps watching it |
 | `BLEED` | blue | the cell is above the target, so the port discharges it down to the target |
 | `ERR` | magenta, blinking | over-voltage or over-current on that port; it stays off until you remove the cell or stop the run |
