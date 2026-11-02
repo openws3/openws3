@@ -23,6 +23,7 @@ static void tx(uint8_t b) __naked
     (void)b;
     __asm
         mov  a, dpl
+        .rept 8
         rlc  a
         clr  _SCL
         mov  _SDA, c
@@ -33,75 +34,6 @@ static void tx(uint8_t b) __naked
         .rept 8
         nop
         .endm
-        rlc  a
-        clr  _SCL
-        mov  _SDA, c
-        .rept 8
-        nop
-        .endm
-        setb _SCL
-        .rept 8
-        nop
-        .endm
-        rlc  a
-        clr  _SCL
-        mov  _SDA, c
-        .rept 8
-        nop
-        .endm
-        setb _SCL
-        .rept 8
-        nop
-        .endm
-        rlc  a
-        clr  _SCL
-        mov  _SDA, c
-        .rept 8
-        nop
-        .endm
-        setb _SCL
-        .rept 8
-        nop
-        .endm
-        rlc  a
-        clr  _SCL
-        mov  _SDA, c
-        .rept 8
-        nop
-        .endm
-        setb _SCL
-        .rept 8
-        nop
-        .endm
-        rlc  a
-        clr  _SCL
-        mov  _SDA, c
-        .rept 8
-        nop
-        .endm
-        setb _SCL
-        .rept 8
-        nop
-        .endm
-        rlc  a
-        clr  _SCL
-        mov  _SDA, c
-        .rept 8
-        nop
-        .endm
-        setb _SCL
-        .rept 8
-        nop
-        .endm
-        rlc  a
-        clr  _SCL
-        mov  _SDA, c
-        .rept 8
-        nop
-        .endm
-        setb _SCL
-        .rept 8
-        nop
         .endm
         ret
     __endasm;
