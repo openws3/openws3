@@ -285,10 +285,13 @@ sudo udevadm control --reload-rules</pre>
 const VID = 0x34bf, PID = 0x1004;                   // the firmware; the chip's loader has the same vendor id and another product id
 const BUNDLED = null;                                // { major, minor, pre, build, dirty, built, size, sha256, data (base64) } in the file made by tools/bundle.py
 const V = 4.5 / 4096, A = 1 / 68.25;                 // readings -> volts / amps (vu, iu: src/adc.h)
+const IU_PASS_PER_MAH = 54600, BLED_PER_MAH = 50;    // page 4: the charge counts of 4.5 ms passes, the bleed estimate's top 16 bits (USB.md)
+const vccOf = bandgap => bandgap ? 1.19 * 4096 / bandgap : 0;
 const BG_NOM = 1071;                                // the bandgap count the voltage scales were made at: an input count x BG_NOM / bandgap = its reading
 const rd = (raw, bg) => bg ? raw * BG_NOM / bg : raw;       // the input voltage only; every other channel is a plain count
 const vinV = r => (r + 1) * 0.4 / 61;                // a VIN reading in volts (cal.c)
 const vminV = v => v <= 200 ? v * 0.05 : 10 + (v - 200) * 0.5;   // MIN IN VOLTS setting in volts (limits.h VMIN_MV)
+const CMD = { STOP: 1, START: 2, SET_CURRENT: 3, SET_VOLTAGE: 4, ISP: 6, DEV_ENTER: 7, DEV_SET: 8, DEV_LEAVE: 9, PORT_VALUE: 10 };   // USB.md
 const DF = { GLOBAL: 1, FAN: 2, PROFILE: 4, BEEP: 8, RAW: 16 };
 const SCR_DEV = 14;
 const SEND_EVERY = 10;                               // telemetry reports (10 ms each) between commands: the firmware's watchdog is 0.5 s
@@ -302,39 +305,44 @@ const PHASE = { 1: 'waiting for the rail', 2: 'splash', 3: 'VCC check', 4: 'rail
 const LMODE = ['equal', 'CH1 first', 'high V first'];
 const P_NONE = 10000;                                // page 2: budget value meaning "no limit"
 
-let dev = null, kind = '', fw = null, busy = false, pickLoader = null, p1 = null, p2 = null, p3 = null, out = null;
+let dev = null, kind = '', fw = null, busy = false, pickLoader = null, p1 = null, p2 = null, p3 = null, p4 = null, out = null;
 const events = [];                                   // the monitor's log, newest first
 let nrx = 0, lastRx = 0, sending = false, dirty = false, beep = 0, seq = 1, msg = '', reopening = false, leaving = false, entering = false;
 const hist = [...Array(6)].map(() => []);
 const $ = id => document.getElementById(id);
+const six = f => [0, 1, 2, 3, 4, 5].map(f);          // one value per port
 
 /* ---- telemetry ---- */
 function parse(dv) {
   const r = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
   if (r.length !== 64 || r[0] !== 0x57 || r[1] !== 0x33 || !r[2] || r[2] !== r[63]) return;
   const u16 = i => (r[i] << 8) | r[i + 1];
-  const six = f => [0, 1, 2, 3, 4, 5].map(f);
+  const u32 = i => r[i] * 16777216 + (r[i + 1] << 16) + (r[i + 2] << 8) + r[i + 3];
+  const plot = i => { for (let k = 0; k < 6; k++) { hist[k].push(i[k] * A); if (hist[k].length > HIST) hist[k].shift(); } };
   if (r[3] === 1) {
     const prev = p1;
-    p1 = { ms: (r[4] * 16777216) + (r[5] << 16) + (r[6] << 8) + r[7], run: r[8] & 1, volt: (r[8] >> 1) & 3, railHold: (r[8] >> 5) & 1,
+    p1 = { ms: u32(4), run: r[8] & 1, volt: (r[8] >> 1) & 3, railHold: (r[8] >> 5) & 1,
            strap: (r[8] >> 6) & 1, iset: r[9], ver: r[10], stop: r[11], alarm: r[12] & 15, screen: r[12] >> 4,
            evSeq: r[13], evCode: r[14], evPort: r[15], cmdSeq: r[16], cmdRes: r[17], state: six(k => r[18 + k]), sw: r[24], phase: r[25],
            duty: six(k => u16(26 + 2 * k)), v: six(k => u16(38 + 2 * k)), i: six(k => r[50 + k]),
            rail: u16(56), vin: u16(58), bandgap: u16(60), railDuty: r[62] * 4 };
     if (!inDev()) {
-      for (let k = 0; k < 6; k++) { hist[k].push(p1.i[k] * A); if (hist[k].length > HIST) hist[k].shift(); }
+      plot(p1.i);
       if (prev && prev.screen !== SCR_DEV) logChanges(prev, p1);
     }
   } else if (r[3] === 2) {
     p2 = { ilim: r[8], vmin: r[9], vcut: r[10], lmode: r[11], budget: u16(12), estMa: u16(18), bcnt: u16(20),
            gate: six(k => r[24 + k]), want: six(k => r[30 + k]), pset: six(k => r[36 + k]), stack: r[46], setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61], pre: r[47] };
   } else if (r[3] === 3) {
-    p3 = { v: [0, 1, 2, 3, 4, 5].map(k => u16(8 + 2 * k)), i: [0, 1, 2, 3, 4, 5].map(k => u16(20 + 2 * k)),
-           therm: u16(32), vin: u16(34), rail: u16(36), bandgap: u16(38), duty: [0, 1, 2, 3, 4, 5].map(k => u16(40 + 2 * k)),
+    p3 = { v: six(k => u16(8 + 2 * k)), i: six(k => u16(20 + 2 * k)),
+           therm: u16(32), vin: u16(34), rail: u16(36), bandgap: u16(38), duty: six(k => u16(40 + 2 * k)),
            railDuty: u16(52), sw: r[54], flags: r[55], b1: r[56] & 1, b2: (r[56] >> 1) & 1, strap: (r[56] >> 2) & 1,
            watchdog: r[57] & 1, supplyStop: (r[57] >> 1) & 1, trip: r[58], setpoint: u16(59) };
-    for (let k = 0; k < 6; k++) { hist[k].push(p3.i[k] * A); if (hist[k].length > HIST) hist[k].shift(); }
+    plot(p3.i);
     if (entering && inDev()) { entering = false; startOutputs(); }   // only after our own Enter: never take over another host's session
+  } else if (r[3] === 4) {
+    p4 = { charge: six(k => u32(8 + 4 * k) / IU_PASS_PER_MAH),
+           vStart: six(k => u16(32 + 2 * k) * V), bled: six(k => u16(44 + 2 * k) / BLED_PER_MAH) };
   }
 }
 const inDev = () => p1 && p1.screen === SCR_DEV;
@@ -380,7 +388,7 @@ async function sendOutputs() {
   if (sending || !dev) return;
   sending = true; dirty = false;
   const rail = out.flags & DF.RAW ? out.raw : out.setpoint;
-  const b = [8, out.flags | (beep > 0 ? DF.BEEP : 0), seq, out.sw, rail >> 8, rail & 255];
+  const b = [CMD.DEV_SET, out.flags | (beep > 0 ? DF.BEEP : 0), seq, out.sw, rail >> 8, rail & 255];
   for (const d of out.duty) b.push(d >> 8, d & 255);
   b.push(SESSION);
   if (beep > 0) beep--;
@@ -390,12 +398,12 @@ async function sendOutputs() {
 
 /* ---- the outputs we ask for ---- */
 function startOutputs() {                            // everything off, the rail where the firmware has it
-  out = { duty: [0, 0, 0, 0, 0, 0], sw: 0, flags: p3.flags & DF.PROFILE, setpoint: p3.setpoint, raw: p3.railDuty };   // the profile pin as it is: the input depends on it
+  out = { duty: six(() => 0), sw: 0, flags: p3.flags & DF.PROFILE, setpoint: p3.setpoint, raw: p3.railDuty };   // the profile pin as it is: the input depends on it
   msg = ''; syncControls();
 }
 function allOff() {
   if (!out) return;
-  out.duty = [0, 0, 0, 0, 0, 0]; out.sw = 0; out.flags &= DF.RAW | DF.PROFILE; dirty = true; syncControls();
+  out.duty = six(() => 0); out.sw = 0; out.flags &= DF.RAW | DF.PROFILE; dirty = true; syncControls();
 }
 const clamp = (v, hi) => Math.max(0, Math.min(hi, Math.round(+v || 0)));
 
@@ -416,14 +424,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function connect(d) {
   dev = d; kind = d.productId === PID ? 'fw' : 'isp';
   if (!dev.opened) await dev.open();
-  p1 = p2 = p3 = out = null; ispRx.length = 0;
+  p1 = p2 = p3 = p4 = out = null; ispRx.length = 0;
   dev.addEventListener('inputreport', kind === 'fw' ? onReport : ispOnReport);
   lastRx = performance.now();
   $('conn').textContent = 'connected: ' + (dev.productName || 'OpenWS3');
   fwShow();
 }
 function disconnected() {
-  dev = null; kind = ''; p1 = p2 = p3 = out = null; syncControls(); fwShow();
+  dev = null; kind = ''; p1 = p2 = p3 = p4 = out = null; syncControls(); fwShow();
 }
 async function reopen() {                            // the telemetry stopped (a long-lived handle can wedge after an OUT report)
   if (reopening || !dev) return;
@@ -437,6 +445,16 @@ async function waitFor(match, ms) {                  // a granted device that sh
     if (d) return d;
   }
 }
+async function restartIntoLoader() {                // the running firmware reboots into the chip's loader (no button); the loader device, if it shows up
+  fwStatus('Restarting the unit into its loader…');
+  await sendRaw([CMD.ISP, 0, 0]).catch(() => {});
+  return waitFor(isLoader, 8000);
+}
+async function reconnectToFirmware(done) {          // after the loader has started the firmware again
+  const d = await waitFor(isFw, 10000);
+  if (d) { await connect(d); fwStatus('Done: ' + done); }
+  else { disconnected(); fwStatus('Done. Press Connect to reconnect to the unit.'); }
+}
 const isFw = d => d.vendorId === VID && d.productId === PID, isLoader = d => d.vendorId === VID && d.productId !== PID;
 $('bConnect').onclick = $('bInstall').onclick = async () => {
   if (!('hid' in navigator)) { msg = 'This browser has no WebHID: use Chrome or Edge.'; return; }
@@ -448,20 +466,20 @@ $('bConnect').onclick = $('bInstall').onclick = async () => {
 $('bEnter').onclick = async () => {
   try {
     leaving = false;
-    const res = await command(7, SESSION);
+    const res = await command(CMD.DEV_ENTER, SESSION);
     entering = res === 0;
     msg = res === 0 ? '' : 'Refused: the unit is charging, or another program drives developer mode.';
   } catch (e) { msg = e.message; }
 };
-$('bLeave').onclick = async () => { out = null; leaving = true; syncControls(); try { await command(9); } catch (e) { msg = e.message; leaving = false; } };
+$('bLeave').onclick = async () => { out = null; leaving = true; syncControls(); try { await command(CMD.DEV_LEAVE); } catch (e) { msg = e.message; leaving = false; } };
 $('bOff').onclick = allOff;
 $('bStart').onclick = async () => {
-  try { msg = await command(2) === 0 ? '' : 'Start refused: a supervisor stop is active (input, VCC or rail).'; } catch (e) { msg = e.message; }
+  try { msg = await command(CMD.START) === 0 ? '' : 'Start refused: a supervisor stop is active (input, VCC or rail).'; } catch (e) { msg = e.message; }
 };
-$('bStop').onclick = async () => { try { await command(1); msg = ''; } catch (e) { msg = e.message; } };
+$('bStop').onclick = async () => { try { await command(CMD.STOP); msg = ''; } catch (e) { msg = e.message; } };
 $('bBeep').onclick = () => { beep = 3; dirty = true; };
-addEventListener('keydown', e => { if (e.key === 'Escape') { if (inDev()) allOff(); else if (p1 && p1.run) command(1).catch(() => {}); } });
-addEventListener('pagehide', () => { if (dev && out) sendRaw([9, 0, 0]); });   // best effort; the watchdog covers the rest
+addEventListener('keydown', e => { if (e.key === 'Escape') { if (inDev()) allOff(); else if (p1 && p1.run) command(CMD.STOP).catch(() => {}); } });
+addEventListener('pagehide', () => { if (dev && out) sendRaw([CMD.DEV_LEAVE, 0, 0]); });   // best effort; the watchdog covers the rest
 setInterval(() => { if (dev && kind === 'fw' && performance.now() - lastRx > 1500) reopen(); }, 500);
 if ('hid' in navigator) {
   navigator.hid.addEventListener('disconnect', e => { if (e.device === dev) disconnected(); });
@@ -485,7 +503,7 @@ VOLTS.forEach((t, n) => selV.add(new Option(t, n)));
 const setting = (sel, cmd) => sel.onchange = async () => {
   try { msg = await command(cmd, +sel.value) === 0 ? '' : 'Refused: stop charging first.'; } catch (e) { msg = e.message; }
 };
-setting(selI, 3); setting(selV, 4);
+setting(selI, CMD.SET_CURRENT); setting(selV, CMD.SET_VOLTAGE);
 
 /* ---- firmware update: the chip's USB loader (frames as in tools/isp.py) ---- */
 const ispRx = [];                                    // loader reports not yet read
@@ -622,18 +640,14 @@ $('bCheck').onclick = async () => {                  // read the chip's identity
   if (busy || !dev || kind !== 'fw') return;
   busy = true; fwShow();
   try {
-    fwStatus('Restarting the unit into its loader…');
-    await sendRaw([6, 0, 0]).catch(() => {});
-    const d = await waitFor(isLoader, 8000);
+    const d = await restartIntoLoader();
     if (!d) throw new Error('the unit did not restart into its loader');
     await connect(d);
     const [c, r] = await ispCmd(0x00, [], 2000);
     if (c !== 0x00 || !r || r.length < 40) throw new Error('the loader did not answer');
     chip = r; fwShow();
     await ispCmd(0xff, [1], 1000);                   // the loader starts the firmware again
-    const b = await waitFor(isFw, 10000);
-    if (b) { await connect(b); fwStatus('Done: the unit runs again.'); }
-    else { disconnected(); fwStatus('Done. Press Connect to reconnect to the unit.'); }
+    await reconnectToFirmware('the unit runs again.');
   } catch (e) { fwStatus('Check failed: ' + e.message + '.', true); }
   busy = false; fwShow();
 };
@@ -647,9 +661,7 @@ $('bFlash').onclick = async () => {
   const prog = $('fwProg');
   try {
     if (kind === 'fw') {                             // no button needed: the running firmware restarts into the loader
-      fwStatus('Restarting the unit into its loader…');
-      await sendRaw([6, 0, 0]).catch(() => {});
-      let d = await waitFor(isLoader, 8000);
+      let d = await restartIntoLoader();
       if (!d) {
         fwStatus('Press "Select the unit…" and pick the unit in the list.');
         $('bLoader').hidden = false;
@@ -661,9 +673,7 @@ $('bFlash').onclick = async () => {
     fwStatus('Writing…'); prog.hidden = false; prog.value = 0;
     await ispWrite(fw.data, p => { prog.value = p; });
     fwStatus('Done. The unit restarts…');
-    const d = await waitFor(isFw, 10000);
-    if (d) { await connect(d); fwStatus('Done: the unit runs the new firmware.'); }
-    else { disconnected(); fwStatus('Done. Press Connect to reconnect to the unit.'); }
+    await reconnectToFirmware('the unit runs the new firmware.');
   } catch (e) { fwStatus('Update failed: ' + e.message + '. The unit can still be programmed: hold the left button while plugging in USB-C, then install again.', true); }
   busy = false; prog.hidden = true; fwShow();
 };
@@ -697,7 +707,7 @@ for (let k = 0; k < 6; k++) {
   pset.add(new Option('off', 0)); pset.add(new Option('auto', 1));
   for (let n = 3; n <= 13; n++) pset.add(new Option((n / 10).toFixed(1) + ' A', 7 * n));
   pset.onchange = async () => {
-    try { msg = await command(10, k, [+pset.value]) === 0 ? '' : 'Refused: stop charging first.'; } catch (e) { msg = e.message; }
+    try { msg = await command(CMD.PORT_VALUE, k, [+pset.value]) === 0 ? '' : 'Refused: stop charging first.'; } catch (e) { msg = e.message; }
   };
   portEls.push({ el, range, num, sw, pset, v: el.querySelector('.v'), i: el.querySelector('.i'), meta: el.querySelector('.meta'),
                  canvas: el.querySelector('canvas'), applied: el.querySelector('.applied'), lim: el.querySelector('.lim') });
@@ -724,7 +734,7 @@ $('rSet').oninput = () => setSet($('rSet').value); $('nSet').onchange = () => se
 $('rRaw').oninput = () => setRawDuty($('rRaw').value); $('nRaw').onchange = () => setRawDuty($('nRaw').value);
 
 function syncControls() {                            // the controls show what we ask for
-  const o = out || { duty: [0, 0, 0, 0, 0, 0], sw: 0, flags: 0, setpoint: p3 ? p3.setpoint : 3836, raw: 0 };
+  const o = out || { duty: six(() => 0), sw: 0, flags: 0, setpoint: p3 ? p3.setpoint : 3836, raw: 0 };
   portEls.forEach((p, k) => { p.range.value = p.num.value = o.duty[k]; p.sw.checked = !!(o.sw & (1 << k)); });
   flagEls.forEach(x => { x.cb.checked = !!(o.flags & DF[x.f]); });
   const raw = !!(o.flags & DF.RAW);
@@ -772,7 +782,7 @@ function render() {
   if (msg) warn.push(msg);
   if (live && p3.watchdog) warn.push('Watchdog: no command for 0.5 s, so the port outputs are off and the rail is back on its entry setpoint.');
   if (live && p3.supplyStop) warn.push('Supply stop (' + (STOP[p1.stop] || 'input / VCC') + '): the port outputs are held off.');
-  if (live && p3.trip) warn.push('Port cut by the guard (over 4.40 V or 2.8 A): ' + [0, 1, 2, 3, 4, 5].filter(k => p3.trip >> k & 1).map(k => 'P' + (k + 1)).join(', ') + '. Set it to 0 and the bleed switch off to release it.');
+  if (live && p3.trip) warn.push('Port cut by the guard (over 4.40 V or 2.8 A): ' + six(k => k).filter(k => p3.trip >> k & 1).map(k => 'P' + (k + 1)).join(', ') + '. Set it to 0 and the bleed switch off to release it.');
   if (inDev() && !out && connected) warn.push('Developer mode is driven by another program.');
   const fatal = connected && p1 && p1.phase === 128;
   if (fatal) warn.push('FATAL ERROR (rail over-voltage, or a failed start-up): everything is off until the power is cycled.');
@@ -787,20 +797,18 @@ function render() {
 
 const item = (name, val, sub) => `<div><span>${name}</span><b class="num">${val}</b>${sub ? '<small class="num">' + sub + '</small>' : ''}</div>`;
 const amps = c => (c * A).toFixed(2) + ' A';
+const vccItem = d => item('VCC', vccOf(d.bandgap).toFixed(2) + ' V', 'bandgap ' + d.bandgap);
+const supplyItems = d => item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') + item('Rail', (d.rail * V).toFixed(3) + ' V', d.rail + ' cnt') + item('Rail PWM', d.railDuty, '/ 400');
+function showVI(p, v, i) { p.v.textContent = (v * V).toFixed(3) + ' V'; p.i.textContent = (i * A).toFixed(3) + ' A'; }
 
 function renderMonitor() {
   const d = p1;
   if (!d) return;
-  const vcc = d.bandgap ? 1.19 * 4096 / d.bandgap : 0;
   $('sum').innerHTML =
     `<div><span>Status</span><b class="big">${d.phase === 128 ? 'Fatal error' : d.phase !== 7 ? 'Starting…' : d.run ? (d.railHold ? 'Paused' : 'Charging') : 'Ready'}</b></div>` +
     item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V') +
     item('Ports charging', d.state.filter(x => x === 2).length + ' of 6');
-  $('inputs').innerHTML =
-    item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') +
-    item('Rail', (d.rail * V).toFixed(3) + ' V', d.rail + ' cnt') +
-    item('Rail PWM', d.railDuty, '/ 400') +
-    item('VCC', vcc.toFixed(2) + ' V', 'bandgap ' + d.bandgap) +
+  $('inputs').innerHTML = supplyItems(d) + vccItem(d) +
     (p2 ? item('Fan', p2.fan ? 'ON' : 'off') : '') +
     item('Strap P3.4', d.strap);
   $('charger').innerHTML =
@@ -823,9 +831,9 @@ function renderMonitor() {
   portEls.forEach((p, k) => {
     const st = d.state[k], sw = !!(d.sw >> k & 1);
     p.el.classList.toggle('cut', st === 6);
-    p.v.textContent = (d.v[k] * V).toFixed(3) + ' V';
-    p.i.textContent = (d.i[k] * A).toFixed(3) + ' A';
-    p.meta.innerHTML = `<span class="st s${st}">${adv ? STATE[st] : STATE_TXT[st]}</span>` + (adv ? `<br>PWM ${d.duty[k]}${sw ? ' · bleed' : ''}` : '');
+    showVI(p, d.v[k], d.i[k]);
+    p.meta.innerHTML = `<span class="st s${st}">${adv ? STATE[st] : STATE_TXT[st]}</span>` + (adv ? `<br>PWM ${d.duty[k]}${sw ? ' · bleed' : ''}` : '') +
+                  (p4 && p4.vStart[k] ? `<br>${p4.charge[k].toFixed(1)} mAh from ${p4.vStart[k].toFixed(3)} V${p4.bled[k] ? ' · bled ' + p4.bled[k].toFixed(1) + ' mAh' : ''}` : '');
     p.lim.textContent = st === 2 && p2 ? 'setpoint ' + amps(p2.want[k]) + ' · ' + ((p2.gate[k] & 3) === 2 ? 'limiter: waiting' : p2.gate[k] & 3 ? 'limiter: held' : 'not limited')
                                        : 'setpoint - (not charging)';
     if (p2 && document.activeElement !== p.pset && +p.pset.value !== p2.pset[k]) p.pset.value = p2.pset[k];
@@ -837,13 +845,9 @@ function renderMonitor() {
 
 function renderDev() {
   if (!p3) return;
-  const d = p3, vcc = d.bandgap ? 1.19 * 4096 / d.bandgap : 0;
-  $('inputs').innerHTML =
-    item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') +
-    item('Rail', (d.rail * V).toFixed(3) + ' V', d.rail + ' cnt') +
-    item('Rail PWM', d.railDuty, '/ 400') +
-    item('Rail setpoint', (d.setpoint * V).toFixed(3) + ' V', d.setpoint) +
-    item('VCC', vcc.toFixed(2) + ' V', 'bandgap ' + d.bandgap) +
+  const d = p3;
+  $('inputs').innerHTML = supplyItems(d) +
+    item('Rail setpoint', (d.setpoint * V).toFixed(3) + ' V', d.setpoint) + vccItem(d) +
     item('Thermistor', d.therm, 'ADC0') +
     item('Button 1', d.b1 ? 'DOWN' : 'up') + item('Button 2', d.b2 ? 'DOWN' : 'up') + item('Strap P3.4', d.strap);
   $('aRail').textContent = 'applied: ' + (d.flags & DF.RAW ? 'raw duty ' : 'regulated, duty ') + d.railDuty;
@@ -851,8 +855,7 @@ function renderDev() {
   portEls.forEach((p, k) => {
     const cut = !!(d.trip >> k & 1), sw = !!(d.sw >> k & 1);
     p.el.classList.toggle('cut', cut);
-    p.v.textContent = (d.v[k] * V).toFixed(3) + ' V';
-    p.i.textContent = (d.i[k] * A).toFixed(3) + ' A';
+    showVI(p, d.v[k], d.i[k]);
     p.meta.innerHTML = (cut ? '<span class="badge">CUT</span><br>' : '') + d.v[k] + ' / ' + d.i[k] + ' cnt<br>PWM ' + d.duty[k];
     p.applied.textContent = 'applied: ' + (sw ? 'bleed' : 'charge path');
     p.applied.classList.toggle('on', sw);
