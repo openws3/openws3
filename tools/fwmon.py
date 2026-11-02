@@ -139,9 +139,9 @@ def command(cmd, arg=0, ack=True, extra=b''):
 
 
 def fmt_counts(t, k):
-    """what the cell has had this run: charged, discharged through the bleed load (an estimate), the voltage it started from; '-' before a run"""
-    if not t['v_start'][k]: return 'charged -  discharged -  from -'
-    return 'charged %.1fmAh  discharged %.1fmAh  from %.3fV' % (t['charge'][k], t['bled'][k], t['v_start'][k])
+    """what the cell has had this run: the net charge (the bleed load's share is an estimate, marked ~) and the voltage it started from; '-' before a run"""
+    if not t['v_start'][k]: return 'net -  from -'
+    return 'net %s%+.1fmAh  from %.3fV' % ('~' if t['bled'][k] else '', t['charge'][k] - t['bled'][k], t['v_start'][k])
 
 
 def fmt_port(t, k):

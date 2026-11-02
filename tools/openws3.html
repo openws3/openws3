@@ -796,9 +796,11 @@ function render() {
 }
 
 const item = (name, val, sub) => `<div><span>${name}</span><b class="num">${val}</b>${sub ? '<small class="num">' + sub + '</small>' : ''}</div>`;
-const counts = k => p4.vStart[k]            // this run: what went in, what the bleed load took out (an estimate), the voltage it started from; '-' before a run
-  ? `charged ${p4.charge[k].toFixed(1)} mAh · discharged ${p4.bled[k].toFixed(1)} mAh · from ${p4.vStart[k].toFixed(3)} V`
-  : 'charged - · discharged - · from -';
+const counts = k => {                       // this run: the net charge in the cell (the bleed load's share is an estimate, marked ~), and the voltage it started from
+  if (!p4.vStart[k]) return 'net - · from -';
+  const n = p4.charge[k] - p4.bled[k];
+  return `net ${p4.bled[k] ? '~' : ''}${n < 0 ? '−' : '+'}${Math.abs(n).toFixed(1)} mAh · from ${p4.vStart[k].toFixed(3)} V`;
+};
 const amps = c => (c * A).toFixed(2) + ' A';
 const vccItem = d => item('VCC', vccOf(d.bandgap).toFixed(2) + ' V', 'bandgap ' + d.bandgap);
 const supplyItems = d => item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V', d.vin + ' cnt') + item('Rail', (d.rail * V).toFixed(3) + ' V', d.rail + ' cnt') + item('Rail PWM', d.railDuty, '/ 400');
