@@ -132,7 +132,7 @@ void lcd_text(uint8_t x, uint8_t y, const char *s, uint8_t sx, uint8_t sy, uint1
             window(x, y, 4, 8);
             for (r = 0; r < 8; r++)
                 for (i = 0; i < 4; i++) {
-                    k = c < 9 && i < 3 && r >= 2 && r < 7 && ((SMALL[c + i] >> (r - 2)) & 1);
+                    k = c < 9 && i && r >= 2 && r < 7 && ((SMALL[c + i - 1] >> (r - 2)) & 1);
                     if (k) { tx(fh); tx(fl); } else { tx(bh); tx(bl); }
                 }
             CS = 1;

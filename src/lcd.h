@@ -11,7 +11,8 @@ void lcd_wake(void);              /* sleep-out; the panel wants 5 ms before lcd_
 void lcd_reconfig(void);          /* re-send the panel registers (not the picture); see lcd.c */
 void lcd_fill(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color);
 /* sx, sy: integer stretch of the 6x8 cell.  Characters outside the font draw as space.
-   sx 0: small letters instead, 3x5 in a cell of 4x8, for the unit after a count: only M, A and H exist (anything else is blank). */
+   sx 0: small letters instead, 3x5 behind a blank column in a cell of 4x8, for the unit after a count: only M, A and H exist
+   (anything else is blank). */
 void lcd_text(uint8_t x, uint8_t y, const char *s, uint8_t sx, uint8_t sy, uint16_t fg, uint16_t bg);
 
 #endif

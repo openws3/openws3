@@ -35,7 +35,7 @@ void lcd_text(uint8_t x, uint8_t y, const char *s, uint8_t sx, uint8_t sy, uint1
             unsigned c = *s == 'M' ? 0 : *s == 'A' ? 3 : *s == 'H' ? 6 : 9, r, i;
             for (r = 0; r < 8; r++)
                 for (i = 0; i < 4; i++)
-                    if (x + i < LCD_PX_W && y + r < LCD_PX_H) fb[y + r][x + i] = c < 9 && i < 3 && r >= 2 && r < 7 && ((SMALL[c + i] >> (r - 2)) & 1) ? fg : bg;
+                    if (x + i < LCD_PX_W && y + r < LCD_PX_H) fb[y + r][x + i] = c < 9 && i && r >= 2 && r < 7 && ((SMALL[c + i - 1] >> (r - 2)) & 1) ? fg : bg;
         }
         return;
     }
