@@ -76,12 +76,12 @@ The line under the voltage and the small square in the corner give the port stat
 | `BLEED` | blue | the cell is above the target, so the port discharges it down to the target |
 | `ERR` | magenta, blinking | over-voltage or over-current on that port; it stays off until you remove the cell or stop the run |
 
-While charging, a port shows its measured current, and for one second in four the current it is aiming for (`>0.6A`).
+While charging, a port shows its measured current and the current it is aiming for (`>0.6A`) in turn, one second each.
 
 <img src="docs/screens/main_charging.png" width="480">
 
-**The charge count.** For two seconds in every four, a port that has taken or given any charge since the run started (or since its cell
-was put in) shows the net charge in place of that line, in small letters for the unit: `+35MAH` went into the cell, `-12MAH` came out of
+**The charge count.** A port that has taken or given at least 1 mAh since the run started (or since its cell was put in) adds the net
+charge to the line, as a third item while charging or a second one in the other states (`DONE`, `REST`, ...), one second like the others, in small letters for the unit: `+35MAH` went into the cell, `-12MAH` came out of
 it (it was discharged). The sign is always there. The count stops at 999 mAh either way. It stays on a `DONE` port, alternating with
 `DONE`, until the cell is removed. A discharge is estimated from the cell voltage, not measured. The web tool and `fwmon` show the same count.
 

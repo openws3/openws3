@@ -204,7 +204,7 @@ static void header(const ui_state_t *s, uint8_t e, char XD *t) REENT
         if (mixed(s)) { uint8_t n = slen(t); t[n] = '*'; t[n + 1] = 0; }
     } else if (e == 1) {
         if (s->alarm) { scopy(t, ALARM[s->alarm]); col = th(R_WARN); }
-        else if (s->usb_off && s->tphase) { scopy(t, "USB OFF"); col = th(R_GOOD); }   /* 1 s in 4, like the targets in the port cells */
+        else if (s->usb_off && s->tphase) { scopy(t, "USB OFF"); col = th(R_GOOD); }   /* 1 s in 4 */
         else { fmt_vin(t, cal_vin_mv(s->vin)); col = s->usb_off ? th(R_GOOD) : th(R_VIN); }
     } else fmt_v2(t, cal_port_mv(s->tgt));
     pad(t, 7);
@@ -223,7 +223,7 @@ static const CODE struct { uint8_t dx, dy, sy; } FLD[2] = { { UI_CELL_VX, UI_CEL
 static void element(const ui_state_t *s, uint8_t e) REENT
 {
     static char XD t[10];                      /* external RAM: direct RAM is full */
-    static uint8_t XD count, ux;               /* t holds a count, which takes its unit after it; where that starts */
+    static uint8_t XD pick, count, ux;         /* the item of the port cell shown now; t holds a count, which takes its unit after it, there */
     uint8_t k, p, part, x, y, st, off, full;
     uint16_t fg, bg;
     if (e < 3) { header(s, e, t); return; }
@@ -254,14 +254,15 @@ static void element(const ui_state_t *s, uint8_t e) REENT
         fmt_v2(t, cal_port_mv(s->v[p]));
         fg = off ? th(R_DIM) : full ? th(R_FULLTX) : th(R_VOLT);
     } else if (part == 1) {
-        /* charging: the measured current, 1 s in 4 the target; idle: the target; an OFF port says so; else the state.  Half the
-           time the net count instead, when there is one */
+        /* the items of a port take turns, one second each: charging: the measured current, the target; any other state its name; an idle
+           port only the target, an OFF one OFF; and last the net count when there is one */
         static const CODE char *const NAME[] = { "", "TEST", "", "REST", "DONE", "BLEED", "ERR", "WAIT" };   /* by PS_* */
         fg = status_color(st);
-        count = 0;
+        pick = s->slot % ((st == PS_CHARGE) + 1 + (s->mah[p] != 0));
+        count = s->mah[p] && pick == (st == PS_CHARGE) + 1;
         if (st == PS_IDLE && off) { scopy(t, "OFF"); fg = th(R_DIM); }
-        else if (s->cphase && s->mah[p]) { count = 1; count_text(t, s->mah[p]); }
-        else if ((st == PS_CHARGE && s->tphase) || st == PS_IDLE) { t[0] = '>'; amps1(t + 1, s->want[p]); fg = th(R_INFO); }
+        else if (count) count_text(t, s->mah[p]);
+        else if ((st == PS_CHARGE && pick == 1) || st == PS_IDLE) { t[0] = '>'; amps1(t + 1, s->want[p]); fg = th(R_INFO); }
         else if (st == PS_CHARGE && s->parked[p]) { scopy(t, "LIMIT"); fg = th(R_WARN); }      /* waiting for room under a user limit */
         else if (st == PS_CHARGE) fmt_a2(t, cal_port_ma(s->i[p]));
         else scopy(t, NAME[st]);
