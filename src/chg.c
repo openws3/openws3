@@ -15,6 +15,7 @@
 #define T_TAIL          8000    /* V>=T-20 and I<=5 for this long -> rest test (36 s) */
 #define T_OPEN          450     /* CHARGE, past the soft ramp, no current at all for this long -> rest test (2 s) */
 #define T_REST          230     /* output off while resting */
+#define REST_DROP       250     /* a pin that fell this far (0.27 V) while resting is not holding a cell: it stays off until it is gone */
 #define T_RAMP_STEP     100     /* soft start: a step every this many passes ... */
 #define RAMP_GROW       8       /* ... of 1 + duty / 8 counts: a cell close to the rail needs many counts per amp, so the step follows the duty */
 #define T_OC            200     /* over-current persistence */
@@ -39,7 +40,7 @@ typedef struct {
     uint16_t duty;               /* PWM compare, 0..PWM_PERIOD */
     uint8_t  sw;                 /* switch pin: 0 = charge path, 1 = bleed path */
     uint16_t v, i;               /* filtered readings: port voltage (vu), current (iu) */
-    uint16_t v_rest;             /* BLEED: the resting voltage it started from */
+    uint16_t v_rest;             /* REST / BLEED: the voltage it started from */
     uint8_t  t_bleed, drop;      /* BLEED: passes so far; how far the bleed load pulls the reading below the resting voltage (vu) */
     uint8_t  iset;               /* working current setting */
     uint8_t  ramp, ramp_div;     /* soft start: in the ramp, and passes until its next step */
@@ -129,7 +130,7 @@ static void gate(uint16_t d0)
 
 /* ---- the state transitions: one function per transition, and the states they lead to ---- */
 static uint8_t to_probe(void) { p_reset(&W, IN->iset[K]); return PS_PROBE; }
-static uint8_t to_rest(void)  { W.t_rest = 0; W.duty = 0; return PS_REST; }
+static uint8_t to_rest(void)  { W.t_rest = 0; W.duty = 0; W.v_rest = W.v; return PS_REST; }
 static uint8_t to_wait(void)  { W.duty = 0; return PS_WAIT; }
 static uint8_t to_bleed(void) { W.duty = 0; W.v_rest = W.v; W.t_bleed = W.drop = 0; return PS_BLEED; }
 
@@ -212,6 +213,7 @@ static uint8_t st_rest(void)
 {
     W.duty = 0;
     if (++W.t_rest < T_REST) return PS_REST;
+    if (W.v + REST_DROP < W.v_rest) return PS_REST;      /* still falling like a pin with no cell: wait for it to read gone */
     W.t_rest = 0;
     return classify();
 }

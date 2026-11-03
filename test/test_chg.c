@@ -337,6 +337,18 @@ static void t_pulled(void)
     CHECK(b.out.state[0] == PS_IDLE && n > 400 && n < 800);                         /* about 2 s + the rest */
     CHECK(b.out.duty[0] == 0);
 
+    /* the pin of a pulled cell does not collapse at once: it falls over a few seconds with the output off, and the port must not
+       start charging again from the middle of that (CHARGE / REST / CHARGE ...) but wait for it to read gone */
+    bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
+    run(&b, 4000);
+    b.present[0] = 0;
+    for (n = 0; n < 4000 && b.out.state[0] != PS_IDLE; n++) {
+        b.ovr_v[0] = b.out.duty[0] > 0 ? 3830 : (uint16_t)(b.in.v_now[0] * 0.995);
+        step(&b);
+        CHECK(n < 700 || b.out.state[0] != PS_CHARGE);                                 /* charging once more after the first rest */
+    }
+    CHECK(b.out.state[0] == PS_IDLE && n < 1500);
+
     /* a cell is not mistaken for a pulled one while the soft ramp has not produced a current yet, nor when the limits hold it off */
     bench_init(&b, 0, 21); attach(&b, 0, 3.7, 400, 0.1);
     run(&b, 1000);
