@@ -26,6 +26,8 @@ enum { PS_IDLE = 0, PS_PROBE, PS_CHARGE, PS_REST, PS_FULL, PS_BLEED, PS_FAULT, P
 /* events (one-shot, per port) for the UI / buzzer */
 enum { CE_NONE = 0, CE_FULL = 1, CE_FAULT = 2 };
 
+#define CHG_NET_PER_MAH 873600L   /* chg_out_t.net per mAh */
+
 typedef struct {
     uint16_t v_now[NPORTS];      /* latest port voltage reading (adc.h: 4.5 V/4096 units) */
     uint16_t i_now[NPORTS];      /* latest port current reading (1/68.25 A units) */
@@ -58,10 +60,13 @@ typedef struct {
     /* what each cell has had, since the run started or the cell was put in; it stays after a stop */
     int32_t  net[NPORTS];        /* charge in less charge out, in 1/16 iu: the raw current readings (iu) of the passes in CHARGE, summed, less the
                                     bleed load's share in BLEED (estimated: its current cannot be sensed, so the port voltage over 18 ohm).
-                                    873600 = 1 mAh; negative for a cell that was only drained */
+                                    CHG_NET_PER_MAH = 1 mAh; negative for a cell that was only drained */
     uint8_t  est[NPORTS];        /* 1 = net includes that estimate */
     uint16_t v_start[NPORTS];    /* the cell's voltage once the probe has settled (vu); 0 until then */
 } chg_out_t;
+
+/* a net count in whole mAh, towards zero */
+int16_t chg_mah(int32_t net);
 
 void chg_init(void);
 void chg_pass(const chg_in_t XD *in, chg_out_t XD *out);

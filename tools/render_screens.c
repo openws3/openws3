@@ -29,6 +29,16 @@ void lcd_fill(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color)
 
 void lcd_text(uint8_t x, uint8_t y, const char *s, uint8_t sx, uint8_t sy, uint16_t fg, uint16_t bg)
 {
+    static const uint8_t SMALL[9] = { 0x1F, 0x06, 0x1F,  0x1E, 0x05, 0x1E,  0x1F, 0x04, 0x1F };      /* M, A, H as in lcd.c */
+    if (!sx) {
+        for (; *s; s++, x += 4) {
+            unsigned c = *s == 'M' ? 0 : *s == 'A' ? 3 : *s == 'H' ? 6 : 9, r, i;
+            for (r = 0; r < 8; r++)
+                for (i = 0; i < 4; i++)
+                    if (x + i < LCD_PX_W && y + r < LCD_PX_H) fb[y + r][x + i] = c < 9 && i < 3 && r >= 2 && r < 7 && ((SMALL[c + i] >> (r - 2)) & 1) ? fg : bg;
+        }
+        return;
+    }
     for (; *s; s++, x += FONT_W * sx) {
         uint8_t c = (uint8_t)*s, r, i;
         if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
@@ -199,6 +209,8 @@ int main(int argc, char **argv)
     s = idle_state(); draw_main(&s); save("main_idle");
     s = charging_state(); draw_main(&s); save("main_charging");
     s.tphase = 1; draw_main(&s); save("main_charging_target");
+    s.cphase = 1; s.mah[0] = 123; s.mah[1] = 1234; s.mah[3] = 35; s.mah[4] = -12; s.mah[5] = -123;
+    draw_main(&s); save("main_counts");
     s = charging_state();
     s.state[1] = PS_CHARGE; s.parked[1] = 1; s.i[1] = 0;
     s.set[2] = PV_OFF; s.set[3] = iu(900);

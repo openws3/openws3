@@ -89,20 +89,21 @@ void ui_message(uint8_t role, const char *title, const char *line2, const char *
 
 /* The one rule for text: draw `s` (at most `max` characters) at x,y in fg on bg, only the characters that differ from `was`, the text
  * the screen shows in the colour *was_fg; a new colour redraws it all.  Then `was` holds `s`. */
-static void show(char XD *was, uint16_t XD *was_fg, uint8_t max, uint8_t x, uint8_t y, uint8_t sx, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
+static uint8_t show(char XD *was, uint16_t XD *was_fg, uint8_t max, uint8_t x, uint8_t y, uint8_t sx, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
 {
     uint8_t i, n = slen(s);
     if (n > max) n = max;
     if (*was_fg != fg) { *was_fg = fg; was[0] = 0; }
-    if (!diff(was, s, n)) return;
+    if (!diff(was, s, n)) return 0;
     draw_span(x, y, sx, sy, s, fg, bg);
     for (i = 0; i < n; i++) was[i] = s[i];
     was[n] = 0;
+    return 1;
 }
 
-static void put(uint8_t e, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
+static uint8_t put(uint8_t e, uint8_t x, uint8_t y, uint8_t sy, uint16_t fg, uint16_t bg, const char *s)
 {
-    show(shown[e], &shown_fg[e], 7, x, y, 1, sy, fg, bg, s);
+    return show(shown[e], &shown_fg[e], 7, x, y, 1, sy, fg, bg, s);
 }
 
 /* The big line is drawn again in place, only the characters that changed: clearing it first would flash it. */
@@ -152,6 +153,20 @@ void ui_main_init(void)
 
 /* pad with spaces to n characters, so a shorter text overwrites the previous one */
 static void pad(char XD *t, uint8_t n) { uint8_t i = slen(t); while (i < n) t[i++] = ' '; t[i] = 0; }
+
+/* a count, always with its sign: "+35", "-123", from 1000 mAh in Ah "+1.2".  The unit is not part of the text (lcd_unit); returns 1 for Ah */
+static uint8_t count_text(char XD *t, int16_t mah)
+{
+    static uint16_t XD a;
+    static uint8_t XD n;
+    a = mah < 0 ? (uint16_t)-mah : (uint16_t)mah;
+    n = 1;
+    t[0] = mah < 0 ? '-' : '+';
+    if (a < 1000) { fmt_u(t + 1, a); return 0; }
+    n += fmt_u(t + 1, a / 1000);
+    t[n++] = '.'; t[n++] = (char)('0' + a % 1000 / 100); t[n] = 0;
+    return 1;
+}
 
 static void frame(uint8_t x, uint8_t y, uint16_t c)
 {
@@ -215,6 +230,7 @@ static const CODE struct { uint8_t dx, dy, sy; } FLD[2] = { { UI_CELL_VX, UI_CEL
 static void element(const ui_state_t *s, uint8_t e) REENT
 {
     static char XD t[10];                      /* external RAM: direct RAM is full */
+    static uint8_t XD unit, ux;                /* the count in t takes its unit after it: 1 MAH, 2 AH; where that starts */
     uint8_t k, p, part, x, y, st, off, full;
     uint16_t fg, bg;
     if (e < 3) { header(s, e, t); return; }
@@ -245,15 +261,18 @@ static void element(const ui_state_t *s, uint8_t e) REENT
         fmt_v2(t, cal_port_mv(s->v[p]));
         fg = off ? th(R_DIM) : full ? th(R_FULLTX) : th(R_VOLT);
     } else if (part == 1) {
-        /* charging: the measured current, 1 s in 4 the target; idle: the target; an OFF port says so; else the state */
+        /* charging: the measured current, 1 s in 4 the target; idle: the target; an OFF port says so; else the state.  Half the
+           time the net count instead, when there is one */
         static const CODE char *const NAME[] = { "", "TEST", "", "REST", "DONE", "BLEED", "ERR", "WAIT" };   /* by PS_* */
         fg = status_color(st);
+        unit = 0;
         if (st == PS_IDLE && off) { scopy(t, "OFF"); fg = th(R_DIM); }
+        else if (s->cphase && s->mah[p]) unit = 1 + count_text(t, s->mah[p]);
         else if ((st == PS_CHARGE && s->tphase) || st == PS_IDLE) { t[0] = '>'; amps1(t + 1, s->want[p]); fg = th(R_INFO); }
         else if (st == PS_CHARGE && s->parked[p]) { scopy(t, "LIMIT"); fg = th(R_WARN); }      /* waiting for room under a user limit */
         else if (st == PS_CHARGE) fmt_a2(t, cal_port_ma(s->i[p]));
         else scopy(t, NAME[st]);
-        pad(t, 5);
+        if (!unit) pad(t, 6);                  /* wide enough to cover the unit of a count that was there */
     } else {
         st &= 7;
         fg = th(R_DOT0 + st);
@@ -261,7 +280,12 @@ static void element(const ui_state_t *s, uint8_t e) REENT
         if (changed(e, fg)) lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, fg);
         return;
     }
-    put(e, x + FLD[part].dx, y + FLD[part].dy, FLD[part].sy, fg, bg, t);
+    if (put(e, x + FLD[part].dx, y + FLD[part].dy, FLD[part].sy, fg, bg, t) && part == 1 && unit) {
+        ux = (uint8_t)(x + FLD[1].dx + slen(t) * 6);                       /* the unit follows the number, then background to the end of the cell */
+        lcd_text(ux, y + FLD[1].dy, unit == 2 ? "AH" : "MAH", 0, 1, fg, bg);
+        ux = (uint8_t)(ux + (unit == 2 ? 8 : 12));
+        if (ux < x + UI_BOX_W) lcd_fill(ux, y + FLD[1].dy, (uint8_t)(x + UI_BOX_W - ux), 8, bg);
+    }
 }
 
 static char XD dbg_shown[DBG_ROWS][DBG_COLS + 1];

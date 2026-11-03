@@ -344,3 +344,18 @@ void chg_pass(const chg_in_t XD *in, chg_out_t XD *out)
         if (W.st == PS_CHARGE || W.st == PS_BLEED) out->any_active = 1;
     }
 }
+
+/* by shifts and subtraction: the 32-bit divide of the compiler needs more direct RAM than is left */
+int16_t chg_mah(int32_t net)
+{
+    static uint32_t XD n, d;
+    static uint16_t XD q;
+    static uint8_t XD b;
+    n = (uint32_t)(net < 0 ? -net : net) >> 7;
+    d = CHG_NET_PER_MAH >> 7;                                /* 873600 = 128 x 6825 */
+    for (q = 0, b = 12; b;) {
+        b--;
+        if (n >= d << b) { n -= d << b; q |= (uint16_t)(1u << b); }
+    }
+    return net < 0 ? -(int16_t)q : (int16_t)q;
+}

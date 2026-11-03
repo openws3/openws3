@@ -16,6 +16,8 @@ typedef struct {
     uint8_t  blink;                       /* toggles at ~1 Hz */
     uint8_t  set[NPORTS];                 /* each port's value (portset.h): PV_OFF, PV_AUTO, else its own current (iu) */
     uint8_t  want[NPORTS];                /* the current each port charges at, or would (iu) */
+    int16_t  mah[NPORTS];                 /* each port's net charge since it started (mAh, discharge negative); 0 = nothing to show */
+    uint8_t  cphase;                      /* 1: ports show that count instead of their state or current (2 s in 4) */
     uint8_t  tphase;                      /* 1: charging ports show their target instead of the measured current (1 s in 4) */
     uint8_t  ps;                          /* 0: main screen; port settings mode: 1 selecting, 2 editing */
     uint8_t  sel, locked;                 /* port settings: the selected port; charging, nothing can be edited */

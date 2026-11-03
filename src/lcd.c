@@ -118,11 +118,27 @@ void lcd_fill(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color)
     CS = 1;
 }
 
+/* the small letters, a column per byte, bit 0 = the top of five rows: M, A, H */
+static const CODE uint8_t SMALL[9] = { 0x1F, 0x06, 0x1F,  0x1E, 0x05, 0x1E,  0x1F, 0x04, 0x1F };
+
 void lcd_text(uint8_t x, uint8_t y, const char *s, uint8_t sx, uint8_t sy, uint16_t fg, uint16_t bg)
 {
     uint8_t col[5], c, r, i, j, k, rows = FONT_H_PX * sy, cols = FONT_W * sx;
     uint8_t fh = fg >> 8, fl = fg & 0xFF, bh = bg >> 8, bl = bg & 0xFF;
 
+    if (!sx) {
+        for (; *s; s++, x += 4) {
+            c = *s == 'M' ? 0 : *s == 'A' ? 3 : *s == 'H' ? 6 : 9;
+            window(x, y, 4, 8);
+            for (r = 0; r < 8; r++)
+                for (i = 0; i < 4; i++) {
+                    k = c < 9 && i < 3 && r >= 2 && r < 7 && ((SMALL[c + i] >> (r - 2)) & 1);
+                    if (k) { tx(fh); tx(fl); } else { tx(bh); tx(bl); }
+                }
+            CS = 1;
+        }
+        return;
+    }
     for (; *s; s++, x += cols) {
         c = (uint8_t)*s;
         if (c >= 'a' && c <= 'z') c -= 'a' - 'A';

@@ -494,6 +494,14 @@ static void t_counters_bleed(void)
 }
 
 /* a cell far above the rail holds it up while a port charges: nothing charges until it has bled down (WAIT) */
+static void t_mah(void)
+{
+    int32_t n;
+    CHECK(chg_mah(0) == 0 && chg_mah(873599) == 0 && chg_mah(873600) == 1 && chg_mah(-873600) == -1 && chg_mah(-873599) == 0);
+    CHECK(chg_mah(35 * 873600L + 12345) == 35 && chg_mah(-123 * 873600L - 1) == -123 && chg_mah(2000 * 873600L) == 2000);
+    for (n = -2147483647L; n < 2147483647L - 7000000L; n += 6999999L) CHECK(chg_mah(n) == n / 873600L);
+}
+
 static void t_feeders(void)
 {
     bench_t b; int k, charging_while_high = 0;
@@ -534,6 +542,6 @@ static void t_feeders(void)
 
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series(); t_counters(); t_counters_bleed(); t_feeders();
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series(); t_counters(); t_counters_bleed(); t_mah(); t_feeders();
     return check_report("chg");
 }

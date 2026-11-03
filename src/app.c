@@ -444,11 +444,13 @@ static void ui_fill(void)
     ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui == STOP_VLIM ? STOP_VLIM : STOP_NONE;      /* the others are screens of their own */
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
     ui.tphase = (uint8_t)(((hal_ms() >> 10) & 3) == 3);
+    ui.cphase = (uint8_t)((((hal_ms() >> 10) + 1) & 2) != 0);       /* seconds 1 and 2 of 4: the target (3) and the current or state (0) have the others */
     ui.usb_off = settings.usb_off;
     ui.ps = screen != SCR_PORTS ? 0 : portset_editing() ? 2 : 1; ui.sel = portset_port(); ui.locked = portset_locked();
     for (k = 0; k < NPORTS; k++) {
         ui.state[k] = cout.state[k]; ui.v[k] = cout.v[k]; ui.i[k] = cout.i[k]; ui.parked[k] = (uint8_t)(cout.held[k] == 2);
         ui.set[k] = portset_get(k); ui.want[k] = cin.iset[k];
+        ui.mah[k] = chg_mah(cout.net[k]);
     }
 }
 
