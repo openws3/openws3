@@ -72,7 +72,7 @@ The line under the voltage and the small square in the corner give the port stat
 | `LIMIT` | red | charging is wanted but an [input limit](#running-from-a-weak-supply-the-limits) holds this port until there is room |
 | `REST` | orange | output off for a moment; the cell voltage is read to decide what to do next |
 | `WAIT` | light green | this port is to be charged, but another cell is far above the target (a full cell on a storage setting) and would hold the supply voltage up; it is discharged first, then this one is tested and charged |
-| `FULL` | white; the whole cell is tinted green | the cell is at the target voltage; the port keeps watching it |
+| `DONE` | white; the whole cell is tinted green | the cell is at the target voltage; the port keeps watching it |
 | `BLEED` | blue | the cell is above the target, so the port discharges it down to the target |
 | `ERR` | magenta, blinking | over-voltage or over-current on that port; it stays off until you remove the cell or stop the run |
 
@@ -105,10 +105,10 @@ A cell that is **above** the target is discharged down to it (`BLEED`), whicheve
 Check the target before you insert a cell that you want to keep full.
 
 **Start and stop:** hold **B1** (about 0.35 s). Each port with a cell begins charging, ramping its current up gently. Hold **B1** again to stop.
-A cell inserted after the start is picked up too. A run does not end by itself: when every port says `FULL` the ports stay on guard and top a
+A cell inserted after the start is picked up too. A run does not end by itself: when every port says `DONE` the ports stay on guard and top a
 cell up if it sags, so stop the run when you are done.
 
-The charger beeps twice when a port becomes full. It stops on its own if the input drops too low or something is wrong with the
+The charger beeps twice when a port is done. It stops on its own if the input drops too low or something is wrong with the
 supply (see [When something is wrong](#when-something-is-wrong)).
 
 ## Per-port settings
@@ -271,7 +271,7 @@ across the room (green; in `AMBER` a brighter amber).
 |---|---|
 | two short bursts | the unit has started |
 | one short beep | a button press was accepted |
-| two beeps | a port has become full |
+| two beeps | a port is done |
 | two long beeps | an error: a port fault, a stop by MIN IN VOLTS, or a locked item that you tried to change |
 | a repeating triple beep | the output rail is out of regulation (`RAIL!`): charging has stopped |
 

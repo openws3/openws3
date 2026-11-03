@@ -10,7 +10,7 @@ static const char *state_name(uint8_t s)
 {
     switch (s) {
     case 0: return "IDLE";   case 1: return "PROBE"; case 2: return "CHARGE"; case 3: return "REST";
-    case 4: return "FULL";   case 5: return "BLEED"; case 6: return "FAULT"; default: return "WAIT";
+    case 4: return "DONE";   case 5: return "BLEED"; case 6: return "FAULT"; default: return "WAIT";
     }
 }
 

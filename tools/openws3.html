@@ -298,8 +298,8 @@ const SEND_EVERY = 10;                               // telemetry reports (10 ms
 const HIST = 500;                                    // plot samples (page 3 every 20 ms: 10 s)
 const SESSION = 1 + Math.floor(Math.random() * 255);    // developer mode obeys only the host that entered it
 const STOP = { 1: 'input low', 2: 'VCC low', 3: 'rail', 4: 'user', 5: 'minimum input voltage' };
-const STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'FULL', 'BLEED', 'FAULT', 'WAIT'];
-const STATE_TXT = ['Idle', 'Checking', 'Charging', 'Resting', 'Full', 'Discharging', 'Fault', 'Waiting'];   // the simple view
+const STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'DONE', 'BLEED', 'FAULT', 'WAIT'];
+const STATE_TXT = ['Idle', 'Checking', 'Charging', 'Resting', 'Done', 'Discharging', 'Fault', 'Waiting'];   // the simple view
 const VOLTS = ['4.20 V', '4.35 V', '3.80 V storage', '3.85 V storage'];
 const PHASE = { 1: 'waiting for the rail', 2: 'splash', 3: 'VCC check', 4: 'rail self-test', 5: 'input check', 7: 'running', 128: 'FATAL ERROR' };
 const LMODE = ['equal', 'CH1 first', 'high V first'];
@@ -350,7 +350,7 @@ function logChanges(a, b) {                          // normal mode: what change
   const add = text => { events.unshift({ ms: b.ms, text }); if (events.length > 200) events.pop(); };
   if (a.run !== b.run) add(b.run ? 'charging started' : 'charging stopped');
   for (let k = 0; k < 6; k++) if (a.state[k] !== b.state[k]) add(`P${k + 1}  ${STATE[a.state[k]]} → ${STATE[b.state[k]]}`);
-  if (a.evSeq !== b.evSeq) add(b.evCode === 1 ? `P${b.evPort + 1} full` : b.evCode === 2 ? `P${b.evPort + 1} FAULT` :
+  if (a.evSeq !== b.evSeq) add(b.evCode === 1 ? `P${b.evPort + 1} done` : b.evCode === 2 ? `P${b.evPort + 1} FAULT` :
                                b.evCode === 3 ? 'stopped: ' + (STOP[b.evPort] || b.evPort) : 'event ' + b.evCode);
   if (a.phase !== b.phase) add('phase: ' + (PHASE[b.phase] || b.phase));
 }

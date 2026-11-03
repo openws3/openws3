@@ -32,9 +32,9 @@ sags: reading = count × 1071 / bandgap count, then cal.h. Every other channel i
 | 10 | firmware release: major in the high nibble, minor in the low (`src/version.h`); 0 on firmware that predates it |
 | 11 | stop reason: 0 none, 1 input low, 2 VCC low, 3 rail, 4 user, 5 minimum input voltage (user setting) |
 | 12 | low nibble: the condition now, as a stop reason (byte 11: 1 input low, 2 VCC low, 3 rail out of range, 5 minimum input voltage; the first three have a screen of their own); high nibble: screen open on the LCD (0 = main, 1..6 = diagnostics page, 13 = port settings, 14 = developer mode, 15 = menu) |
-| 13–15 | last event: sequence (increments), code (1 port full, 2 port fault, 3 stopped), port 0..5 (or the stop reason for code 3) |
+| 13–15 | last event: sequence (increments), code (1 port done, 2 port fault, 3 stopped), port 0..5 (or the stop reason for code 3) |
 | 16, 17 | last command: its sequence number, result (0 ok, 1 refused, 2 unknown) |
-| 18–23 | port states 1..6: 0 idle, 1 probe, 2 charge, 3 rest, 4 full, 5 bleed, 6 fault, 7 wait (a cell far above the rail: no port charges until it has bled down) |
+| 18–23 | port states 1..6: 0 idle, 1 probe, 2 charge, 3 rest, 4 done, 5 bleed, 6 fault, 7 wait (a cell far above the rail: no port charges until it has bled down) |
 | 24 | bit k = port k+1 switch pin high (bleed path) |
 | 25 | phase: 1 bringing the rail up, 2 splash, 7 running, 0x80 fatal condition (everything off; the link keeps working) |
 | 26–37 | PWM duty 1..6 (0..400), 16 bit |
