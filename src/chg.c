@@ -303,6 +303,7 @@ static void tally(void) REENT
     if (W.st == PS_IDLE) { W.net = 0; W.est = 0; W.v_start = 0; return; }
     if (W.st == PS_CHARGE) W.net += (int32_t)IN->i_now[K] << 4;                       /* the raw reading: the filtered one rounds down */
     else if (W.st == PS_BLEED) { W.net -= (int32_t)(((uint32_t)W.v + ((uint32_t)W.v << 4) + ((uint32_t)W.v << 8)) >> 12); W.est = 1; }
+    if (W.net > CHG_NET_MAX) W.net = CHG_NET_MAX; else if (W.net < -CHG_NET_MAX) W.net = -CHG_NET_MAX;
     if (!W.v_start && W.st != PS_PROBE) W.v_start = W.v;             /* the first classification: the probe has settled the reading */
 }
 

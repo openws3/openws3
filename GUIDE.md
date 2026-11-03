@@ -82,7 +82,7 @@ While charging, a port shows its measured current, and for one second in four th
 
 **The charge count.** For two seconds in every four, a port that has taken or given any charge since the run started (or since its cell
 was put in) shows the net charge in place of that line, in small letters for the unit: `+35MAH` went into the cell, `-12MAH` came out of
-it (it was discharged). From 1000 mAh it reads in Ah (`+1.2AH`). The sign is always there. It stays on a `DONE` port, alternating with
+it (it was discharged). The sign is always there. The count stops at 999 mAh either way. It stays on a `DONE` port, alternating with
 `DONE`, until the cell is removed. A discharge is estimated from the cell voltage, not measured. The web tool and `fwmon` show the same count.
 
 <img src="docs/screens/main_counts.png" width="480">

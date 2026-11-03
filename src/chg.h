@@ -27,6 +27,7 @@ enum { PS_IDLE = 0, PS_PROBE, PS_CHARGE, PS_REST, PS_FULL, PS_BLEED, PS_FAULT, P
 enum { CE_NONE = 0, CE_FULL = 1, CE_FAULT = 2 };
 
 #define CHG_NET_PER_MAH 873600L   /* chg_out_t.net per mAh */
+#define CHG_NET_MAX     (999 * CHG_NET_PER_MAH)   /* it stops there, either way: three digits on the screen, and the 32 bits could not hold much more */
 
 typedef struct {
     uint16_t v_now[NPORTS];      /* latest port voltage reading (adc.h: 4.5 V/4096 units) */
@@ -60,7 +61,8 @@ typedef struct {
     /* what each cell has had, since the run started or the cell was put in; it stays after a stop */
     int32_t  net[NPORTS];        /* charge in less charge out, in 1/16 iu: the raw current readings (iu) of the passes in CHARGE, summed, less the
                                     bleed load's share in BLEED (estimated: its current cannot be sensed, so the port voltage over 18 ohm).
-                                    CHG_NET_PER_MAH = 1 mAh; negative for a cell that was only drained */
+                                    CHG_NET_PER_MAH = 1 mAh; negative for a cell that was only drained;
+                                    it stops at +-CHG_NET_MAX */
     uint8_t  est[NPORTS];        /* 1 = net includes that estimate */
     uint16_t v_start[NPORTS];    /* the cell's voltage once the probe has settled (vu); 0 until then */
 } chg_out_t;

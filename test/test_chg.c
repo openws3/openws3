@@ -494,6 +494,18 @@ static void t_counters_bleed(void)
 }
 
 /* a cell far above the rail holds it up while a port charges: nothing charges until it has bled down (WAIT) */
+/* the counter stops at 999 mAh, in either direction, and does not wrap */
+static void t_net_cap(void)
+{
+    bench_t b; int k;
+    bench_init(&b, 0, 63);
+    attach(&b, 0, 3.50, 4000, 0.10);
+    for (k = 0; k < 1100000 && b.out.net[0] < CHG_NET_MAX; k++) step(&b);
+    CHECK(b.out.net[0] == CHG_NET_MAX && chg_mah(b.out.net[0]) == 999);
+    run(&b, 20000);
+    CHECK(b.out.net[0] == CHG_NET_MAX && b.out.state[0] == PS_CHARGE);
+}
+
 static void t_mah(void)
 {
     int32_t n;
@@ -542,6 +554,6 @@ static void t_feeders(void)
 
 int main(void)
 {
-    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series(); t_counters(); t_counters_bleed(); t_mah(); t_feeders();
+    t_sup(); t_idle_and_probe(); t_cc(); t_classify(); t_full_charge(); t_faults(); t_cut(); t_independent(); t_gate(); t_pulled(); t_per_port(); t_storage(); t_full_hold(); t_bleed(); t_bleed_series(); t_counters(); t_counters_bleed(); t_net_cap(); t_mah(); t_feeders();
     return check_report("chg");
 }

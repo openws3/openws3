@@ -97,7 +97,7 @@ Same header (byte 3 = 4). Zero before the run phase.
 
 | Byte | Content |
 |---|---|
-| 8–31 | the net charge of ports 1..6, 32 bit signed big-endian each: the raw current counts (1/68.25 A) of the control passes (4.5 ms) the port spent charging, summed, less the share of the bleed load (below); in 1/16 count, so divide by 873600 for mAh (the range is about ±2.4 Ah; negative for a cell that was only drained). It starts at zero when charging starts and again when a cell is taken out, and stays after a stop |
+| 8–31 | the net charge of ports 1..6, 32 bit signed big-endian each: the raw current counts (1/68.25 A) of the control passes (4.5 ms) the port spent charging, summed, less the share of the bleed load (below); in 1/16 count, so divide by 873600 for mAh (it stops at ±999 mAh; negative for a cell that was only drained). It starts at zero when charging starts and again when a cell is taken out, and stays after a stop |
 | 32–43 | port 1..6: the cell voltage the charge started from, vu: read once the probe has settled, with the output off; 0 until then. It starts again with the charge |
 | 44–49 | port 1..6: 1 = the net includes the bleed load's share, which is an estimate (its current cannot be sensed): the port voltage over the load's 18 ohm, counted in the passes in the BLEED state. It starts again with the charge |
 | 50–62 | zero |

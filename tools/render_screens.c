@@ -209,7 +209,7 @@ int main(int argc, char **argv)
     s = idle_state(); draw_main(&s); save("main_idle");
     s = charging_state(); draw_main(&s); save("main_charging");
     s.tphase = 1; draw_main(&s); save("main_charging_target");
-    s.cphase = 1; s.mah[0] = 123; s.mah[1] = 1234; s.mah[3] = 35; s.mah[4] = -12; s.mah[5] = -123;
+    s.cphase = 1; s.mah[0] = 123; s.mah[1] = 999; s.mah[3] = 35; s.mah[4] = -12; s.mah[5] = -123;
     draw_main(&s); save("main_counts");
     s = charging_state();
     s.state[1] = PS_CHARGE; s.parked[1] = 1; s.i[1] = 0;

@@ -154,18 +154,11 @@ void ui_main_init(void)
 /* pad with spaces to n characters, so a shorter text overwrites the previous one */
 static void pad(char XD *t, uint8_t n) { uint8_t i = slen(t); while (i < n) t[i++] = ' '; t[i] = 0; }
 
-/* a count, always with its sign: "+35", "-123", from 1000 mAh in Ah "+1.2".  The unit is not part of the text (lcd_unit); returns 1 for Ah */
-static uint8_t count_text(char XD *t, int16_t mah)
+/* a count in mAh (three digits at most, chg.h) with its sign: "+35", "-123".  Its unit is drawn after it by element() */
+static void count_text(char XD *t, int16_t mah)
 {
-    static uint16_t XD a;
-    static uint8_t XD n;
-    a = mah < 0 ? (uint16_t)-mah : (uint16_t)mah;
-    n = 1;
     t[0] = mah < 0 ? '-' : '+';
-    if (a < 1000) { fmt_u(t + 1, a); return 0; }
-    n += fmt_u(t + 1, a / 1000);
-    t[n++] = '.'; t[n++] = (char)('0' + a % 1000 / 100); t[n] = 0;
-    return 1;
+    fmt_u(t + 1, mah < 0 ? (uint16_t)-mah : (uint16_t)mah);
 }
 
 static void frame(uint8_t x, uint8_t y, uint16_t c)
@@ -230,7 +223,7 @@ static const CODE struct { uint8_t dx, dy, sy; } FLD[2] = { { UI_CELL_VX, UI_CEL
 static void element(const ui_state_t *s, uint8_t e) REENT
 {
     static char XD t[10];                      /* external RAM: direct RAM is full */
-    static uint8_t XD unit, ux;                /* the count in t takes its unit after it: 1 MAH, 2 AH; where that starts */
+    static uint8_t XD count, ux;               /* t holds a count, which takes its unit after it; where that starts */
     uint8_t k, p, part, x, y, st, off, full;
     uint16_t fg, bg;
     if (e < 3) { header(s, e, t); return; }
@@ -265,14 +258,14 @@ static void element(const ui_state_t *s, uint8_t e) REENT
            time the net count instead, when there is one */
         static const CODE char *const NAME[] = { "", "TEST", "", "REST", "DONE", "BLEED", "ERR", "WAIT" };   /* by PS_* */
         fg = status_color(st);
-        unit = 0;
+        count = 0;
         if (st == PS_IDLE && off) { scopy(t, "OFF"); fg = th(R_DIM); }
-        else if (s->cphase && s->mah[p]) unit = 1 + count_text(t, s->mah[p]);
+        else if (s->cphase && s->mah[p]) { count = 1; count_text(t, s->mah[p]); }
         else if ((st == PS_CHARGE && s->tphase) || st == PS_IDLE) { t[0] = '>'; amps1(t + 1, s->want[p]); fg = th(R_INFO); }
         else if (st == PS_CHARGE && s->parked[p]) { scopy(t, "LIMIT"); fg = th(R_WARN); }      /* waiting for room under a user limit */
         else if (st == PS_CHARGE) fmt_a2(t, cal_port_ma(s->i[p]));
         else scopy(t, NAME[st]);
-        if (!unit) pad(t, 6);                  /* wide enough to cover the unit of a count that was there */
+        if (!count) pad(t, 6);                  /* wide enough to cover the unit of a count that was there */
     } else {
         st &= 7;
         fg = th(R_DOT0 + st);
@@ -280,10 +273,10 @@ static void element(const ui_state_t *s, uint8_t e) REENT
         if (changed(e, fg)) lcd_fill(x + UI_DOT_X, y + UI_DOT_Y, UI_DOT_S, UI_DOT_S, fg);
         return;
     }
-    if (put(e, x + FLD[part].dx, y + FLD[part].dy, FLD[part].sy, fg, bg, t) && part == 1 && unit) {
+    if (put(e, x + FLD[part].dx, y + FLD[part].dy, FLD[part].sy, fg, bg, t) && part == 1 && count) {
         ux = (uint8_t)(x + FLD[1].dx + slen(t) * 6);                       /* the unit follows the number, then background to the end of the cell */
-        lcd_text(ux, y + FLD[1].dy, unit == 2 ? "AH" : "MAH", 0, 1, fg, bg);
-        ux = (uint8_t)(ux + (unit == 2 ? 8 : 12));
+        lcd_text(ux, y + FLD[1].dy, "MAH", 0, 1, fg, bg);
+        ux = (uint8_t)(ux + 12);
         if (ux < x + UI_BOX_W) lcd_fill(ux, y + FLD[1].dy, (uint8_t)(x + UI_BOX_W - ux), 8, bg);
     }
 }
