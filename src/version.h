@@ -3,5 +3,5 @@
 #define VERSION_H
 #define FW_MAJOR 0
 #define FW_MINOR 1
-#define FW_PRE 11        /* beta number of this release; 0 for a final release */
+#define FW_PRE 12        /* beta number of this release; 0 for a final release */
 #endif
