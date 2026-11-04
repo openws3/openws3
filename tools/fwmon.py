@@ -38,6 +38,7 @@ vcc_volts = lambda bandgap: 1.19 * 4096 / bandgap if bandgap else 0
 vmin_volts = lambda v: v * 0.05 if v <= 200 else 10 + (v - 200) * 0.5        # limits.h VMIN_MV
 
 
+THEMES = ['CLASSIC', 'CALM', 'AMBER', 'HIGH CONTRAST']
 LMODE = ['EQUAL', 'CH1 FIRST', 'HIGH V FIRST']
 P_NONE = 10000                       # budget value meaning "no limit"
 _lim = {}                            # the latest page 2 (limits / supervision), merged into every page 1 report
@@ -54,7 +55,7 @@ def parse_limits(r):
     return dict(lim=dict(
         ilim=r[8], vmin=r[9], vcut=r[10], lmode=r[11], budget=u16(r, 12), p_cur=u16(r, 14), p_vol=u16(r, 16), est_ma=u16(r, 18), bcnt=u16(r, 20),
         trip=r[22], active=r[23], gate=list(r[24:30]), want=list(r[30:36]), pset=list(r[36:42]), stack=r[46], setpoint=u16(r, 42), target=u16(r, 44),
-        any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(r, 57) << 16) | u16(r, 59), dirty=r[61], pre=r[47]))
+        any_active=r[51], sup_stop=r[52], rail_cut=r[54], rail_alarm=r[55], fan=r[56], build=(u16(r, 57) << 16) | u16(r, 59), dirty=r[61], pre=r[47], sound=r[48], theme=r[49], usb_off=r[50]))
 
 
 def parse_dev(r):
@@ -247,6 +248,9 @@ def flash(path):
     sys.exit(isp.write(dev, data, erase=True))
 
 
+ITEMS = ['ilim', 'vmin', 'vcut', 'lmode', 'sound', 'theme', 'usbpower']     # USB.md command 11
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -259,6 +263,8 @@ def main():
     m = sub.add_parser('voltage'); m.add_argument('volts', choices=VOLTS)
     p = sub.add_parser('port', help='one port\'s current: auto (the global one), off, or 0.3 .. 1.3 A')
     p.add_argument('n', type=int, choices=range(1, 7)); p.add_argument('value')
+    i = sub.add_parser('set', help='a menu item: ' + ', '.join(ITEMS))
+    i.add_argument('item', choices=ITEMS); i.add_argument('value', type=int, help='the raw value, as in USB.md command 11')
     a = ap.parse_args()
 
     if a.cmd == 'status':
@@ -267,6 +273,12 @@ def main():
         if t['fw'] and 'lim' in t:
             print('firmware %d.%d%s build %08x%s' % (t['fw'] >> 4, t['fw'] & 15, '-beta.%d' % t['lim']['pre'] if t['lim']['pre'] else '', t['lim']['build'], '+' if t['lim']['dirty'] else '') +
                   ('  stack free %d bytes' % t['lim']['stack'] if t['phase'] == 7 else ''))
+            if t['phase'] == 7:
+                L = t['lim']
+                print('settings  max in %s  min in %s  below-min %s  regulation %s  sound %s  theme %s  usb power %s' % (
+                    '%.1fA' % (L['ilim'] / 10) if L['ilim'] else 'off', '%.2fV' % vmin_volts(L['vmin']) if L['vmin'] else 'off', 'STOP RUN' if L['vcut'] else 'LIMIT',
+                    LMODE[L['lmode']] if L['lmode'] < len(LMODE) else L['lmode'], 'on' if L['sound'] else 'off',
+                    THEMES[L['theme']] if L['theme'] < len(THEMES) else L['theme'], 'disabled' if L['usb_off'] else 'on'))
     elif a.cmd == 'watch': watch(a.n, a.raw)
     elif a.cmd == 'log': log(a.file, a.secs)
     elif a.cmd == 'flash': flash(a.file)
@@ -279,6 +291,7 @@ def main():
             v = {'off': 0, 'auto': 1}.get(a.value.lower())
             if v is None: v = 7 * round(float(a.value.rstrip('aA')) * 10)
             code, arg, extra = 10, a.n - 1, bytes([v])
+        if a.cmd == 'set': code, arg, extra = 11, ITEMS.index(a.item), bytes([a.value])
         res = command(code, arg, ack=a.cmd != 'isp', extra=extra)
         print(RESULT.get(res, res))
         sys.exit(0 if res == 0 else 1)

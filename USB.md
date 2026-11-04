@@ -63,7 +63,7 @@ Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Eve
 | 42, 43 / 44, 45 | the rail setpoint and the cell target voltage of the chosen target, vu |
 | 46 | stack bytes never used since boot (internal RAM; the margin left at the deepest point so far) |
 | 47 | pre-release: the beta number of the firmware release (`src/version.h`), 0 for a final release or firmware that predates it |
-| 48–50 | reserved (0) |
+| 48–50 | settings: SOUND (1 = on), THEME (0..3), DISABLE USB POWER (1 = yes) |
 | 51 | some port is charging or bleeding (global enable) |
 | 52–56 | supervisor: stop reason (waiting condition: 1 input low, 2 VCC low, 3 rail out of range), reserved (0), fatal condition (0 none, 0x10 VCC over 5.0 V, 0x11 rail overvoltage, 0x12 no rail), rail alarm (stop reason 3), fan |
 | 57–60 | build id: the first 8 hex digits of the git commit the firmware was built from, 32 bit (the page is not sent in developer mode; use byte 10 of page 1 there) |
@@ -116,6 +116,7 @@ Same header (byte 3 = 4). Zero before the run phase.
 | 8 | bytes 1, 3–18 (below) | developer mode: set the outputs. Must be repeated at least every 0.5 s. Refused outside developer mode or from another session |
 | 9 | – | leave developer mode: everything off, back to the main screen. Holding both buttons on the unit does the same |
 | 10 | port 0..5, value in byte 3 | set one port's value, as in page 2 bytes 36–41 (0 off, 1 auto, else a current step in iu), stored in EEPROM. Refused while running, while that port settings mode on the unit is editing, or if not a valid value |
+| 11 | item in byte 1, value in byte 3 | set a menu item, stored in EEPROM and applied at once: item 0 MAX IN AMPS (0.1 A, 0 = off), 1 MIN IN VOLTS (as page 2 bytes 8–11), 2 BELOW MIN (1 = stop the run), 3 REGULATION (0..2), 4 SOUND (1 = on), 5 THEME (0..3), 6 DISABLE USB POWER (1 = yes). Refused unless the main screen is open (not the menu, a debug page, port settings or developer mode), or if not a value the menu offers |
 
 Command 8: byte 1 flags (b0 global enable, b1 fan, b2 profile, b3 beep (a 0→1 change beeps once), b4 rail on raw duty), byte 3 switch
 pins (bit k = port k+1 to the bleed path), bytes 4–5 the rail: a setpoint in vu (at most 3972 = 4.35 V) or, with b4, a raw duty

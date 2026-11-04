@@ -18,7 +18,7 @@ enum { UP_MAIN, UP_LIMITS, UP_CHARGE, UP_COUNT };     /* page 1; page 2 (page 3 
 extern uint8_t XD usb_page[UP_COUNT][USB_REPORT];
 
 /* host commands, byte 0 of the OUT report (USB.md) */
-enum { CMD_STOP = 1, CMD_START, CMD_SET_CURRENT, CMD_SET_VOLTAGE, CMD_PING, CMD_ISP, CMD_DEV_ENTER, CMD_DEV_SET, CMD_DEV_LEAVE, CMD_PORT_VALUE };
+enum { CMD_STOP = 1, CMD_START, CMD_SET_CURRENT, CMD_SET_VOLTAGE, CMD_PING, CMD_ISP, CMD_DEV_ENTER, CMD_DEV_SET, CMD_DEV_LEAVE, CMD_PORT_VALUE, CMD_SET_ITEM };
 
 void    usb_init(void);
 void    usb_isr(void);                    /* the vector is in main.c */

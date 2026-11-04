@@ -50,6 +50,7 @@ static void tele_limits(uint8_t ph, uint32_t ms)
         tele_put16(b, 42, sup_setpoint(settings.volt)); tele_put16(b, 44, sup_target(settings.volt));    /* vu */
         b[46] = *ctx.stack;
         b[47] = FW_PRE;
+        b[48] = settings.sound; b[49] = settings.theme; b[50] = settings.usb_off;
         b[51] = ctx.out->any_active;
         b[52] = ctx.sup->stop; b[54] = ctx.sup->fatal; b[55] = ctx.sup->stop == STOP_RAIL; b[56] = ctx.sup->fan;
     }

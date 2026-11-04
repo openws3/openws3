@@ -96,6 +96,12 @@ ol.steps li { margin: 4px 0; }
 pre { margin: 8px 0 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; font-size: 12px; }
 select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
 select:disabled { opacity: .45; }
+.card summary { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); cursor: pointer; }
+.card details[open] > summary { margin-bottom: 10px; }
+.card h3 { font-size: 13px; margin: 14px 0 8px; }
+.form { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px 16px; }
+.form label { display: block; color: var(--dim); font-size: 12px; margin-bottom: 3px; }
+.form select { width: 100%; padding: 6px 8px; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 14px; }
 .actions label { color: var(--dim); font-size: 12px; margin-right: 6px; }
 .card.join { border-color: var(--discord); }
@@ -202,11 +208,24 @@ sudo udevadm control --reload-rules</pre>
     <div class="actions">
       <button id="bStart" class="primary" disabled>Start charging</button>
       <button id="bStop" class="danger" disabled>Stop</button>
-      <span><label for="sI">Charge current</label><select id="sI" disabled></select></span>
-      <span><label for="sV">Target voltage</label><select id="sV" disabled></select></span>
     </div>
-    <p class="hint">Current and voltage can be changed while the charger is stopped. The storage voltages leave a cell at about half
-      charge for long-term storage. Esc stops charging.</p>
+    <p class="hint">Esc stops charging.</p>
+  </section>
+  <section class="card fwonly mononly">
+    <details>
+      <summary>Settings</summary>
+      <h3>Charging</h3>
+      <div class="form">
+        <div><label for="sI">Charge current</label><select id="sI" disabled></select></div>
+        <div><label for="sV">Target voltage</label><select id="sV" disabled></select></div>
+      </div>
+      <h3>Limits</h3>
+      <div class="form" id="gLimits"></div>
+      <h3>Preferences</h3>
+      <div class="form" id="gPrefs"></div>
+      <p class="hint">The unit's menu items, saved and applied at once. Current and voltage can only be changed while the charger is stopped, and
+        nothing while a menu or another screen is open on the unit. The storage voltages leave a cell at about half charge for long-term storage.</p>
+    </details>
   </section>
   <section class="card adv fwonly">
     <h2>Supply and inputs</h2>
@@ -291,7 +310,7 @@ const BG_NOM = 1071;                                // the bandgap count the vol
 const rd = (raw, bg) => bg ? raw * BG_NOM / bg : raw;       // the input voltage only; every other channel is a plain count
 const vinV = r => (r + 1) * 0.4 / 61;                // a VIN reading in volts (cal.c)
 const vminV = v => v <= 200 ? v * 0.05 : 10 + (v - 200) * 0.5;   // MIN IN VOLTS setting in volts (limits.h VMIN_MV)
-const CMD = { STOP: 1, START: 2, SET_CURRENT: 3, SET_VOLTAGE: 4, ISP: 6, DEV_ENTER: 7, DEV_SET: 8, DEV_LEAVE: 9, PORT_VALUE: 10 };   // USB.md
+const CMD = { STOP: 1, START: 2, SET_CURRENT: 3, SET_VOLTAGE: 4, ISP: 6, DEV_ENTER: 7, DEV_SET: 8, DEV_LEAVE: 9, PORT_VALUE: 10, SET_ITEM: 11 };   // USB.md
 const DF = { GLOBAL: 1, FAN: 2, PROFILE: 4, BEEP: 8, RAW: 16 };
 const SCR_DEV = 14;
 const SEND_EVERY = 10;                               // telemetry reports (10 ms each) between commands: the firmware's watchdog is 0.5 s
@@ -332,7 +351,7 @@ function parse(dv) {
     }
   } else if (r[3] === 2) {
     p2 = { ilim: r[8], vmin: r[9], vcut: r[10], lmode: r[11], budget: u16(12), estMa: u16(18), bcnt: u16(20),
-           gate: six(k => r[24 + k]), want: six(k => r[30 + k]), pset: six(k => r[36 + k]), stack: r[46], setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61], pre: r[47] };
+           gate: six(k => r[24 + k]), want: six(k => r[30 + k]), pset: six(k => r[36 + k]), stack: r[46], setpoint: u16(42), target: u16(44), fan: r[56], build: u16(57) * 65536 + u16(59), dirty: r[61], pre: r[47], sound: r[48], theme: r[49], usbOff: r[50] };
   } else if (r[3] === 3) {
     p3 = { v: six(k => u16(8 + 2 * k)), i: six(k => u16(20 + 2 * k)),
            therm: u16(32), vin: u16(34), rail: u16(36), bandgap: u16(38), duty: six(k => u16(40 + 2 * k)),
@@ -503,6 +522,30 @@ const setting = (sel, cmd) => sel.onchange = async () => {
   try { msg = await command(cmd, +sel.value) === 0 ? '' : 'Refused: stop charging first.'; } catch (e) { msg = e.message; }
 };
 setting(selI, CMD.SET_CURRENT); setting(selV, CMD.SET_VOLTAGE);
+
+/* ---- menu settings (USB.md, command 11): the value is the raw setting byte, the options are the steps of the menu ---- */
+const steps = (from, to, step) => { const a = []; for (let v = from; v <= to; v += step(v)) a.push(v); return a; };
+const ILIMS = [0, ...steps(5, 100, v => v < 30 ? 1 : 5)];                          // 0.5 .. 3.0 A by 0.1 A, then by 0.5 A to 10 A
+const VMINS = [0, ...steps(96, 230, v => v < 100 ? 1 : v < 120 ? 2 : v < 200 ? 10 : 1)];   // 4.80 .. 5.00 V by 0.05 V, .. 6 V by 0.1 V, then by 0.5 V to 25 V
+const SETTINGS = [
+  ['Max input current', 'gLimits', 0, 'ilim', ILIMS.map(v => [v, v ? (v / 10).toFixed(1) + ' A' : 'off'])],
+  ['Min input voltage', 'gLimits', 1, 'vmin', VMINS.map(v => [v, v ? vminV(v).toFixed(2) + ' V' : 'off'])],
+  ['Below min', 'gLimits', 2, 'vcut', [[0, 'limit'], [1, 'stop run']]],
+  ['Regulation', 'gLimits', 3, 'lmode', LMODE.map((t, n) => [n, t])],
+  ['Sound', 'gPrefs', 4, 'sound', [[1, 'on'], [0, 'off']]],
+  ['USB power', 'gPrefs', 6, 'usbOff', [[0, 'on'], [1, 'disabled']]],
+  ['Theme', 'gPrefs', 5, 'theme', ['classic', 'calm', 'amber', 'high contrast'].map((t, n) => [n, t])],
+].map(([name, group, item, key, opts]) => {
+  const label = document.createElement('div'), sel = document.createElement('select');
+  opts.forEach(([v, t]) => sel.add(new Option(t, v)));
+  sel.onchange = async () => {
+    try { msg = await command(CMD.SET_ITEM, item, [+sel.value]) === 0 ? '' : 'Refused: close the menu on the unit first.'; } catch (e) { msg = e.message; }
+  };
+  label.innerHTML = `<label>${name}</label>`;
+  label.append(sel);
+  $(group).append(label);
+  return { sel, key };
+});
 
 /* ---- firmware update: the chip's USB loader (frames as in tools/isp.py) ---- */
 const ispRx = [];                                    // loader reports not yet read
@@ -770,8 +813,10 @@ function render() {
   $('bOff').disabled = $('bBeep').disabled = !live;
   $('bStart').disabled = !connected || !p1 || p1.run || p1.phase !== 7; $('bStop').disabled = !connected || !p1 || !p1.run;
   const idle = connected && p1 && !p1.run && p1.phase === 7 && !inDev();
-  selI.disabled = selV.disabled = !idle;
+  selI.disabled = selV.disabled = !idle || !!p1.screen;
   if (p1 && !inDev()) { if (document.activeElement !== selI) selI.value = p1.iset; if (document.activeElement !== selV) selV.value = p1.volt; }
+  const open = idle && p2 && !p1.screen;
+  SETTINGS.forEach(x => { x.sel.disabled = !open; if (p2 && document.activeElement !== x.sel) x.sel.value = p2[x.key]; });
   if (dev && kind === 'isp') $('conn').textContent = 'unit in loader mode';
   else if (dev && !connected) $('conn').textContent = 'connected, no telemetry';
   else if (dev) $('conn').textContent = (inDev() ? 'developer mode' : p1 && p1.run ? 'normal mode (charging)' : 'normal mode') +

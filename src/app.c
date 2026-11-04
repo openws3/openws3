@@ -209,6 +209,27 @@ static void dev_leave(void)
     buzz_play(PAT_KEY);
 }
 
+/* one menu item set by the host (USB.md, command 11): a value the menu would not offer is refused; it applies at once, as in the menu */
+static uint8_t set_item(uint8_t item, uint8_t v)
+{
+    switch (item) {
+    case 0: if (cfg_valid_ilim(v) != v) return 0; settings.ilim = v; break;
+    case 1: if (cfg_valid_vmin(v) != v) return 0; settings.vmin = v; break;
+    case 2: if (v > 1) return 0; settings.vcut = v; break;
+    case 3: if (cfg_valid_lmode(v) != v) return 0; settings.lmode = v; break;
+    case 4: if (v > 1) return 0; settings.sound = v; break;
+    case 5: if (cfg_valid_theme(v) != v) return 0; settings.theme = v; break;
+    case 6: if (v > 1) return 0; settings.usb_off = v; break;
+    default: return 0;
+    }
+    buzz_enable(settings.sound);
+    if (settings.usb_off) hal_profile(0);
+    if (settings.theme != th_get()) { th_set(settings.theme); ui_main_init(); }
+    apply_limits();
+    cfg_save();
+    return 1;
+}
+
 /* host commands (USB.md): executed here, in the main loop, with the same rules as the buttons */
 static void usb_service(void)
 {
@@ -237,6 +258,7 @@ static void usb_service(void)
         if (run || c[1] >= NPORTS || !portset_valid(c[3]) || (screen == SCR_PORTS && portset_editing())) { res = 1; break; }   /* byte 3 */
         portset_put(c[1], c[3]); cfg_save();
         break;
+    case CMD_SET_ITEM: res = screen || !set_item(c[1], c[3]); break;                              /* a menu item: byte 1 = item, byte 3 = value; main screen only */
     default: res = 2; break;
     }
     tele_cmd(c[2], res);
