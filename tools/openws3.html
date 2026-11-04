@@ -126,6 +126,11 @@ progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--acce
 .update { border: 2px solid var(--accent); }
 .update h2 { color: var(--accent); }
 .update p { margin: 0 0 4px; }
+dialog { width: min(500px, 92vw); border: 2px solid var(--accent); border-radius: 12px; padding: 18px 20px; background: var(--card); color: var(--text); }
+dialog::backdrop { background: rgba(0, 0, 0, .55); }
+dialog h2 { margin: 0 0 10px; font-size: 18px; }
+dialog p { margin: 0 0 8px; }
+dialog .actions { justify-content: flex-end; }
 .fwcard { scroll-margin-top: 70px; }
 .lim { color: var(--dim); font-size: 12px; }
 #log { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; font-size: 13px; }
@@ -149,6 +154,17 @@ progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--acce
   <button id="bOff" class="devonly danger" disabled title="Esc">ALL OFF</button>
 </header>
 <div id="banner"></div>
+<dialog id="updDlg">
+  <h2>Your charger needs an update</h2>
+  <p id="dlgText"></p>
+  <p>Updates fix problems and add features, and the settings and tools on this page expect the newest firmware. It needs no button:
+    keep the cable plugged in until the charger has restarted.</p>
+  <div class="actions">
+    <button id="dlgSkip">Not now</button>
+    <button id="dlgStart" hidden>Start charging anyway</button>
+    <button id="dlgGo" class="primary" autofocus>Update now</button>
+  </div>
+</dialog>
 <main>
   <section class="card update" id="updCard" hidden>
     <h2>Firmware update available</h2>
@@ -438,11 +454,20 @@ const fwState = () => {                              // 'update', 'same', 'other
   const a = rel(p1.ver >> 4, p1.ver & 15, p2.pre), b = rel(BUNDLED.major, BUNDLED.minor, BUNDLED.pre);
   return a < b ? 'update' : a > b ? 'newer' : p2.build === BUNDLED.build && p2.dirty === BUNDLED.dirty ? 'same' : 'other';
 };
+let updAsked = false, updSkipped = false;           // this connection: the update popup was shown / the user chose to go on without updating
+const updAsk = (start) => {
+  $('dlgText').textContent = 'It runs ' + (installed() || 'an earlier OpenWS3') + ', the newest is ' + bundledText() + '.' + (p1.run ? ' Stop charging first: it cannot be updated while it charges.' : '');
+  $('dlgGo').disabled = !!p1.run; $('dlgStart').hidden = !start;
+  if (!$('updDlg').open) $('updDlg').showModal();
+};
+$('dlgGo').onclick = () => { $('updDlg').close(); $('bUpdate').click(); };
+$('dlgSkip').onclick = () => { updSkipped = true; $('updDlg').close(); };
+$('dlgStart').onclick = () => { updSkipped = true; $('updDlg').close(); $('bStart').click(); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function connect(d) {
   dev = d; kind = d.productId === PID ? 'fw' : 'isp';
   if (!dev.opened) await dev.open();
-  p1 = p2 = p3 = p4 = out = null; ispRx.length = 0;
+  p1 = p2 = p3 = p4 = out = null; ispRx.length = 0; updAsked = updSkipped = false;
   dev.addEventListener('inputreport', kind === 'fw' ? onReport : ispOnReport);
   lastRx = performance.now();
   $('conn').textContent = 'connected: ' + (dev.productName || 'OpenWS3');
@@ -492,6 +517,7 @@ $('bEnter').onclick = async () => {
 $('bLeave').onclick = async () => { out = null; leaving = true; syncControls(); try { await command(CMD.DEV_LEAVE); } catch (e) { msg = e.message; leaving = false; } };
 $('bOff').onclick = allOff;
 $('bStart').onclick = async () => {
+  if (fwState() === 'update' && !updSkipped) return updAsk(true);     // charging on old firmware: ask once more
   try { msg = await command(CMD.START) === 0 ? '' : 'Start refused: a supervisor stop is active (input, VCC or rail).'; } catch (e) { msg = e.message; }
 };
 $('bStop').onclick = async () => { try { await command(CMD.STOP); msg = ''; } catch (e) { msg = e.message; } };
@@ -657,6 +683,7 @@ function fwShow() {
   rows.push(...chipRows());
   kvSet($('fwKv'), rows);
   $('updChip').hidden = $('updCard').hidden = st !== 'update';
+  if (st === 'update' && !updAsked && !p1.run) { updAsked = true; updAsk(false); }   // once per connection, not in the middle of a charge
   if (st === 'update') {
     $('updText').textContent = 'The charger runs ' + (installed() || 'an earlier OpenWS3') + '. The newest firmware, ' + bundledText() + ', is in this page.' +
       (p1.run ? ' Stop charging first: it cannot be updated while it charges.' : '');
