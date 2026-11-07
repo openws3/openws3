@@ -255,10 +255,13 @@ static void element(const ui_state_t *s, uint8_t e) REENT
         fg = off ? th(R_DIM) : full ? th(R_FULLTX) : th(R_VOLT);
     } else if (part == 1) {
         /* the items of a port take turns, one second each: charging: the measured current, the target; any other state its name; an idle
-           port only the target, an OFF one OFF; and last the net count when there is one */
+           port only the target, an OFF one OFF; and last the net count when there is one;
+           a tap on the right button while charging fixes one item for all ports (ui.h view) */
         static const CODE char *const NAME[] = { "", "TEST", "", "REST", "DONE", "BLEED", "ERR", "WAIT" };   /* by PS_* */
         fg = status_color(st);
-        pick = s->slot % ((st == PS_CHARGE) + 1 + (s->mah[p] != 0));
+        if (!s->view) pick = s->slot % ((st == PS_CHARGE) + 1 + (s->mah[p] != 0));
+        else if (s->view == 3) pick = s->mah[p] ? (st == PS_CHARGE) + 1 : 0;
+        else pick = st == PS_CHARGE ? s->view - 1 : 0;
         count = s->mah[p] && pick == (st == PS_CHARGE) + 1;
         if (st == PS_IDLE && off) { scopy(t, "OFF"); fg = th(R_DIM); }
         else if (count) count_text(t, s->mah[p]);

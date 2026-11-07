@@ -32,8 +32,11 @@
 #define LCD_RECONFIG_PASSES 222   /* ~1 s */
 
 static uint8_t  XD rail_hold, run, strap, stop_reason, alarm_ui;   /* alarm_ui: the STOP_* reason the display shows, 0 = none */
+static uint8_t  XD view;                         /* the small line of the port cells while charging (ui.h): 0 = the items take turns */
+static uint32_t XD view_at;                      /* ms: a tap picked it; it goes back to 0 after VIEW_MS */
 static uint32_t XD save_at;                      /* ms: a main-screen change is saved then (0 = nothing to save) */
 #define SAVE_DELAY_MS 1500                       /* after the last tap: stepping through values writes the flash once */
+#define VIEW_MS 15000                            /* after the last tap on the right button while charging, the cells go back to showing all items in turn */
 static int16_t  XD rail_duty;
 static uint16_t XD bg_ref;                     /* slow baseline of the bandgap count: a jump away from it = a supply glitch */
 static uint8_t  XD lcd_cnt, bg_quiet;
@@ -330,7 +333,10 @@ static void handle_buttons(void)
         case EV_OK: menu_enter(); buzz_play(PAT_KEY); break;
         case EV_B2_LONG: ports_enter(); buzz_play(PAT_KEY); break;
         case EV_B2:
-            if (!run) {                                  /* no voltage change while charging */
+            if (run) {                                   /* charging: the line under the voltage shows one item: current, target, mAh, or all in turn */
+                view = (uint8_t)((view + 1) & 3); view_at = hal_ms();
+                buzz_play(PAT_KEY);
+            } else {                                  /* no voltage change while charging */
                 settings.volt = (uint8_t)((settings.volt + 1) % NVOLTS);
                 buzz_play(PAT_KEY);
                 save_later();
@@ -466,6 +472,8 @@ static void ui_fill(void)
     ui.run = run; ui.volt = settings.volt; ui.iset = settings.cur; ui.vin = sin.vin; ui.tgt = cin.tgt; ui.alarm = alarm_ui == STOP_VLIM ? STOP_VLIM : STOP_NONE;      /* the others are screens of their own */
     ui.blink = (uint8_t)((hal_ms() >> 9) & 1);
     ui.tphase = (uint8_t)(((hal_ms() >> 10) & 3) == 3);
+    if (!run || (int32_t)(hal_ms() - view_at) >= VIEW_MS) view = 0;
+    ui.view = view;
     ui.slot = (uint8_t)((uint16_t)(hal_ms() >> 10) % 12);            /* 12 = 2 x 3 x 2: a tile with 2, 3 or 4 items gives each the same turns */
     ui.usb_off = settings.usb_off;
     ui.ps = screen != SCR_PORTS ? 0 : portset_editing() ? 2 : 1; ui.sel = portset_port(); ui.locked = portset_locked();
