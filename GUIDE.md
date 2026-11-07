@@ -77,7 +77,7 @@ The line under the voltage and the small square in the corner give the port stat
 | `ERR` | magenta, blinking | over-voltage or over-current on that port; it stays off until you remove the cell or stop the run |
 
 While charging, a port shows its measured current and the current it is aiming for (`>0.6A`) in turn, one second each, and the charge so far (`+35 MAH`) when there is some.
-Tap **B2** to hold one of these on all ports: the measured current, the target, the charge, then all in turn again. After 15 s without a tap it goes back to all in turn.
+Tap **B2** to hold one of these on all ports: the measured current (`0.60A`), the target (`>0.6A`), the charge (`+35 MAH`), and around again. After 15 s without a tap, or when the run stops, the ports go back to showing all in turn.
 
 <img src="docs/screens/main_charging.png" width="480">
 

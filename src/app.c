@@ -333,8 +333,8 @@ static void handle_buttons(void)
         case EV_OK: menu_enter(); buzz_play(PAT_KEY); break;
         case EV_B2_LONG: ports_enter(); buzz_play(PAT_KEY); break;
         case EV_B2:
-            if (run) {                                   /* charging: the line under the voltage shows one item: current, target, mAh, or all in turn */
-                view = (uint8_t)((view + 1) & 3); view_at = hal_ms();
+            if (run) {                                   /* charging: the line under the voltage shows one item: current, target, mAh; the items take turns again after VIEW_MS */
+                view = (uint8_t)(view % 3 + 1); view_at = hal_ms();
                 buzz_play(PAT_KEY);
             } else {                                  /* no voltage change while charging */
                 settings.volt = (uint8_t)((settings.volt + 1) % NVOLTS);
