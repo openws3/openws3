@@ -62,8 +62,9 @@ charge current is lower. The firmware therefore cannot measure a bleed current; 
 
 ## Settings storage
 
-Settings use the chip's IAP (EEPROM area of the flash): one 512-byte sector at offset 0x0800, a layout byte followed by the
+Settings use the chip's IAP (EEPROM area of the flash): the first 512-byte sector (offset 0), a layout byte followed by the
 fields of `cfg_t` (`src/cfg.h`). A page without the current layout byte loads the defaults.
+The area size is chosen when a unit is flashed and some units have only 2 KB, so nothing is placed beyond the first sector.
 
 ## Flashing
 

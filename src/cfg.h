@@ -6,8 +6,8 @@
 #include "sup.h"
 #include "board.h"
 
-#define CFG_ADDR     0x0800
-#define CFG_LAYOUT   0xB4             /* change it whenever cfg_t changes: an old page then loads the defaults */
+#define CFG_ADDR     0x0000           /* the start of the EEPROM area: units flashed with a small one (2 KB) work too */
+#define CFG_LAYOUT   0xB5             /* change it whenever cfg_t changes: an old page then loads the defaults */
 
 typedef struct {
     uint8_t cur;                      /* charge current, iu: 21..91 (0.3..1.3 A) */
