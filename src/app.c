@@ -27,6 +27,7 @@
 #define BOOT_RAIL_PASSES 150      /* the rail is brought up under the regulator for this many 2 ms steps before the display starts */
 #define BOOT_USB_WAIT_MS 1500     /* allow a USB host to select the configuration on a weak supply */
 #define USB_LCD_RETRY_MS 1000
+#define EXTERNAL_INPUT_MIN_MV 6000u
 #define TEST_TRIES       3        /* the rail self-test: failed this many times with the rail up, it is fatal */
 #define SELFTEST_TOL1    70       /* phase 1 (servo to the 3.80 V target) must land within this many counts of it ... */
 #define SELFTEST_TOL2    80       /* ... phase 2 (servo to the 4.35 V target) within this many */
@@ -182,7 +183,9 @@ void app_boot(void)
     hal_irq_on();
     adc_prime();
     wait_for_usb_power();
-    hal_power(1);                                    /* main power enable, first on */
+    /* With USB power disabled and an external-range input, leave P4.7 low.
+     * Asserting it in this configuration can drop a direct USB-C data connection. */
+    hal_power(!settings.usb_off || cal_vin_mv(adc_get(ADC_VIN)) < EXTERNAL_INPUT_MIN_MV);
     strap = hal_strap();
     if (!strap) hal_profile(1);                      /* P5.3 set when the strap is low */
     rail_duty = 100; hal_rail(100);                  /* rail PWM starts at 100/400 */

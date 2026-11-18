@@ -33,7 +33,7 @@
 #define RAIL_CCR          0xFEF9    /* PWMB_CCR3 -> P3.3 rail actuator (higher duty = lower rail) */
 
 /* Single-bit signals.  Roles marked ? are inferred from behaviour, not verified on the hardware. */
-/*   P4.7  main power enable (first on / last off)      P5.2  global charge enable
+/*   P4.7  main power enable (left low at boot with USB power disabled and an external-range input)   P5.2  global charge enable
  *   P5.3  input bypass ("profile"), set at boot when strap P3.4=0: bypasses a diode in the USB-C input path, 0.6 V (V), and conducts
  *         backwards, into the USB-C connector from a supply on the XT60 (V)   P3.4  input strap ?
  *   P3.2  button 1 (INT0)   P3.6  button 2 (INT2)
