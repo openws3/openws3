@@ -4,8 +4,8 @@ The firmware is a USB **HID** device (VID `34bf`, PID `1004`, product "OpenWS3")
 needed. The report descriptor uses a vendor-defined usage page, so the host does not turn the telemetry into keyboard or other input events. On Linux it shows up as `/dev/hidrawN`. Use `tools/fwmon.py`.
 
 * Telemetry: 64-byte **IN** reports, polled every 10 ms, in the order page 1, 2, 1, 4 (byte 3 = page): page 1 is the charger (refreshed every 20 ms), page 2 the
-  limiter and supervisor and page 4 the charge counters (every 40 ms). It is available from power-up, and the commands work in every state,
-  also in a fatal condition (everything stays off; the unit can still be read, stopped and flashed). `fwmon.py` merges the pages into one snapshot.
+  limiter and supervisor and page 4 the charge counters (every 40 ms). Telemetry is available while waiting for USB power, when the unit
+  accepts stop, ping and ISP commands. In a fatal condition the unit can still be read, stopped and flashed. `fwmon.py` merges the pages into one snapshot.
 * Commands: one 64-byte **OUT** report. The interrupt only stores it. `app_pass` executes it in the main loop with the same rules as
   the buttons, so the power path is never touched from interrupt context. Raw PWM and pin access exists only in the separate
   developer mode (commands 7–9, below), which keeps its own guards.
@@ -36,7 +36,7 @@ sags: reading = count × 1071 / bandgap count, then cal.h. Every other channel i
 | 16, 17 | last command: its sequence number, result (0 ok, 1 refused, 2 unknown) |
 | 18–23 | port states 1..6: 0 idle, 1 probe, 2 charge, 3 rest, 4 done, 5 bleed, 6 fault, 7 wait (a cell far above the rail: no port charges until it has bled down) |
 | 24 | bit k = port k+1 switch pin high (bleed path) |
-| 25 | phase: 1 bringing the rail up, 2 splash, 7 running, 0x80 fatal condition (everything off; the link keeps working) |
+| 25 | phase: 1 bringing the rail up, 2 splash, 7 running, 8 waiting for controller voltage over USB (main power off; stop, ping and ISP available), 0x80 fatal condition (everything off; the link keeps working) |
 | 26–37 | PWM duty 1..6 (0..400), 16 bit |
 | 38–49 | port voltage 1..6: the charger's filtered reading, vu (×4.5/4096 V), 16 bit |
 | 50–55 | port current 1..6: the charger's filtered reading, iu (÷68.25 A), saturated at 255 |
@@ -46,7 +46,7 @@ sags: reading = count × 1071 / bandgap count, then cal.h. Every other channel i
 
 ### Page 2: limiter and supervisor
 
-Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). Everything below is zero before the run phase.
+Same header (bytes 0–7, byte 3 = 2, head / tail sequence in bytes 2 / 63). The release and build fields are available during startup. The other fields are zero before the run phase.
 
 | Byte | Content |
 |---|---|

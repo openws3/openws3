@@ -329,6 +329,7 @@ const vminV = v => v <= 200 ? v * 0.05 : 10 + (v - 200) * 0.5;   // MIN IN VOLTS
 const CMD = { STOP: 1, START: 2, SET_CURRENT: 3, SET_VOLTAGE: 4, ISP: 6, DEV_ENTER: 7, DEV_SET: 8, DEV_LEAVE: 9, PORT_VALUE: 10, SET_ITEM: 11 };   // USB.md
 const DF = { GLOBAL: 1, FAN: 2, PROFILE: 4, BEEP: 8, RAW: 16 };
 const SCR_DEV = 14;
+const PH_USB_POWER_WAIT = 8;
 const SEND_EVERY = 10;                               // telemetry reports (10 ms each) between commands: the firmware's watchdog is 0.5 s
 const HIST = 500;                                    // plot samples (page 3 every 20 ms: 10 s)
 const SESSION = 1 + Math.floor(Math.random() * 255);    // developer mode obeys only the host that entered it
@@ -336,7 +337,7 @@ const STOP = { 1: 'input low', 2: 'VCC low', 3: 'rail', 4: 'user', 5: 'minimum i
 const STATE = ['IDLE', 'PROBE', 'CHARGE', 'REST', 'DONE', 'BLEED', 'FAULT', 'WAIT'];
 const STATE_TXT = ['Idle', 'Checking', 'Charging', 'Resting', 'Done', 'Discharging', 'Fault', 'Waiting'];   // the simple view
 const VOLTS = ['4.20 V', '4.35 V', '3.80 V storage', '3.85 V storage'];
-const PHASE = { 1: 'waiting for the rail', 2: 'splash', 3: 'VCC check', 4: 'rail self-test', 5: 'input check', 7: 'running', 128: 'FATAL ERROR' };
+const PHASE = { 1: 'waiting for the rail', 2: 'splash', 3: 'VCC check', 4: 'rail self-test', 5: 'input check', 7: 'running', [PH_USB_POWER_WAIT]: 'waiting for power', 128: 'FATAL ERROR' };
 const LMODE = ['equal', 'CH1 first', 'high V first'];
 const P_NONE = 10000;                                // page 2: budget value meaning "no limit"
 
@@ -829,6 +830,7 @@ function spark(c, data) {
 }
 function render() {
   const connected = !!dev && performance.now() - lastRx < 1500, live = connected && !!out && inDev();
+  const usbPowerWait = connected && p1?.phase === PH_USB_POWER_WAIT;
   document.body.classList.toggle('mode-dev', !!inDev());
   document.body.classList.toggle('adv', adv || !!inDev());
   document.body.classList.toggle('has-dev', !!dev);
@@ -836,7 +838,7 @@ function render() {
   $('bSimple').classList.toggle('on', !adv && !inDev()); $('bAdv').classList.toggle('on', adv || !!inDev());
   $('bConnect').hidden = !!dev;
   document.body.classList.toggle('locked', !live);
-  $('bEnter').disabled = !connected || inDev() || (p1 && p1.run); $('bLeave').disabled = !connected || !inDev();
+  $('bEnter').disabled = !connected || inDev() || (p1 && (p1.run || usbPowerWait)); $('bLeave').disabled = !connected || !inDev();
   $('bOff').disabled = $('bBeep').disabled = !live;
   $('bStart').disabled = !connected || !p1 || p1.run || p1.phase !== 7; $('bStop').disabled = !connected || !p1 || !p1.run;
   const idle = connected && p1 && !p1.run && p1.phase === 7 && !inDev();
@@ -846,7 +848,7 @@ function render() {
   SETTINGS.forEach(x => { x.sel.disabled = !open; if (p2 && document.activeElement !== x.sel) x.sel.value = p2[x.key]; });
   if (dev && kind === 'isp') $('conn').textContent = 'unit in loader mode';
   else if (dev && !connected) $('conn').textContent = 'connected, no telemetry';
-  else if (dev) $('conn').textContent = (inDev() ? 'developer mode' : p1 && p1.run ? 'normal mode (charging)' : 'normal mode') +
+  else if (dev) $('conn').textContent = (usbPowerWait ? 'waiting for power' : inDev() ? 'developer mode' : p1 && p1.run ? 'normal mode (charging)' : 'normal mode') +
                                         (installed() ? '  ·  firmware ' + installed() : '') + (p1 ? '  ·  up ' + (p1.ms / 1000).toFixed(0) + ' s' : '');
 
   const warn = [];
@@ -857,6 +859,7 @@ function render() {
   if (inDev() && !out && connected) warn.push('Developer mode is driven by another program.');
   const fatal = connected && p1 && p1.phase === 128;
   if (fatal) warn.push('FATAL ERROR (rail over-voltage, or a failed start-up): everything is off until the power is cycled.');
+  else if (usbPowerWait) warn.push('USB is connected. The controller voltage is too low to start the charger. Try a different USB data port or a powered hub.');
   else if (connected && p1 && !inDev() && p1.alarm) warn.push('Alarm: ' + (STOP[p1.alarm] || p1.alarm) + (p1.alarm === 3 ? ' out of regulation, charging paused' : ''));
   $('banner').style.display = warn.length ? 'block' : 'none';
   $('banner').className = fatal || (live && (p3.trip || p3.supplyStop || p3.watchdog)) ? 'bad' : '';
@@ -880,8 +883,10 @@ function showVI(p, v, i) { p.v.textContent = (v * V).toFixed(3) + ' V'; p.i.text
 function renderMonitor() {
   const d = p1;
   if (!d) return;
+  const status = d.phase === 128 ? 'Fatal error' : d.phase === PH_USB_POWER_WAIT ? 'Waiting for power' :
+    d.phase !== 7 ? 'Starting…' : d.run ? (d.railHold ? 'Paused' : 'Charging') : 'Ready';
   $('sum').innerHTML =
-    `<div><span>Status</span><b class="big">${d.phase === 128 ? 'Fatal error' : d.phase !== 7 ? 'Starting…' : d.run ? (d.railHold ? 'Paused' : 'Charging') : 'Ready'}</b></div>` +
+    `<div><span>Status</span><b class="big">${status}</b></div>` +
     item('Input', vinV(rd(d.vin, d.bandgap)).toFixed(2) + ' V') +
     item('Ports charging', d.state.filter(x => x === 2).length + ' of 6');
   $('inputs').innerHTML = supplyItems(d) + vccItem(d) +

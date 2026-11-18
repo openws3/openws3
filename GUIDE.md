@@ -254,6 +254,10 @@ To use the monitor, the web page or flashing while the charger runs from the XT6
    switch is off and cannot be turned on, so it is safe to connect the computer.
 3. Connect the USB-C cable. The computer neither powers the unit nor gets power from it; only data passes.
 
+If the computer drops the direct USB-C connection with XT60 power on and `USB OFF` visible, try a USB-A–to–USB-C data cable
+through a USB-A hub or adapter. If the web tool shows **Waiting for power** on USB alone, telemetry and firmware updates are available
+while the main power path and charging outputs stay off.
+
 With the setting on, the switch stays off after every start and cannot be turned on from the menu, the PC link or the web page. Powered from
 USB alone the unit shows the amber `INPUT LOW` screen with `USB POWER OFF, USE XT60` and waits for the XT60; the menu still opens to
 switch the setting back. Set it back to `NO` to charge from a USB-C supply again.

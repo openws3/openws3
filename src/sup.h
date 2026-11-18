@@ -9,6 +9,7 @@
 /* Input gate: ~4.6 V, so a plain 5 V USB supply runs the unit.  How much the source can give is the user's call: the current
  * setting and the input limits (MAX IN AMPS, MIN IN VOLTS; from a LiPo pack, MIN IN VOLTS on STOP RUN is its low-voltage cut). */
 #define VIN_MIN       700
+#define VCC_STOP     1108    /* bandgap count at about 4.4 V VCC */
 
 /* the four target voltages the user chooses between (the last two are for storage): the port-voltage target T and the rail
  * setpoint S, in vu.  The rail is held just above the target and is what holds a cell there, see chg.c */
