@@ -26,6 +26,7 @@
 
 #define BOOT_RAIL_PASSES 150      /* the rail is brought up under the regulator for this many 2 ms steps before the display starts */
 #define BOOT_USB_WAIT_MS 1500     /* allow a USB host to select the configuration on a weak supply */
+#define USB_LCD_RETRY_MS 1000
 #define TEST_TRIES       3        /* the rail self-test: failed this many times with the rail up, it is fatal */
 #define SELFTEST_TOL1    70       /* phase 1 (servo to the 3.80 V target) must land within this many counts of it ... */
 #define SELFTEST_TOL2    80       /* ... phase 2 (servo to the 4.35 V target) within this many */
@@ -128,6 +129,7 @@ static uint8_t selftest(void)
 static void wait_for_usb_power(void)
 {
     uint16_t start = (uint16_t)hal_ms();
+    uint32_t lcd_retry_at = 0;
     uint8_t host_seen = 0, cmd[USB_CMD];
 
     adc_scan_slow_now();
@@ -135,6 +137,7 @@ static void wait_for_usb_power(void)
         if (!host_seen && usb_configured()) {
             host_seen = 1;
             lcd_init();                              /* the LCD can show the warning with the main power path off */
+            lcd_retry_at = hal_ms() + USB_LCD_RETRY_MS;
         }
         if (!host_seen && (uint16_t)((uint16_t)hal_ms() - start) >= BOOT_USB_WAIT_MS) break;
 
@@ -146,7 +149,17 @@ static void wait_for_usb_power(void)
         strap = hal_strap();
         stop_reason = alarm_ui = STOP_VCC;
         tele_pass(PH_USB_POWER_WAIT);
-        if (host_seen) cond_show(settings.usb_off ? STOP_VIN : STOP_VCC);
+        if (host_seen) {
+            /* The first draw can be lost on a weak USB supply. Re-send the panel settings and the full message once it settles. */
+            if (lcd_retry_at && (int32_t)(hal_ms() - lcd_retry_at) >= 0) {
+                lcd_retry_at = 0;
+                lcd_wake();
+                hal_delay_ms(120);                   /* allow sleep-out to finish if the first wake was lost */
+                lcd_reconfig();
+                cond_forget();
+            }
+            cond_show(settings.usb_off ? STOP_VIN : STOP_VCC);
+        }
         hal_delay_ms(20);
         adc_scan_slow_now();
     }
