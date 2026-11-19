@@ -250,14 +250,14 @@ must not have a computer connected to its USB-C unless the switch is kept off.
 To use the monitor, the web page or flashing while the charger runs from the XT60:
 
 1. Open the menu and set **DISABLE USB POWER** to `YES` (not while charging).
-2. Check the input voltage in the header: it is **green**, and reads `USB OFF` for a second every four seconds. This is the sign that the
-   switch is off and cannot be turned on, so it is safe to connect the computer.
+2. With USB disconnected, power-cycle the charger and let it boot from XT60. Wait for the green input voltage in the header and the
+   `USB OFF` indicator, which appears for a second every four seconds.
 3. Connect the USB-C cable. The computer neither powers the unit nor gets power from it; only data passes.
 
-If the computer drops the direct USB-C connection, unplug USB and power-cycle the charger from XT60 with **DISABLE USB POWER**
-already saved as `YES`. Wait for `USB OFF` before reconnecting. A USB-A–to–USB-C data cable through a hub or adapter is another option.
-If the web tool shows **Waiting for power** on USB alone, telemetry and firmware updates are available while the main power path
-and charging outputs stay off.
+On a tested Mac, the web tool stayed connected on USB alone in **Waiting for power**. Telemetry and firmware updates are available
+in that state while the main power path and charging outputs stay off. Applying XT60 power during that USB session can drop the direct
+connection. Unplug USB and repeat the XT60-first startup sequence above to reconnect. A USB-A–to–USB-C data cable through a hub or
+adapter is another option.
 
 With the setting on, the switch stays off after every start and cannot be turned on from the menu, the PC link or the web page. Powered from
 USB alone the unit shows the amber `INPUT LOW` screen with `USB POWER OFF, USE XT60` and waits for the XT60; the menu still opens to
