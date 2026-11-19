@@ -57,6 +57,8 @@ charge current is lower. The firmware therefore cannot measure a bleed current; 
   with load too). It also conducts backwards (V): with it on, a supply on the XT60 is fed into the USB-C connector. Not known: what the
   strap is wired to. The menu setting DISABLE USB POWER keeps the pin off: `hal_profile` in `hal.c` is the only place that drives it, and
   it never sets it while the setting is on.
+* With DISABLE USB POWER saved and at least 6 V measured at startup, the firmware also leaves P4.7 low. On the tested WhoopStor,
+  leaving P4.7 low kept direct USB-C connected to an Apple silicon Mac on XT60 power. The exact electrical function of P4.7 is unverified.
 * The global charge enable (P5.2) raises the voltage of an empty port by about 0.3 V (V); read port voltages with it on only when a cell is present.
 * Input current is **estimated** (rail voltage x sum of port currents / (90 % x input voltage)); the 90 % converter efficiency is a guess.
 

@@ -25,6 +25,9 @@
 #include "cond.h"
 
 #define BOOT_RAIL_PASSES 150      /* the rail is brought up under the regulator for this many 2 ms steps before the display starts */
+#define BOOT_USB_WAIT_MS 1500     /* allow a USB host to select the configuration on a weak supply */
+#define USB_LCD_RETRY_MS 1000
+#define EXTERNAL_INPUT_MIN_MV 6000u
 #define TEST_TRIES       3        /* the rail self-test: failed this many times with the rail up, it is fatal */
 #define SELFTEST_TOL1    70       /* phase 1 (servo to the 3.80 V target) must land within this many counts of it ... */
 #define SELFTEST_TOL2    80       /* ... phase 2 (servo to the 4.35 V target) within this many */
@@ -122,6 +125,48 @@ static uint8_t selftest(void)
     return within(r[0], sup_target(VOLT_3_80), SELFTEST_TOL1) && within(r[1], sup_target(VOLT_4_35), SELFTEST_TOL2);
 }
 
+/* Keep the USB link serviceable when the controller is already undervoltage before the main power path is enabled.
+ * If no USB host configures the device, continue to the normal startup and LCD supply diagnostics. */
+static void wait_for_usb_power(void)
+{
+    uint16_t start = (uint16_t)hal_ms();
+    uint32_t lcd_retry_at = 0;
+    uint8_t host_seen = 0, cmd[USB_CMD];
+
+    adc_scan_slow_now();
+    while (adc_get(ADC_BANDGAP) >= VCC_STOP) {
+        if (!host_seen && usb_configured()) {
+            host_seen = 1;
+            lcd_init();                              /* the LCD can show the warning with the main power path off */
+            lcd_retry_at = hal_ms() + USB_LCD_RETRY_MS;
+        }
+        if (!host_seen && (uint16_t)((uint16_t)hal_ms() - start) >= BOOT_USB_WAIT_MS) break;
+
+        if (usb_cmd_get(cmd)) {
+            if (cmd[0] == CMD_ISP) hal_reboot_isp();
+            if (cmd[0] == CMD_PING || cmd[0] == CMD_STOP) tele_cmd(cmd[2], 0);
+            else tele_cmd(cmd[2], cmd[0] >= CMD_START && cmd[0] <= CMD_SET_ITEM ? 1 : 2);
+        }
+        strap = hal_strap();
+        stop_reason = alarm_ui = STOP_VCC;
+        tele_pass(PH_USB_POWER_WAIT);
+        if (host_seen) {
+            /* The first draw can be lost on a weak USB supply. Re-send the panel settings and the full message once it settles. */
+            if (lcd_retry_at && (int32_t)(hal_ms() - lcd_retry_at) >= 0) {
+                lcd_retry_at = 0;
+                lcd_wake();
+                hal_delay_ms(120);                   /* allow sleep-out to finish if the first wake was lost */
+                lcd_reconfig();
+                cond_forget();
+            }
+            cond_show(settings.usb_off ? STOP_VIN : STOP_VCC);
+        }
+        hal_delay_ms(20);
+        adc_scan_slow_now();
+    }
+    stop_reason = alarm_ui = STOP_NONE;
+}
+
 void app_boot(void)
 {
     uint8_t n;
@@ -135,13 +180,16 @@ void app_boot(void)
     tctx.stop = &stop_reason; tctx.alarm = &alarm_ui; tctx.stack = &stack_free;
     tele_init(&tctx);
 
-    hal_power(1);                                    /* main power enable, first on */
+    hal_irq_on();
+    adc_prime();
+    wait_for_usb_power();
+    /* With USB power disabled and an external-range input, leave P4.7 low.
+     * Asserting it in this configuration can drop a direct USB-C data connection. */
+    hal_power(!settings.usb_off || cal_vin_mv(adc_get(ADC_VIN)) < EXTERNAL_INPUT_MIN_MV);
     strap = hal_strap();
     if (!strap) hal_profile(1);                      /* P5.3 set when the strap is low */
     rail_duty = 100; hal_rail(100);                  /* rail PWM starts at 100/400 */
     ctl_rail_reset(rail_duty);
-    hal_irq_on();
-
     adc_prime();
     for (n = 0; n < BOOT_RAIL_PASSES; n++) {         /* the rail comes up under the regulator; what is wrong with the supply or the rail is the main loop's */
         adc_scan(); rail_servo(sup_setpoint(settings.volt));

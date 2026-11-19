@@ -37,7 +37,8 @@ static void tele_limits(uint8_t ph, uint32_t ms)
     uint8_t k;
     uint8_t XD *b = usb_page[UP_LIMITS];
     tele_head(b, 2, ms);
-    if (ph >= PH_RUN && ph < PH_FATAL) {
+    b[47] = FW_PRE;
+    if (ph == PH_RUN) {
         b[8] = lim_cfg.ilim; b[9] = lim_cfg.vmin; b[10] = lim_cfg.vcut; b[11] = lim_cfg.mode;
         tele_put16(b, 12, lim_out.budget); tele_put16(b, 14, lim_out.p_cur); tele_put16(b, 16, lim_out.p_vol);
         tele_put16(b, 18, lim_out.est_ma); tele_put16(b, 20, lim_out.bcnt);
@@ -49,7 +50,6 @@ static void tele_limits(uint8_t ph, uint32_t ms)
         }
         tele_put16(b, 42, sup_setpoint(settings.volt)); tele_put16(b, 44, sup_target(settings.volt));    /* vu */
         b[46] = *ctx.stack;
-        b[47] = FW_PRE;
         b[48] = settings.sound; b[49] = settings.theme; b[50] = settings.usb_off;
         b[51] = ctx.out->any_active;
         b[52] = ctx.sup->stop; b[54] = ctx.sup->fatal; b[55] = ctx.sup->stop == STOP_RAIL; b[56] = ctx.sup->fan;
@@ -65,7 +65,7 @@ static void tele_charge(uint8_t ph, uint32_t ms) REENT
     uint8_t k;
     uint8_t XD *b = usb_page[UP_CHARGE];
     tele_head(b, 4, ms);
-    if (ph >= PH_RUN && ph < PH_FATAL) {
+    if (ph == PH_RUN) {
         for (k = 0; k < NPORTS; k++) {
             tele_put32(b, 8 + 4 * k, (uint32_t)ctx.out->net[k]);
             tele_put16(b, 32 + 2 * k, ctx.out->v_start[k]);
@@ -88,7 +88,7 @@ void tele_pass(uint8_t ph)
     b[9] = settings.cur; b[10] = (uint8_t)(FW_MAJOR << 4 | FW_MINOR); b[11] = *ctx.stop; b[12] = (uint8_t)(*ctx.alarm | (*ctx.screen << 4));
     b[13] = ev_seq; b[14] = ev_code; b[15] = ev_port; b[16] = cmd_seq; b[17] = cmd_res;
     b[25] = ph;
-    if (ph >= PH_RUN && ph < PH_FATAL && *ctx.screen != SCR_DEV) {          /* developer mode: the ports are on page 3 */
+    if (ph == PH_RUN && *ctx.screen != SCR_DEV) {          /* developer mode: the ports are on page 3 */
         for (k = 0; k < NPORTS; k++) {
             b[18 + k] = ctx.out->state[k];
             b[24] |= (uint8_t)(ctx.out->sw[k] << k);

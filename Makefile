@@ -41,7 +41,7 @@ $(BUILD)/fw.bin: $(RELS)
 	$(SDCC) $(CFLAGS) $(RELS) -o $(BUILD)/fw.ihx
 	@awk '$$3 == "l_XINIT" && $$2 != "00000000" { print "error: initialised XRAM variable (README build rule 1)"; exit 1 }' $(BUILD)/fw.map
 	makebin -p -s 65536 $(BUILD)/fw.ihx $(BUILD)/fw.bin   # the flash is 64 KB; makebin defaults to 32 KB
-	@echo "image: $$(stat -c %s $(BUILD)/fw.bin) bytes"
+	@echo "image: $$(wc -c < $(BUILD)/fw.bin | tr -d ' ') bytes"
 
 $(BUILD)/openws3.html: tools/openws3.html tools/bundle.py $(BUILD)/fw.bin
 	python3 tools/bundle.py $(BUILD)/fw.bin tools/openws3.html $@

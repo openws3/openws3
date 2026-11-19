@@ -6,7 +6,6 @@
 
 static const CODE uint16_t TGT[NVOLTS] = { VU(4200), VU(4350), VU(3800), VU(3850) };
 
-#define VCC_STOP         1108    /* bandgap count: VCC <= 4.4 V: an undervoltage, and the rail ADC (full scale = VCC) can no longer tell an over-voltage */
 #define VCC_HIGH         976     /* bandgap count: VCC > 5.0 V (the chip takes 5.5 V) */
 #define VCC_HIGH_PASSES  20      /* ... for this many passes in a row */
 #define HOLD_PASSES      222     /* a waiting condition changes to a lesser one, or clears, only after this long (~1 s): no flicker on a falling supply */
